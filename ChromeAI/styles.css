@@ -1,0 +1,205 @@
+pre.gmc-collapsed-code,
+code.gmc-collapsed-code,
+.gmc-spilled-hidden {
+  display: none !important;
+}
+
+.gmc-placeholder {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 12px;
+  margin: 4px 0;
+  background-color: #f1f3f4;
+  color: #3c4043;
+  border-radius: 6px;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #dadce0;
+}
+
+.gmc-placeholder-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gmc-placeholder.gmc-oversized {
+  background-color: #fef7e0;
+  color: #b06000;
+  border-color: #f9ab00;
+}
+
+.gmc-placeholder.gmc-spilled {
+  background-color: #fce8e6;
+  color: #c5221f;
+  border-color: #f28b82;
+}
+
+@media (prefers-color-scheme: dark) {
+  .gmc-placeholder {
+    background-color: #303134;
+    color: #e8eaed;
+    border-color: #5f6368;
+  }
+  .gmc-placeholder.gmc-oversized {
+    background-color: #463817;
+    color: #fdd663;
+    border-color: #b06000;
+  }
+  .gmc-placeholder.gmc-spilled {
+    background-color: #442726;
+    color: #f28b82;
+    border-color: #8c3b36;
+  }
+}
+
+.gmc-toggle-btn {
+  background: none;
+  border: none;
+  color: #1a73e8;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+  padding: 0;
+  margin-left: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .gmc-toggle-btn {
+    color: #8ab4f8;
+  }
+}
+
+.gmc-purge-btn,
+.gmc-verify-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  margin-left: 4px;
+  color: #5f6368;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.gmc-purge-btn:hover:not(:disabled) {
+  background-color: rgba(217, 48, 37, 0.1);
+  color: #d93025;
+}
+
+.gmc-verify-btn:hover:not(:disabled) {
+  background-color: rgba(26, 115, 232, 0.12);
+  color: #1a73e8;
+}
+
+.gmc-purge-btn.gmc-purged-btn,
+.gmc-verify-btn.gmc-verified-btn,
+.gmc-purge-btn:disabled,
+.gmc-verify-btn:disabled {
+  color: #1e8e3e;
+  cursor: default;
+  opacity: 0.75;
+}
+.gmc-purged-code {
+  font-style: italic;
+  color: #5f6368;
+  padding: 8px 12px !important;
+}
+
+.gmc-floating-bar {
+  position: fixed;
+  bottom: 18px;
+  right: 20px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gmc-global-status-pill,
+.gmc-global-event-pill,
+.gmc-global-git-btn,
+.gmc-global-export-btn,
+.gmc-global-tests-btn,
+.gmc-global-purge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid #dadce0;
+  background-color: #ffffff;
+  color: #3c4043;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+.gmc-global-status-pill.offline,
+.gmc-global-git-btn.state-fail,
+.gmc-global-export-btn.state-fail,
+.gmc-global-tests-btn.state-fail,
+.gmc-git-commit-btn.state-fail {
+  background-color: #fce8e6;
+  color: #c5221f;
+  border-color: #f28b82;
+}
+
+.gmc-global-status-pill.online,
+.gmc-global-git-btn.state-pass,
+.gmc-global-export-btn.state-pass,
+.gmc-global-tests-btn.state-pass,
+.gmc-git-commit-btn.state-pass {
+  background-color: #e6f4ea;
+  color: #137333;
+  border-color: #81c995;
+}
+
+.gmc-git-panel {
+  position: fixed;
+  bottom: 66px;
+  right: 20px;
+  width: 390px;
+  max-width: calc(100vw - 40px);
+  max-height: 360px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 12px;
+}
+
+.gmc-git-panel-header { font-weight: 600; margin-bottom: 8px; color: #e2e8f0; }
+.gmc-git-panel-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.gmc-git-item-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; background: #0f172a; }
+.gmc-git-item-row:hover { background: #334155; }
+.gmc-git-status-code { font-family: monospace; font-weight: 700; color: #38bdf8; min-width: 22px; }
+.gmc-git-item-path { font-family: monospace; word-break: break-all; }
+.gmc-git-panel-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.gmc-git-btn-close, .gmc-git-btn-validate, .gmc-git-commit-btn {
+  border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.gmc-git-btn-close { background: #475569; color: #f8fafc; }
+.gmc-git-btn-validate { background: #16a34a; color: #ffffff; }
+.gmc-commit-action-bar { margin-top: 6px; display: flex; justify-content: flex-end; }
+.gmc-git-commit-btn { background: #1a73e8; color: #ffffff; }

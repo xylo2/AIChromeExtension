@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Watch Clipboard & Code Collapser</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      width: 340px;
+      margin: 0;
+      padding: 14px;
+      background: #0f172a;
+      color: #f8fafc;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .pill {
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .pill.on {
+      background: #14532d;
+      color: #4ade80;
+    }
+    .pill.off {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-all;
+      margin-bottom: 10px;
+    }
+    .label {
+      color: #94a3b8;
+      font-size: 11px;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      color: #f8fafc;
+      padding: 6px 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
+    .cmd-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      padding: 6px 8px;
+      margin-bottom: 10px;
+    }
+    .cmd-text {
+      flex: 1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: #38bdf8;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: all;
+    }
+    .btn-copy {
+      flex: 0 0 auto;
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #475569;
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-copy:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+    }
+    button.main-btn {
+      flex: 1;
+      border: none;
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.75;
+      cursor: wait;
+    }
+    .btn-start {
+      background: #16a34a;
+      color: #ffffff;
+    }
+    .btn-start:hover:not(:disabled) {
+      background: #15803d;
+    }
+    .btn-stop {
+      background: #dc2626;
+      color: #ffffff;
+    }
+    .btn-stop:hover:not(:disabled) {
+      background: #b91c1c;
+    }
+    .btn-tests {
+      width: 100%;
+      margin-top: 8px;
+      background: #475569;
+      color: #f8fafc;
+      border: none;
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+    .btn-tests:hover:not(:disabled):not(.state-running):not(.state-pass):not(.state-fail) {
+      background: #64748b;
+    }
+    .btn-tests.state-running {
+      background: #7c3aed;
+      color: #ffffff;
+    }
+    .btn-tests.state-pass {
+      background: #16a34a;
+      color: #ffffff;
+    }
+    .btn-tests.state-fail {
+      background: #dc2626;
+      color: #ffffff;
+    }
+    .btn-refresh {
+      background: #334155;
+      color: #f8fafc;
+      flex: 0 0 auto;
+    }
+    .error {
+      color: #fca5a5;
+      font-size: 11px;
+      margin-top: 8px;
+      display: none;
+    }
+    .install-help {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      background: #451a03;
+      border: 1px solid #d97706;
+      border-radius: 6px;
+      color: #fde68a;
+      font-size: 11px;
+    }
+    .install-help .cmd-box {
+      margin-top: 6px;
+      margin-bottom: 0;
+      border-color: #b45309;
+    }
+    .install-help .cmd-text {
+      color: #fbbf24;
+    }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="title">watch_clipboard</span>
+    <span id="statusPill" class="pill off">HORS LIGNE</span>
+  </div>
+
+  <div class="card">
+    <div id="detailsOnline" style="display: none;">
+      <span class="label">Dossier cible actif :</span>
+      <div id="activeTargetDir">-</div>
+      <span class="label" style="margin-top: 6px;">PID processus :</span>
+      <div id="pid">-</div>
+      <span class="label" style="margin-top: 6px;">Commande en cours :</span>
+      <div class="cmd-box" style="margin-top: 4px; margin-bottom: 0;">
+        <code id="activeCommand" class="cmd-text">-</code>
+        <button id="copyActiveBtn" class="btn-copy" type="button" title="Copier la commande">Copier</button>
+      </div>
+      <button id="runTestsBtn" class="btn-tests" type="button" style="display: none;">
+        Lancer les tests (→ chat)
+      </button>
+    </div>
+    <div id="detailsOffline">
+      Le script n'est pas lancé. Configure ton dossier ci-dessous :
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="label" for="rootDirInput">Racine workspace (contenant tools\watch_clipboard) :</label>
+    <input id="rootDirInput" type="text" placeholder="Ex: C:\git" />
+
+    <label class="label" for="targetDirInput">Projet / Dossier cible (ex: tools) :</label>
+    <input id="targetDirInput" type="text" placeholder="Ex: tools" />
+
+    <label class="label" for="testRunnerInput">Script de tests (défaut : tools/run_tests_clip.py) :</label>
+    <input id="testRunnerInput" type="text" placeholder="tools/run_tests_clip.py" />
+
+    <label class="label" for="extraArgsInput">Options supplémentaires (optionnel) :</label>
+    <input id="extraArgsInput" type="text" placeholder="Ex: --verbose" />
+
+    <span class="label">Équivalent CLI :</span>
+    <div class="cmd-box">
+      <code id="previewCommand" class="cmd-text">python tools\watch_clipboard\watch_clipboard.py .</code>
+      <button id="copyPreviewBtn" class="btn-copy" type="button" title="Copier la commande">Copier</button>
+    </div>
+
+    <div class="actions">
+      <button id="startBtn" class="main-btn btn-start" type="button">Démarrer</button>
+      <button id="stopBtn" class="main-btn btn-stop" type="button" style="display: none;">Arrêter</button>
+      <button id="refreshBtn" class="main-btn btn-refresh" type="button">↻</button>
+    </div>
+
+    <div id="errorBox" class="error"></div>
+
+    <div id="installHelpBox" class="install-help">
+      <div>Clé de registre Windows manquante. Ouvre <strong>PowerShell en tant qu'administrateur</strong> et exécute :</div>
+      <div class="cmd-box">
+        <code id="installCommandText" class="cmd-text">-</code>
+        <button id="copyInstallBtn" class="btn-copy" type="button" title="Copier la commande d'installation">Copier</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span id="lastCheck">Vérifié : -</span>
+    <span id="footerRootDir">C:\git</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
