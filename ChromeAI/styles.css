@@ -222,3 +222,20 @@ code.gmc-collapsed-code,
 .gmc-commit-action-bar { margin-top: 6px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .gmc-git-commit-btn { background: #1a73e8; color: #ffffff; }
 .gmc-git-push-btn { background: #7c3aed; color: #ffffff; }
+.gmc-git-error-box {
+  width: 100%; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+  background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; text-align: left;
+}
+.gmc-git-error-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; margin-bottom: 6px; }
+.gmc-git-error-actions { display: flex; gap: 6px; }
+.gmc-git-error-btn {
+  background: #ffffff; color: #991b1b; border: 1px solid #f87171; border-radius: 5px;
+  padding: 3px 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.gmc-git-error-btn:hover { background: #fee2e2; }
+.gmc-git-error-detail {
+  margin: 0; padding: 6px 8px; border-radius: 5px; background: #ffffff; border: 1px solid #fecaca;
+  color: #7f1d1d; font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  white-space: pre-wrap; word-break: break-word; user-select: text; max-height: 180px; overflow-y: auto;
+}

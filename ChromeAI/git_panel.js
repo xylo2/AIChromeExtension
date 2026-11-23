@@ -93,7 +93,6 @@ class GitPanelManager {
     document.body.appendChild(panel);
     this.panelEl = panel;
   }
-
   extractCommitMessage(preEl) {
     const raw = this.spill.extractRawCode(preEl);
     const lines = raw.split("\n");
@@ -105,10 +104,56 @@ class GitPanelManager {
     const lines = String(fullErr || "").split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return "erreur git";
     const keyLine = lines.find((l) => /^(?:fatal:|error:|!\s*\[|remote:\s*error|permission denied)/i.test(l));
-    return keyLine || lines.at(lines.length - 1);
+    return keyLine || lines.at(0);
   }
 
-  createPushButton() {
+  renderGitErrorBox(bar, titleText, fullErrorText) {
+    let box = bar.querySelector(".gmc-git-error-box");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "gmc-git-error-box";
+      bar.appendChild(box);
+    }
+    box.innerHTML = "";
+    const topRow = document.createElement("div");
+    topRow.className = "gmc-git-error-header";
+    const titleSpan = document.createElement("span");
+    titleSpan.textContent = `❌ ${titleText}`;
+
+    const btnGroup = document.createElement("div");
+    btnGroup.className = "gmc-git-error-actions";
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "gmc-git-error-btn";
+    copyBtn.textContent = "📋 Copier l'erreur";
+    copyBtn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(fullErrorText); } catch (_err) {}
+      copyBtn.textContent = "✅ Copié !";
+      setTimeout(() => { copyBtn.textContent = "📋 Copier l'erreur"; }, 1400);
+    });
+
+    const askAiBtn = document.createElement("button");
+    askAiBtn.type = "button";
+    askAiBtn.className = "gmc-git-error-btn";
+    askAiBtn.textContent = "→ Envoyer à l'IA";
+    askAiBtn.addEventListener("click", () => {
+      if (this.chat) {
+        const prompt = `Voici l'erreur Git rencontrée (${titleText}) :\n` + "\x60\x60\x60text\n" + fullErrorText + "\n\x60\x60\x60\nComment la résoudre ?\n";
+        this.chat.insertPrompt(prompt, true);
+      }
+    });
+
+    btnGroup.append(copyBtn, askAiBtn);
+    topRow.append(titleSpan, btnGroup);
+
+    const preDetail = document.createElement("pre");
+    preDetail.className = "gmc-git-error-detail";
+    preDetail.textContent = String(fullErrorText || "Erreur inconnue.");
+
+    box.append(topRow, preDetail);
+  }
+
+  createPushButton(bar) {
     const pushBtn = document.createElement("button");
     pushBtn.type = "button";
     pushBtn.className = "gmc-git-push-btn";
@@ -123,14 +168,16 @@ class GitPanelManager {
           pushBtn.textContent = "✅ Push origin OK";
           pushBtn.title = res.output || "Push effectué";
           pushBtn.classList.add("state-pass");
+          const oldErr = bar.querySelector(".gmc-git-error-box");
+          if (oldErr) oldErr.remove();
         } else {
-          const fullErr = res?.error || "erreur git";
+          const fullErr = res?.error || "Erreur git push (aucun détail reçu du serveur local).";
           const shortErr = this.extractPushErrorSummary(fullErr);
           try { await navigator.clipboard.writeText(fullErr); } catch (_err) {}
           pushBtn.disabled = false;
-          pushBtn.title = `${fullErr}\n(Erreur copiée dans le presse-papiers)`;
-          pushBtn.textContent = `❌ ${shortErr.slice(0, 95)}`;
+          pushBtn.textContent = `❌ ${shortErr.slice(0, 75)}`;
           pushBtn.classList.add("state-fail");
+          this.renderGitErrorBox(bar, "Détail de l'erreur git push", fullErr);
         }
       });
     });
@@ -161,11 +208,15 @@ class GitPanelManager {
           if (res?.ok) {
             commitBtn.textContent = "✅ Commit effectué & copié";
             commitBtn.classList.add("state-pass");
-            if (!bar.querySelector(".gmc-git-push-btn")) bar.appendChild(this.createPushButton());
+            const oldErr = bar.querySelector(".gmc-git-error-box");
+            if (oldErr) oldErr.remove();
+            if (!bar.querySelector(".gmc-git-push-btn")) bar.appendChild(this.createPushButton(bar));
           } else {
+            const fullErr = res?.error || "Erreur git commit inconnue.";
             commitBtn.disabled = false;
-            commitBtn.textContent = `❌ Échec (${res?.error || "erreur git"})`;
+            commitBtn.textContent = "❌ Échec git commit";
             commitBtn.classList.add("state-fail");
+            this.renderGitErrorBox(bar, "Détail de l'erreur git commit", fullErr);
           }
         });
       });

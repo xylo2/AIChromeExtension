@@ -241,7 +241,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
     def _format_git_push_error(raw_output: str) -> str:
         lines: List[str] = [ln.strip() for ln in raw_output.splitlines() if ln.strip()]
         if not lines:
-            return "Échec de git push."
+            return "Échec de git push (sortie vide)."
         priority_prefixes: Tuple[str, ...] = ("fatal:", "error:", "! [", "remote: error", "permission denied")
         important: List[str] = [
             ln for ln in lines if any(ln.lower().startswith(pref) for pref in priority_prefixes)
@@ -249,9 +249,10 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         summary: str = " | ".join(important[:2]) if important else lines[-1]
         low_all: str = raw_output.lower()
         if "terminal prompts disabled" in low_all or "could not read username" in low_all:
-            summary += " (Configurez git config --global credential.helper manager)"
+            summary += "\nConseil : exécutez `git config --global credential.helper manager` dans un terminal."
+        if len(lines) > 1:
+            return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}"
         return summary
-
     def _git_push_changes(self, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
         git_root: Optional[str] = self._get_git_root()
         if not git_root:
@@ -272,11 +273,12 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=55, check=False,
             )
         except subprocess.TimeoutExpired:
-            return False, "Délai dépassé (55s) lors de git push."
+            return False, f"Délai dépassé (55s) lors de `git push -u {clean_remote} {target_ref}` dans `{git_root}`."
         output: str = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
         if proc.returncode != 0:
             return False, self._format_git_push_error(output)
         return True, output or f"Push effectué vers {clean_remote}/{target_ref}."
+
     def _resolve_exporter_package_dir(self) -> Optional[str]:
         base_real: str = os.path.realpath(self.target_dir)
         parent_real: str = os.path.dirname(base_real)
@@ -339,7 +341,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 return False, "", "Fichier d'export non généré.", 0
             with open(out_path, "r", encoding="utf-8", errors="replace") as f_out:
                 return True, fname_out, f_out.read(), int(cnt_str)
-
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
@@ -431,7 +432,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             "configured_test_runner": custom_runner or self.default_test_runner,
             "test_runner_path": test_script if has_tests else None, "last_event": last_event,
         })
-
     def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str]:
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
