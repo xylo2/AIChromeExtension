@@ -76,12 +76,26 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     });
   };
 
+  const sendBgMessage = (payload, onReply) => {
+    if (!chrome.runtime?.id) {
+      alert("Extension rechargée : actualisez cette page (F5) pour reconnecter les boutons.");
+      return;
+    }
+    chrome.runtime.sendMessage(payload, (res) => {
+      if (chrome.runtime.lastError) {
+        onReply({ ok: false, error: chrome.runtime.lastError.message || "Port fermé" });
+        return;
+      }
+      onReply(res);
+    });
+  };
+
   statusPill.addEventListener("click", () => {
-    if (watcherState.running || isStartingWatcher || !chrome.runtime?.id) return;
+    if (watcherState.running || isStartingWatcher) return;
     isStartingWatcher = true;
     statusPill.textContent = "⏳ Démarrage...";
     chrome.storage.local.get(["savedTargetDir", "savedExtraArgs"], (res) => {
-      chrome.runtime.sendMessage(
+      sendBgMessage(
         { type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() },
         (reply) => {
           isStartingWatcher = false;
@@ -95,7 +109,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   gitBtn.addEventListener("click", () => {
     if (gitManager.panelEl) { gitManager.close(); return; }
     setBtnState(gitBtn, "running", "⏳ Git...");
-    chrome.runtime.sendMessage({ type: "GIT_STATUS" }, (res) => {
+    sendBgMessage({ type: "GIT_STATUS" }, (res) => {
       if (!res?.ok) return setBtnState(gitBtn, "fail", "❌ Erreur Git");
       const entries = res.entries || [];
       if (entries.length === 0) {
@@ -109,14 +123,14 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   });
   exportBtn.addEventListener("click", () => {
     setBtnState(exportBtn, "running", "⏳ Export...");
-    chrome.runtime.sendMessage({ type: "EXPORT_PROJECT" }, (res) => {
+    sendBgMessage({ type: "EXPORT_PROJECT" }, (res) => {
       if (res?.ok && res.content) { chatInjector.dropFile(res.filename || "export.txt", res.content, true); setBtnState(exportBtn, "pass", "✅ Exporté & envoyé"); }
       else setBtnState(exportBtn, "fail", "❌ Erreur");
     });
   });
   testsBtn.addEventListener("click", () => {
     setBtnState(testsBtn, "running", "⏳ Tests...");
-    chrome.runtime.sendMessage({ type: "RUN_PROJECT_TESTS", injectIntoActiveTab: false }, async (res) => {
+    sendBgMessage({ type: "RUN_PROJECT_TESTS", injectIntoActiveTab: false }, async (res) => {
       if (!res?.ok) return setBtnState(testsBtn, "fail", "❌ Erreur");
       if (res.passed) return setBtnState(testsBtn, "pass", "✅ Tests OK");
       if (res.output) {

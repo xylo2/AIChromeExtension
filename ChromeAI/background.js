@@ -289,6 +289,7 @@ async function executeGitCommit(message, files) {
 }
 
 async function executeGitPush(remote = "origin", branch = "HEAD") {
+  const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
   try {
     const apiToken = await getApiToken();
     const response = await fetchWithTokenFallback(
@@ -305,6 +306,8 @@ async function executeGitPush(remote = "origin", branch = "HEAD") {
   } catch (err) {
     const detail = err && err.message ? err.message : "délai ou connexion réseau";
     return { ok: false, error: `Impossible d'exécuter git push (${detail}).` };
+  } finally {
+    clearInterval(keepAlive);
   }
 }
 
@@ -323,6 +326,7 @@ async function readSavedFile(header) {
 }
 
 async function runProjectTests(injectIntoActiveTab = true) {
+  const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
   try {
     const stored = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
     const testRunner = (stored.savedTestRunner || "").trim();
@@ -355,8 +359,11 @@ async function runProjectTests(injectIntoActiveTab = true) {
       }
     }
     return result;
-  } catch (_err) {
-    return { ok: false, error: "Impossible de contacter watch_clipboard ou délai dépassé." };
+  } catch (err) {
+    const detail = err && err.message ? err.message : "délai dépassé";
+    return { ok: false, error: `Impossible d'exécuter les tests (${detail}).` };
+  } finally {
+    clearInterval(keepAlive);
   }
 }
 

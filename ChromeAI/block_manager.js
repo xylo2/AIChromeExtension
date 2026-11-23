@@ -28,7 +28,7 @@ class CodeBlockManager {
     return combined;
   }
 
-  purgeDomOnly(item, customMessage = "Contenu copié") {
+  purgeDomOnly(item, customMessage = "Contenu copié et purgé") {
     const { el, labelEl, purgeButtons, verifyBtn, headerName, spilledNodes } = item;
     if (!el || el.getAttribute("data-gmc-purged") === "true") return false;
     if (!item.cachedCombinedCode) this.extractCombinedCode(item);
@@ -40,7 +40,7 @@ class CodeBlockManager {
     item.spilledNodes = [];
     if (labelEl) labelEl.textContent = `✅ ${headerName || "Bloc"} — ${customMessage}`;
     (purgeButtons || []).forEach((btn) => { btn.disabled = true; btn.classList.add("gmc-purged-btn"); });
-    if (verifyBtn && !verifyBtn.disabled) verifyBtn.title = "Vérifier l'intégralité du bloc avec l'IA";
+    if (verifyBtn && !verifyBtn.disabled) verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)";
     return true;
   }
 
@@ -48,9 +48,14 @@ class CodeBlockManager {
     this.trackedBlocks.forEach((b) => this.purgeDomOnly(b, "Purge manuelle"));
   }
 
-  async copyAndPurge(item) {
+  async copyOnly(item) {
     const text = this.extractCombinedCode(item);
     try { await navigator.clipboard.writeText(text); } catch (_err) {}
+    return text;
+  }
+
+  async copyAndPurge(item) {
+    await this.copyOnly(item);
     this.purgeDomOnly(item);
   }
 
@@ -78,7 +83,6 @@ class CodeBlockManager {
       attempt();
     });
   }
-
   async verifyWithAi(item) {
     if (!item || !item.headerName || item.isVerifyingSpill) return;
     item.isVerifyingSpill = true;
@@ -86,11 +90,8 @@ class CodeBlockManager {
     if (btn) btn.disabled = true;
     const isPurged = item.el?.getAttribute("data-gmc-purged") === "true";
     const combinedText = isPurged ? (item.cachedCombinedCode || "") : this.extractCombinedCode(item);
-    if (!isPurged && combinedText) {
-      item.cachedCombinedCode = combinedText;
-      try { await navigator.clipboard.writeText(combinedText); } catch (_err) {}
-      this.purgeDomOnly(item, "Copié, purgé et transmis à l'IA");
-    }
+    if (combinedText) item.cachedCombinedCode = combinedText;
+
     let attachName = this.buildFallbackAttachmentName(item.headerName);
     let attachContent = combinedText;
     const res = await this.requestSavedFile(item.headerName, 1400);
@@ -148,7 +149,7 @@ class CodeBlockManager {
       if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
       nativeCopy.addEventListener("click", () => {
         const fullText = this.extractCombinedCode(item);
-        setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} this.purgeDomOnly(item); }, 80);
+        setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80);
       });
     }
   }
@@ -172,7 +173,7 @@ class CodeBlockManager {
       const verifyBtn = document.createElement("button");
       verifyBtn.type = "button";
       verifyBtn.className = "gmc-verify-btn";
-      verifyBtn.title = "Vérifier l'intégralité du bloc avec l'IA";
+      verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)";
       verifyBtn.innerHTML = this.VERIFY_SVG;
       const item = { el: pre, placeholderEl: placeholder, headerName: match.at(1), labelEl, verifyBtn, purgeButtons: [], placeholderPurgeBtn: null, headerPurgeAttached: false, spilledNodes: [], cachedCombinedCode: "", preExisting };
       verifyBtn.addEventListener("click", (e) => { e.stopPropagation(); this.verifyWithAi(item); });
@@ -181,17 +182,17 @@ class CodeBlockManager {
       this.trackedBlocks.push(item);
       toggleBtn.addEventListener("click", () => {
         const collapsed = pre.classList.toggle("gmc-collapsed-code");
-toggleBtn.textContent = collapsed ? "Afficher" : "Masquer";
-this.syncItem(item);
-this.attachHeaderControls(pre, item);
-});
-row.append(labelEl, toggleBtn, verifyBtn, purgeBtn);
-placeholder.append(row);
-pre.parentNode.insertBefore(placeholder, pre);
-this.attachHeaderControls(pre, item);
-this.syncItem(item);
-}
-for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
-}
+        toggleBtn.textContent = collapsed ? "Afficher" : "Masquer";
+        this.syncItem(item);
+        this.attachHeaderControls(pre, item);
+      });
+      row.append(labelEl, toggleBtn, verifyBtn, purgeBtn);
+      placeholder.append(row);
+      pre.parentNode.insertBefore(placeholder, pre);
+      this.attachHeaderControls(pre, item);
+      this.syncItem(item);
+    }
+    for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
+  }
 }
 window.GmcCodeBlockManager = CodeBlockManager;

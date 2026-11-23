@@ -266,7 +266,9 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return False, "Nom de branche invalide."
 
         target_ref: str = clean_branch if clean_branch else "HEAD"
-        env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+        env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        if os.name == "nt" and not env.get("HOME") and env.get("USERPROFILE"):
+            env["HOME"] = env["USERPROFILE"]
         try:
             proc = subprocess.run(
                 ["git", "push", "-u", clean_remote, target_ref],
