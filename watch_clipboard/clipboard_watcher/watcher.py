@@ -17,29 +17,19 @@ class ClipboardWatcher:
     et s'arrête automatiquement si le navigateur parent est fermé.
     """
 
-    def __init__(self, base_dir: str, assembler: FileAssembler, config: WatcherConfig) -> None:
-        """
-        Initialise le moniteur avec les dossiers cible/miroir et les dépendances métier.
+    STARTUP_GRACE_SECONDS: float = 8.0
 
-        :param base_dir: Dossier racine de destination des fichiers générés.
-        :param assembler: Instance de FileAssembler chargée de traiter les blocs détectés.
-        :param config: Instance de WatcherConfig contenant les paramètres de temporisation.
-        """
+    def __init__(self, base_dir: str, assembler: FileAssembler, config: WatcherConfig) -> None:
         self.base_dir: str = base_dir
         self.assembler: FileAssembler = assembler
         self.config: WatcherConfig = config
         self._root: Optional[tk.Tk] = None
         self._last_seq_num: Optional[int] = None
         self._browser_exe: str = os.environ.get("WATCH_CLIPBOARD_BROWSER_EXE", "").strip()
-        self._last_browser_check: float = 0.0
+        self._started_at: float = time.monotonic()
+        self._last_browser_check: float = self._started_at
 
     def _is_process_running(self, process_name: str) -> bool:
-        """
-        Vérifie si au moins un processus portant process_name est actif sur le système.
-
-        :param process_name: Nom de l'exécutable (ex: chrome.exe).
-        :return: True si le processus existe encore, False sinon.
-        """
         if not process_name:
             return True
 
@@ -86,26 +76,17 @@ class ClipboardWatcher:
             return True
 
     def _should_exit_with_browser(self) -> bool:
-        """
-        Contrôle périodiquement si le navigateur ayant lancé le watcher a été fermé.
-
-        :return: True si le watcher doit s'arrêter, False sinon.
-        """
         if not self.config.auto_exit_on_browser_close or not self._browser_exe:
             return False
 
         now: float = time.monotonic()
+        if now - self._started_at < self.STARTUP_GRACE_SECONDS:
+            return False
         if now - self._last_browser_check < 2.0:
             return False
         self._last_browser_check = now
         return not self._is_process_running(self._browser_exe)
-
     def _get_win32_sequence_number(self) -> Optional[int]:
-        """
-        Interroge le compteur matériel de modification du presse-papiers sous Windows.
-
-        :return: Numéro de séquence courant sous Windows, ou None sur les autres systèmes.
-        """
         if os.name != "nt":
             return None
         try:
@@ -114,12 +95,6 @@ class ClipboardWatcher:
             return None
 
     def _get_clipboard_text(self, retries: int = 3) -> Optional[str]:
-        """
-        Lit le contenu texte actuel du presse-papiers avec tentatives courtes si verrouillé.
-
-        :param retries: Nombre maximal d'essais en cas de contention sur le presse-papiers.
-        :return: Texte lu, chaîne vide si contenu non texte, ou None si verrouillé.
-        """
         if self._root is None:
             return ""
         for attempt in range(retries):
@@ -134,9 +109,6 @@ class ClipboardWatcher:
         return None
 
     def _clear_clipboard_once(self) -> None:
-        """
-        Vide le presse-papiers une unique fois au démarrage via l'API native Windows ou Tk.
-        """
         if os.name == "nt":
             try:
                 user32 = ctypes.windll.user32
@@ -155,10 +127,6 @@ class ClipboardWatcher:
                 pass
 
     def start(self) -> None:
-        """
-        Démarre la boucle infinie de surveillance du presse-papiers jusqu'à interruption clavier
-        ou fermeture complète du navigateur parent.
-        """
         os.makedirs(self.base_dir, exist_ok=True)
         os.makedirs(self.assembler.temp_dir, exist_ok=True)
         self._root = tk.Tk()
@@ -171,10 +139,11 @@ class ClipboardWatcher:
             last_seen = ""
 
         self._last_seq_num = self._get_win32_sequence_number()
-        self._last_browser_check = time.monotonic()
+        self._started_at = time.monotonic()
+        self._last_browser_check = self._started_at
 
-        print(f"Écoute activée (dossier parent : '{os.path.abspath(self.base_dir)}')...")
-        print(f"Cache miroir : '{os.path.abspath(self.assembler.temp_dir)}'")
+        print(f"Écoute activée (dossier parent : '{os.path.abspath(self.base_dir)}')...", flush=True)
+        print(f"Cache miroir : '{os.path.abspath(self.assembler.temp_dir)}'", flush=True)
         try:
             while True:
                 if self._should_exit_with_browser():

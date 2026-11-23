@@ -12,6 +12,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector);
 
   let scanTimer = null;
+  let isStartingWatcher = false;
   let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, lastEvent: null };
 
   let floatingBar = document.querySelector(".gmc-floating-bar");
@@ -51,16 +52,20 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const updateIndicators = () => {
     const running = Boolean(watcherState?.running);
+    if (running) isStartingWatcher = false;
     statusPill.className = `gmc-global-status-pill ${running ? "online" : "offline"}`;
     const folder = watcherState.targetDir ? watcherState.targetDir.split(/[\\/]/).filter(Boolean).pop() : "";
-    statusPill.textContent = running ? `🟢 Watcher ON${folder ? ` (${folder})` : ""}` : "🔴 Watcher OFF";
+    if (running) {
+      statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
+    } else if (!isStartingWatcher) {
+      statusPill.textContent = "🔴 Watcher OFF";
+    }
     gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) eventPill.textContent = String(watcherState.lastEvent);
   };
-
   const refreshState = () => {
     if (!chrome.runtime?.id) return;
     chrome.storage?.local?.get("watchClipboardState", (res) => {
@@ -72,9 +77,18 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   };
 
   statusPill.addEventListener("click", () => {
-    if (watcherState.running || !chrome.runtime?.id) return;
+    if (watcherState.running || isStartingWatcher || !chrome.runtime?.id) return;
+    isStartingWatcher = true;
+    statusPill.textContent = "⏳ Démarrage...";
     chrome.storage.local.get(["savedTargetDir", "savedExtraArgs"], (res) => {
-      chrome.runtime.sendMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() });
+      chrome.runtime.sendMessage(
+        { type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() },
+        (reply) => {
+          isStartingWatcher = false;
+          if (reply?.state) watcherState = reply.state;
+          updateIndicators();
+        }
+      );
     });
   });
   eventPill.addEventListener("click", () => chatInjector.insertPrompt(eventPill.textContent, true));

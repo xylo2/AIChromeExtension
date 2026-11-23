@@ -1,5 +1,5 @@
 /**
- * Panneau de sélection Git status, génération du diff et exécution de git commit.
+ * Panneau de sélection Git status, génération du diff, commit et push origin main.
  */
 class GitPanelManager {
   constructor(spillDetector, chatInjector) {
@@ -101,6 +101,30 @@ class GitPanelManager {
     return this.spill.COMMIT_TAG_REGEX.test(first) ? lines.slice(1).join("\n").trim() : raw;
   }
 
+  createPushButton() {
+    const pushBtn = document.createElement("button");
+    pushBtn.type = "button";
+    pushBtn.className = "gmc-git-push-btn";
+    pushBtn.textContent = "🚀 git push origin main";
+    pushBtn.title = "Pousse le commit vers origin/main";
+    pushBtn.addEventListener("click", () => {
+      pushBtn.disabled = true;
+      pushBtn.classList.remove("state-fail", "state-pass");
+      pushBtn.textContent = "⏳ Push en cours...";
+      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "main" }, (res) => {
+        if (res?.ok) {
+          pushBtn.textContent = "✅ Push origin main OK";
+          pushBtn.classList.add("state-pass");
+        } else {
+          pushBtn.disabled = false;
+          pushBtn.textContent = `❌ Échec push (${res?.error || "erreur git"})`;
+          pushBtn.classList.add("state-fail");
+        }
+      });
+    });
+    return pushBtn;
+  }
+
   scanCommitBlocks() {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-commit-processed") === "true" || pre.getAttribute("data-gmc-purged") === "true") continue;
@@ -122,8 +146,15 @@ class GitPanelManager {
         const stored = chrome.storage?.local ? await chrome.storage.local.get("savedGitSelectedFiles") : {};
         const filesToCommit = this.lastValidatedFiles.length > 0 ? this.lastValidatedFiles : (stored.savedGitSelectedFiles || []);
         chrome.runtime.sendMessage({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
-          if (res?.ok) { commitBtn.textContent = "✅ Commit effectué & copié"; commitBtn.classList.add("state-pass"); }
-          else { commitBtn.disabled = false; commitBtn.textContent = `❌ Échec (${res?.error || "erreur git"})`; commitBtn.classList.add("state-fail"); }
+          if (res?.ok) {
+            commitBtn.textContent = "✅ Commit effectué & copié";
+            commitBtn.classList.add("state-pass");
+            if (!bar.querySelector(".gmc-git-push-btn")) bar.appendChild(this.createPushButton());
+          } else {
+            commitBtn.disabled = false;
+            commitBtn.textContent = `❌ Échec (${res?.error || "erreur git"})`;
+            commitBtn.classList.add("state-fail");
+          }
         });
       });
       bar.appendChild(commitBtn);

@@ -1,6 +1,16 @@
+# Environnements virtuels Python
+.venv/
+venv/
+env/
+
+# Cache et fichiers générés localement par watch_clipboard
 .watch_clipboard/
 .native_host/
-.__pycache__/
+
+# Artefacts Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

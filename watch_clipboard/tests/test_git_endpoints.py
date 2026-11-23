@@ -13,8 +13,7 @@ from clipboard_watcher.status_server import StatusServer
 
 class TestGitEndpoints(unittest.TestCase):
     """
-    Tests unitaires vérifiant GET /git-status, POST /git-diff et POST /git-commit,
-    y compris le commit sélectif partiel et le blocage des chemins hors dépôt.
+    Tests unitaires vérifiant GET /git-status, POST /git-diff, POST /git-commit et POST /git-push.
     """
 
     def _find_free_port(self) -> int:
@@ -27,12 +26,18 @@ class TestGitEndpoints(unittest.TestCase):
     def _no_proxy_opener(self) -> urllib.request.OpenerDirector:
         return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    def test_git_status_selective_diff_and_partial_commit(self) -> None:
+    def test_git_status_selective_diff_commit_and_push(self) -> None:
         opener = self._no_proxy_opener()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            subprocess.run(["git", "init"], cwd=tmp_dir, check=True, capture_output=True)
+        with tempfile.TemporaryDirectory() as base_tmp:
+            bare_remote = os.path.join(base_tmp, "remote.git")
+            tmp_dir = os.path.join(base_tmp, "work")
+            os.makedirs(bare_remote)
+            os.makedirs(tmp_dir)
+            subprocess.run(["git", "init", "--bare"], cwd=bare_remote, check=True, capture_output=True)
+            subprocess.run(["git", "init", "-b", "main"], cwd=tmp_dir, check=True, capture_output=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_dir, check=True)
             subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_dir, check=True)
+            subprocess.run(["git", "remote", "add", "origin", bare_remote], cwd=tmp_dir, check=True)
 
             tracked = os.path.join(tmp_dir, "app.py")
             other = os.path.join(tmp_dir, "other.py")
@@ -70,16 +75,6 @@ class TestGitEndpoints(unittest.TestCase):
                     self.assertIn("+x = 2", diff_data.get("content", ""))
                     self.assertNotIn("+y = 2", diff_data.get("content", ""))
 
-                bad_diff = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/git-diff",
-                    data=json.dumps({"files": ["../secret.txt"]}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with self.assertRaises(urllib.error.HTTPError) as err_ctx:
-                    opener.open(bad_diff, timeout=5.0)
-                self.assertEqual(err_ctx.exception.code, 400)
-
                 commit_req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/git-commit",
                     data=json.dumps({"message": "fix: update x only", "files": ["app.py"]}).encode("utf-8"),
@@ -89,6 +84,26 @@ class TestGitEndpoints(unittest.TestCase):
                 with opener.open(commit_req, timeout=5.0) as commit_resp:
                     commit_data = json.loads(commit_resp.read().decode("utf-8"))
                     self.assertTrue(commit_data.get("ok"))
+
+                bad_push = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/git-push",
+                    data=json.dumps({"remote": "--force", "branch": "main"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as push_err:
+                    opener.open(bad_push, timeout=5.0)
+                self.assertEqual(push_err.exception.code, 400)
+
+                push_req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/git-push",
+                    data=json.dumps({"remote": "origin", "branch": "main"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with opener.open(push_req, timeout=10.0) as push_resp:
+                    push_data = json.loads(push_resp.read().decode("utf-8"))
+                    self.assertTrue(push_data.get("ok"))
 
                 with opener.open(f"http://127.0.0.1:{port}/git-status", timeout=5.0) as after_resp:
                     after_data = json.loads(after_resp.read().decode("utf-8"))

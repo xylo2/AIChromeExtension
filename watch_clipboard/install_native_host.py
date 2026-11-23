@@ -1,17 +1,19 @@
 # Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
 
+import glob
 import json
 import os
 import platform
+import shutil
 import stat
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 class NativeHostInstaller:
     """
-    Génère le lanceur natif silencieux, le manifeste JSON et enregistre l'hôte auprès des
+    Génère le lanceur natif compatible stdio, le manifeste JSON et enregistre l'hôte auprès des
     navigateurs Chromium (Chrome, Edge, Brave) sur Windows, Linux et macOS.
     """
 
@@ -23,32 +25,88 @@ class NativeHostInstaller:
         self.native_dir: Path = self.project_dir / ".native_host"
         self.host_script: Path = self.project_dir / "clipboard_watcher" / "native_host.py"
 
-    def _resolve_silent_python(self) -> str:
-        py_path: Path = Path(sys.executable).resolve()
-        if os.name == "nt" and py_path.name.lower() == "python.exe":
-            pyw_path: Path = py_path.with_name("pythonw.exe")
-            if pyw_path.is_file():
-                return str(pyw_path)
-        return str(py_path)
+    @staticmethod
+    def _is_windowsapps_path(exe_path: str) -> bool:
+        norm: str = os.path.normcase(os.path.normpath(exe_path))
+        return "microsoft\\windowsapps" in norm
+
+    @classmethod
+    def find_real_windows_python(cls, current_exe: str, project_dir: Optional[Path] = None) -> str:
+        """
+        Résout un véritable exécutable Win32 python.exe (hors stubs Microsoft\\WindowsApps).
+        Vérifie en priorité un .venv local, puis les installations standard Python.
+        """
+        search_dirs: List[Path] = []
+        if project_dir is not None:
+            search_dirs.extend([project_dir / ".venv", project_dir.parent / ".venv", project_dir.parent.parent / ".venv"])
+        for venv_dir in search_dirs:
+            venv_py: Path = venv_dir / "Scripts" / "python.exe"
+            if venv_py.is_file():
+                return str(venv_py.resolve())
+
+        candidates: List[str] = []
+        base_exe: str = getattr(sys, "_base_executable", "") or ""
+        if base_exe:
+            candidates.append(base_exe)
+        candidates.append(current_exe)
+
+        for raw in candidates:
+            if not raw:
+                continue
+            resolved: str = os.path.realpath(raw) if os.path.exists(raw) else raw
+            if os.path.basename(resolved).lower() == "pythonw.exe":
+                resolved = os.path.join(os.path.dirname(resolved), "python.exe")
+            if not cls._is_windowsapps_path(resolved) and os.path.isfile(resolved):
+                return resolved
+
+        for entry in os.environ.get("PATH", "").split(os.pathsep):
+            clean_dir: str = entry.strip().strip('"')
+            if not clean_dir or "windowsapps" in clean_dir.lower():
+                continue
+            cand: Path = Path(clean_dir) / "python.exe"
+            if cand.is_file():
+                return str(cand)
+
+        local_app: str = os.environ.get("LOCALAPPDATA", "")
+        prog_files: str = os.environ.get("ProgramFiles", r"C:\Program Files")
+        for pattern in (
+            os.path.join(local_app, "Programs", "Python", "Python*", "python.exe"),
+            os.path.join(prog_files, "Python*", "python.exe"),
+            r"C:\Python*\python.exe",
+        ):
+            for match in sorted(glob.glob(pattern), reverse=True):
+                if os.path.isfile(match):
+                    return match
+
+        fallback: Optional[str] = shutil.which("python.exe") or shutil.which("python")
+        return fallback or str(Path(current_exe))
+
+    def _resolve_console_python(self) -> str:
+        if os.name == "nt":
+            return self.find_real_windows_python(sys.executable, project_dir=self.project_dir)
+        return str(Path(sys.executable))
 
     def _create_wrapper(self) -> Path:
         self.native_dir.mkdir(parents=True, exist_ok=True)
-        py_exe: str = self._resolve_silent_python()
+        py_exe: str = self._resolve_console_python()
         host_py: str = str(self.host_script.resolve())
+        print(f"[INFO] Exécutable Python stdio résolu : {py_exe}")
 
         if os.name == "nt":
             wrapper_path: Path = self.native_dir / "watch_clipboard_host.bat"
-            content: str = f'@echo off\r\n"{py_exe}" "{host_py}" %*\r\n'
+            if self._is_windowsapps_path(py_exe):
+                content: str = f'@echo off\r\npython -B "{host_py}" %*\r\n'
+            else:
+                content = f'@echo off\r\n"{py_exe}" -B "{host_py}" %*\r\n'
             wrapper_path.write_text(content, encoding="utf-8")
             return wrapper_path
 
         wrapper_path = self.native_dir / "watch_clipboard_host.sh"
-        content = f'#!/usr/bin/env bash\nexec "{py_exe}" "{host_py}" "$@"\n'
+        content = f'#!/usr/bin/env bash\nexec "{py_exe}" -B "{host_py}" "$@"\n'
         wrapper_path.write_text(content, encoding="utf-8")
         current_mode: int = wrapper_path.stat().st_mode
         wrapper_path.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return wrapper_path
-
     def _write_manifest(self, wrapper_path: Path) -> Path:
         manifest: Dict[str, Any] = {
             "name": self.HOST_NAME,

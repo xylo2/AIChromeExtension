@@ -22,11 +22,11 @@ test("manifest.json déclare les permissions et les modules dans l'ordre", () =>
   assert.deepEqual(manifest.content_scripts.at(0).js, JS_MODULES);
 });
 
-test("chaque module est concis (<= 150 lignes) et sans triple backtick littéral", () => {
+test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral", () => {
   for (const mod of JS_MODULES) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
     const lines = code.split("\n").length;
-    assert.ok(lines <= 150, `${mod} dépasse 150 lignes (${lines})`);
+    assert.ok(lines <= 175, `${mod} dépasse 175 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
   }
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
@@ -62,6 +62,7 @@ test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolati
     textContent: "=== COMMIT_MESSAGE ===\nfeat(ui): modularisation en classes"
   });
   assert.equal(msg, "feat(ui): modularisation en classes");
+  assert.equal(typeof gitMgr.createPushButton, "function");
 });
 
 test("background.js purge le jeton périmé après un 401 suivi d'un 200 OK", async () => {

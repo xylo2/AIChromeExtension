@@ -8,6 +8,7 @@ const DEFAULT_TEST_RUNNER = "tools/run_tests_clip.py";
 
 let lastKnownSignature = "";
 let isChecking = false;
+let activeStartPromise = null;
 
 function extractWorkspaceRoot(fullPath) {
   if (!fullPath || typeof fullPath !== "string") return null;
@@ -88,7 +89,7 @@ async function checkWatchClipboardStatus(forceBroadcast = false) {
     const query = customRunner ? `?test_runner=${encodeURIComponent(customRunner)}` : "";
     const response = await fetchWithTokenFallback(
       `${BASE_URL}/status${query}`,
-      { signal: AbortSignal.timeout(2500), cache: "no-store" },
+      { signal: AbortSignal.timeout(4500), cache: "no-store" },
       apiToken
     );
 
@@ -134,11 +135,11 @@ function updateBadge(isRunning) {
   chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" });
 }
 
-async function waitForExpectedState(expectedRunning, maxWaitMs = 3500) {
+async function waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
   const deadline = Date.now() + maxWaitMs;
   let state = await checkWatchClipboardStatus(true);
   while (state.running !== expectedRunning && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 250));
     state = await checkWatchClipboardStatus(true);
   }
   return state;
@@ -146,7 +147,12 @@ async function waitForExpectedState(expectedRunning, maxWaitMs = 3500) {
 
 function isMissingHostError(errorMessage) {
   const lower = (errorMessage || "").toLowerCase();
-  return lower.includes("native messaging host not found") || lower.includes("forbidden") || lower.includes("host has exited");
+  return (
+    lower.includes("native messaging host not found") ||
+    lower.includes("forbidden") ||
+    lower.includes("host has exited") ||
+    lower.includes("communicating with the native messaging host")
+  );
 }
 
 function generateSessionToken() {
@@ -156,38 +162,52 @@ function generateSessionToken() {
 }
 
 function startWatchClipboard(targetDir, extraArgs) {
-  return new Promise(async (resolve) => {
-    const apiToken = generateSessionToken();
-    await chrome.storage.local.set({ watcherApiToken: apiToken });
-
-    chrome.runtime.sendNativeMessage(
-      NATIVE_HOST_NAME,
-      {
-        action: "start",
-        target_dir: targetDir || ".",
-        extra_args: extraArgs || "",
-        api_token: apiToken,
-        allowed_origin: `chrome-extension://${chrome.runtime.id}`
-      },
-      async (response) => {
-        if (chrome.runtime.lastError) {
-          const errMsg = chrome.runtime.lastError.message || "Erreur Native Messaging";
-          const stored = await chrome.storage.local.get("savedRootDir");
-          const rootDir = (stored.savedRootDir || DEFAULT_ROOT_DIR).replace(/[\\/]+$/, "");
-          resolve({
-            ok: false,
-            error: errMsg,
-            missingHost: isMissingHostError(errMsg),
-            installCommand: `python "${rootDir}\\tools\\watch_clipboard\\install_native_host.py" ${chrome.runtime.id}`
-          });
-          return;
-        }
-        const ok = Boolean(response && response.ok);
-        const state = ok ? await waitForExpectedState(true, 3500) : await checkWatchClipboardStatus(true);
-        resolve({ ok, response, state });
+  if (activeStartPromise) {
+    return activeStartPromise;
+  }
+  activeStartPromise = (async () => {
+    try {
+      const current = await checkWatchClipboardStatus(false);
+      if (current && current.running) {
+        return { ok: true, alreadyRunning: true, state: current };
       }
-    );
-  });
+      const apiToken = generateSessionToken();
+      await chrome.storage.local.set({ watcherApiToken: apiToken });
+
+      return await new Promise((resolve) => {
+        chrome.runtime.sendNativeMessage(
+          NATIVE_HOST_NAME,
+          {
+            action: "start",
+            target_dir: targetDir || ".",
+            extra_args: extraArgs || "",
+            api_token: apiToken,
+            allowed_origin: `chrome-extension://${chrome.runtime.id}`
+          },
+          async (response) => {
+            if (chrome.runtime.lastError) {
+              const errMsg = chrome.runtime.lastError.message || "Erreur Native Messaging";
+              const stored = await chrome.storage.local.get("savedRootDir");
+              const rootDir = (stored.savedRootDir || DEFAULT_ROOT_DIR).replace(/[\\/]+$/, "");
+              resolve({
+                ok: false,
+                error: errMsg,
+                missingHost: isMissingHostError(errMsg),
+                installCommand: `python "${rootDir}\\tools\\watch_clipboard\\install_native_host.py" ${chrome.runtime.id}`
+              });
+              return;
+            }
+            const ok = Boolean(response && response.ok);
+            const state = ok ? await waitForExpectedState(true, 4500) : await checkWatchClipboardStatus(true);
+            resolve({ ok, response, state });
+          }
+        );
+      });
+    } finally {
+      activeStartPromise = null;
+    }
+  })();
+  return activeStartPromise;
 }
 
 async function stopWatchClipboard() {
@@ -212,7 +232,6 @@ async function exportProjectFiles() {
     return { ok: false, error: "Impossible de générer l'export du projet." };
   }
 }
-
 async function getGitStatus() {
   try {
     const apiToken = await getApiToken();
@@ -226,6 +245,7 @@ async function getGitStatus() {
     return { ok: false, error: "Impossible de lire git status." };
   }
 }
+
 async function getGitDiffSelected(files) {
   try {
     const apiToken = await getApiToken();
@@ -265,6 +285,25 @@ async function executeGitCommit(message, files) {
     return await response.json();
   } catch (_err) {
     return { ok: false, error: "Impossible d'exécuter git commit." };
+  }
+}
+
+async function executeGitPush(remote = "origin", branch = "main") {
+  try {
+    const apiToken = await getApiToken();
+    const response = await fetchWithTokenFallback(
+      `${BASE_URL}/git-push`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remote, branch }),
+        signal: AbortSignal.timeout(45000)
+      },
+      apiToken
+    );
+    return await response.json();
+  } catch (_err) {
+    return { ok: false, error: "Impossible d'exécuter git push." };
   }
 }
 
@@ -373,6 +412,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "GIT_STATUS") { getGitStatus().then(sendResponse); return true; }
   if (message.type === "GIT_DIFF_SELECTED") { getGitDiffSelected(message.files).then(sendResponse); return true; }
   if (message.type === "GIT_COMMIT") { executeGitCommit(message.message, message.files).then(sendResponse); return true; }
+  if (message.type === "GIT_PUSH") { executeGitPush(message.remote || "origin", message.branch || "main").then(sendResponse); return true; }
   if (message.type === "READ_SAVED_FILE") { readSavedFile(message.header).then(sendResponse); return true; }
   if (message.type === "RUN_PROJECT_TESTS") { runProjectTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
 });
