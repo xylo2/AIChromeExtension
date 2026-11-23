@@ -12,7 +12,7 @@ class GitPanelManager {
   buildCommitPrompt(selectedFiles, diffFilename) {
     const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
     return [
-      `Rédige un message de commit Git clair et concis (Conventional Commits) pour toutes les modifications apportées depuis le dernier commit sur les fichiers sélectionnés ci-dessous (diff complet joint dans \x60${diffFilename}\x60) :`,
+      `Rédige un message de commit Git clair et concis en français (Conventional Commits) pour toutes les modifications apportées depuis le dernier commit sur les fichiers sélectionnés ci-dessous (diff complet joint dans \x60${diffFilename}\x60) :`,
       fileList,
       "",
       "Réponds **uniquement** avec un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne (sans balise `=== FILE ===`), suivi directement du message de commit prêt à être exécuté."
@@ -93,11 +93,19 @@ class GitPanelManager {
     document.body.appendChild(panel);
     this.panelEl = panel;
   }
+
   extractCommitMessage(preEl) {
     const raw = this.spill.extractRawCode(preEl);
     const lines = raw.split("\n");
     const first = lines.at(0) ? lines.at(0).trim() : "";
     return this.spill.COMMIT_TAG_REGEX.test(first) ? lines.slice(1).join("\n").trim() : raw;
+  }
+
+  extractPushErrorSummary(fullErr) {
+    const lines = String(fullErr || "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return "erreur git";
+    const keyLine = lines.find((l) => /^(?:fatal:|error:|!\s*\[|remote:\s*error|permission denied)/i.test(l));
+    return keyLine || lines.at(lines.length - 1);
   }
 
   createPushButton() {
@@ -110,17 +118,18 @@ class GitPanelManager {
       pushBtn.disabled = true;
       pushBtn.classList.remove("state-fail", "state-pass");
       pushBtn.textContent = "⏳ Push en cours...";
-      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, (res) => {
+      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, async (res) => {
         if (res?.ok) {
           pushBtn.textContent = "✅ Push origin OK";
           pushBtn.title = res.output || "Push effectué";
           pushBtn.classList.add("state-pass");
         } else {
           const fullErr = res?.error || "erreur git";
-          const shortErr = fullErr.split("\n").map((l) => l.trim()).filter(Boolean).at(0) || "erreur git";
+          const shortErr = this.extractPushErrorSummary(fullErr);
+          try { await navigator.clipboard.writeText(fullErr); } catch (_err) {}
           pushBtn.disabled = false;
-          pushBtn.title = fullErr;
-          pushBtn.textContent = `❌ Échec push : ${shortErr.slice(0, 70)}`;
+          pushBtn.title = `${fullErr}\n(Erreur copiée dans le presse-papiers)`;
+          pushBtn.textContent = `❌ ${shortErr.slice(0, 95)}`;
           pushBtn.classList.add("state-fail");
         }
       });

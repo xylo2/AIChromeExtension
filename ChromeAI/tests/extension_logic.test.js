@@ -63,6 +63,9 @@ test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolati
   });
   assert.equal(msg, "feat(ui): modularisation en classes");
   assert.equal(typeof gitMgr.createPushButton, "function");
+
+  const rawPushErr = "To https://example.com\n ! [rejected] HEAD -> main (non-fast-forward)\nfatal: failed to push";
+  assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
 });
 
 test("background.js purge le jeton périmé après un 401 suivi d'un 200 OK", async () => {

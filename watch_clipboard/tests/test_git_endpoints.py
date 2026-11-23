@@ -8,7 +8,7 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
-from clipboard_watcher.status_server import StatusServer
+from clipboard_watcher.status_server import StatusServer, _StatusRequestHandler
 
 
 class TestGitEndpoints(unittest.TestCase):
@@ -25,6 +25,15 @@ class TestGitEndpoints(unittest.TestCase):
 
     def _no_proxy_opener(self) -> urllib.request.OpenerDirector:
         return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def test_format_git_push_error_extracts_fatal_and_credential_hint(self) -> None:
+        raw: str = (
+            "To https://example.com\n"
+            "fatal: could not read Username for 'https://example.com': terminal prompts disabled\n"
+        )
+        formatted: str = _StatusRequestHandler._format_git_push_error(raw)
+        self.assertIn("fatal: could not read Username", formatted)
+        self.assertIn("credential.helper manager", formatted)
 
     def test_git_status_selective_diff_commit_and_push(self) -> None:
         opener = self._no_proxy_opener()

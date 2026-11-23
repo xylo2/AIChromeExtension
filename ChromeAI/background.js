@@ -119,49 +119,7 @@ async function checkWatchClipboardStatus(forceBroadcast = false) {
   } finally {
     isChecking = false;
   }
-  const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasGit}|${state.lastEvent}`;
-  await chrome.storage.local.set({ watchClipboardState: state });
-  updateBadge(state.running);
-
-  if (forceBroadcast || lastKnownSignature !== signature) {
-    lastKnownSignature = signature;
-    await broadcastStateToTabs(state);
-  }
-  return state;
-}
-
-function updateBadge(isRunning) {
-  chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" });
-  chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" });
-}
-
-async function waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
-  const deadline = Date.now() + maxWaitMs;
-  let state = await checkWatchClipboardStatus(true);
-  while (state.running !== expectedRunning && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 250));
-    state = await checkWatchClipboardStatus(true);
-  }
-  return state;
-}
-
-function isMissingHostError(errorMessage) {
-  const lower = (errorMessage || "").toLowerCase();
-  return (
-    lower.includes("native messaging host not found") ||
-    lower.includes("forbidden") ||
-    lower.includes("host has exited") ||
-    lower.includes("communicating with the native messaging host")
-  );
-}
-
-function generateSessionToken() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function startWatchClipboard(targetDir, extraArgs) {
+async function startWatchClipboard(targetDir, extraArgs) {
   if (activeStartPromise) {
     return activeStartPromise;
   }
@@ -230,6 +188,82 @@ async function exportProjectFiles() {
     return await response.json();
   } catch (_err) {
     return { ok: false, error: "Impossible de générer l'export du projet." };
+  }
+}
+
+async function getGitStatus() {
+  try {
+    const apiToken = await getApiToken();
+    const response = await fetchWithTokenFallback(
+      `${BASE_URL}/git-status`,
+      { signal: AbortSignal.timeout(10000), cache: "no-store" },
+      apiToken
+    );
+    return await response.json();
+  } catch (_err) {
+    return { ok: false, error: "Impossible de lire git status." };
+  }
+}
+
+async function getGitDiffSelected(files) {
+  try {
+    const apiToken = await getApiToken();
+    const response = await fetchWithTokenFallback(
+      `${BASE_URL}/git-diff`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: files || [] }),
+        signal: AbortSignal.timeout(15000)
+      },
+      apiToken
+    );
+    return await response.json();
+  } catch (_err) {
+    return { ok: false, error: "Impossible de récupérer git diff." };
+  }
+}
+
+async function executeGitCommit(message, files) {
+  try {
+    const apiToken = await getApiToken();
+    const payload = { message: message || "" };
+    if (Array.isArray(files) && files.length > 0) {
+      payload.files = files;
+    }
+    const response = await fetchWithTokenFallback(
+      `${BASE_URL}/git-commit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
+      },
+      apiToken
+    );
+    return await response.json();
+  } catch (_err) {
+    return { ok: false, error: "Impossible d'exécuter git commit." };
+  }
+}
+
+async function executeGitPush(remote = "origin", branch = "HEAD") {
+  try {
+    const apiToken = await getApiToken();
+    const response = await fetchWithTokenFallback(
+      `${BASE_URL}/git-push`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remote, branch }),
+        signal: AbortSignal.timeout(65000)
+      },
+      apiToken
+    );
+    return await response.json();
+  } catch (err) {
+    const detail = err && err.message ? err.message : "délai ou connexion réseau";
+    return { ok: false, error: `Impossible d'exécuter git push (${detail}).` };
   }
 }
 async function getGitStatus() {
