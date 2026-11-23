@@ -288,7 +288,7 @@ async function executeGitCommit(message, files) {
   }
 }
 
-async function executeGitPush(remote = "origin", branch = "main") {
+async function executeGitPush(remote = "origin", branch = "HEAD") {
   try {
     const apiToken = await getApiToken();
     const response = await fetchWithTokenFallback(
@@ -412,7 +412,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "GIT_STATUS") { getGitStatus().then(sendResponse); return true; }
   if (message.type === "GIT_DIFF_SELECTED") { getGitDiffSelected(message.files).then(sendResponse); return true; }
   if (message.type === "GIT_COMMIT") { executeGitCommit(message.message, message.files).then(sendResponse); return true; }
-  if (message.type === "GIT_PUSH") { executeGitPush(message.remote || "origin", message.branch || "main").then(sendResponse); return true; }
+  if (message.type === "GIT_PUSH") { executeGitPush(message.remote || "origin", message.branch || "HEAD").then(sendResponse); return true; }
   if (message.type === "READ_SAVED_FILE") { readSavedFile(message.header).then(sendResponse); return true; }
   if (message.type === "RUN_PROJECT_TESTS") { runProjectTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
 });

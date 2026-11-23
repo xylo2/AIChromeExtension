@@ -1,5 +1,5 @@
 /**
- * Panneau de sélection Git status, génération du diff, commit et push origin main.
+ * Panneau de sélection Git status, génération du diff, commit et push origin HEAD.
  */
 class GitPanelManager {
   constructor(spillDetector, chatInjector) {
@@ -93,7 +93,6 @@ class GitPanelManager {
     document.body.appendChild(panel);
     this.panelEl = panel;
   }
-
   extractCommitMessage(preEl) {
     const raw = this.spill.extractRawCode(preEl);
     const lines = raw.split("\n");
@@ -105,19 +104,23 @@ class GitPanelManager {
     const pushBtn = document.createElement("button");
     pushBtn.type = "button";
     pushBtn.className = "gmc-git-push-btn";
-    pushBtn.textContent = "🚀 git push origin main";
-    pushBtn.title = "Pousse le commit vers origin/main";
+    pushBtn.textContent = "🚀 git push origin HEAD";
+    pushBtn.title = "Pousse la branche courante vers origin";
     pushBtn.addEventListener("click", () => {
       pushBtn.disabled = true;
       pushBtn.classList.remove("state-fail", "state-pass");
       pushBtn.textContent = "⏳ Push en cours...";
-      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "main" }, (res) => {
+      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, (res) => {
         if (res?.ok) {
-          pushBtn.textContent = "✅ Push origin main OK";
+          pushBtn.textContent = "✅ Push origin OK";
+          pushBtn.title = res.output || "Push effectué";
           pushBtn.classList.add("state-pass");
         } else {
+          const fullErr = res?.error || "erreur git";
+          const shortErr = fullErr.split("\n").map((l) => l.trim()).filter(Boolean).at(0) || "erreur git";
           pushBtn.disabled = false;
-          pushBtn.textContent = `❌ Échec push (${res?.error || "erreur git"})`;
+          pushBtn.title = fullErr;
+          pushBtn.textContent = `❌ Échec push : ${shortErr.slice(0, 70)}`;
           pushBtn.classList.add("state-fail");
         }
       });

@@ -21,7 +21,7 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads: bool = True
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        exc = sys.exc_info()[1]
+        exc = sys.exc_info()
         if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
             return
         super().handle_error(request, client_address)
@@ -86,7 +86,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if stripped:
                 return stripped
         return rel_norm
-
     def _read_saved_file_from_header(self, header: str) -> Tuple[bool, str, str]:
         clean_header: str = header.strip()
         if not clean_header:
@@ -169,7 +168,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if rel_path:
                 entries.append({"status": code, "path": rel_path.replace("\\", "/")})
         return True, entries, ""
-
     def _git_diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
         git_root: Optional[str] = self._get_git_root()
         if not git_root:
@@ -205,6 +203,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
 
         combined: str = "\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."
         return True, "git_changes.diff.txt", combined
+
     def _git_commit_changes(self, message: str, files: Optional[List[str]] = None) -> Tuple[bool, str]:
         git_root: Optional[str] = self._get_git_root()
         if not git_root:
@@ -238,38 +237,38 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return False, output or "Échec de git commit."
         return True, output
 
-    def _git_push_changes(self, remote: str = "origin", branch: str = "main") -> Tuple[bool, str]:
+    def _git_push_changes(self, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
         git_root: Optional[str] = self._get_git_root()
         if not git_root:
             return False, "Aucun dépôt Git détecté."
         clean_remote: str = remote.strip() or "origin"
-        clean_branch: str = branch.strip() or "main"
+        clean_branch: str = branch.strip()
         ref_pattern: str = r"^[A-Za-z0-9._/-]+$"
-        if not re.match(ref_pattern, clean_remote) or not re.match(ref_pattern, clean_branch) or clean_remote.startswith("-") or clean_branch.startswith("-"):
-            return False, "Nom de remote ou de branche invalide."
+        if not re.match(ref_pattern, clean_remote) or clean_remote.startswith("-"):
+            return False, "Nom de remote invalide."
+        if clean_branch and (not re.match(ref_pattern, clean_branch) or clean_branch.startswith("-")):
+            return False, "Nom de branche invalide."
 
+        target_ref: str = clean_branch if clean_branch else "HEAD"
+        env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         proc = subprocess.run(
-            ["git", "push", clean_remote, clean_branch],
-            cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45, check=False,
+            ["git", "push", clean_remote, target_ref],
+            cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45, check=False,
         )
-        output: str = (proc.stdout or proc.stderr or "").strip()
+        output: str = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
         if proc.returncode != 0:
             return False, output or "Échec de git push."
-        return True, output or f"Push effectué vers {clean_remote}/{clean_branch}."
-
+        return True, output or f"Push effectué vers {clean_remote}/{target_ref}."
     def _resolve_exporter_package_dir(self) -> Optional[str]:
         base_real: str = os.path.realpath(self.target_dir)
         parent_real: str = os.path.dirname(base_real)
         watcher_dir: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         watcher_parent: str = os.path.dirname(watcher_dir)
-        candidates: List[str] = [
-            os.path.join(base_real, "export"),
-            os.path.join(base_real, "tools", "export"),
-            os.path.join(parent_real, "export"),
-            os.path.join(parent_real, "tools", "export"),
+        for cand in [
+            os.path.join(base_real, "export"), os.path.join(base_real, "tools", "export"),
+            os.path.join(parent_real, "export"), os.path.join(parent_real, "tools", "export"),
             os.path.join(watcher_parent, "export"),
-        ]
-        for cand in candidates:
+        ]:
             if os.path.isdir(os.path.join(cand, "project_exporter")):
                 return cand
         return None
@@ -322,6 +321,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 return False, "", "Fichier d'export non généré.", 0
             with open(out_path, "r", encoding="utf-8", errors="replace") as f_out:
                 return True, fname_out, f_out.read(), int(cnt_str)
+
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
@@ -379,7 +379,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
             return
-
     def do_GET(self) -> None:
         if not self._is_authorized():
             self._send_json(401, {"error": "unauthorized"})
@@ -413,6 +412,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             "configured_test_runner": custom_runner or self.default_test_runner,
             "test_runner_path": test_script if has_tests else None, "last_event": last_event,
         })
+
     def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str]:
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
@@ -466,7 +466,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/git-push":
             body = self._read_json_body()
-            ok, output_or_err = self._git_push_changes(remote=str(body.get("remote", "origin")), branch=str(body.get("branch", "main")))
+            ok, output_or_err = self._git_push_changes(remote=str(body.get("remote", "origin")), branch=str(body.get("branch", "")))
             self._send_json(200 if ok else 400, {"ok": ok, "output": output_or_err} if ok else {"ok": False, "error": output_or_err})
             return
         if parsed.path == "/run-tests":
