@@ -3,6 +3,14 @@ const SETTINGS_KEY = "breakGuardSettings";
 const ALARM_NAME = "breakGuardTick";
 
 const DEFAULT_SETTINGS = {
+  enableMove: true,
+  enableDrink: true,
+  enableEyes: true,
+  enablePosture: true,
+  enableLunch: true,
+  enableDinner: true,
+  enableWindDown: true,
+  enableNight: true,
   moveMinutes: 30,
   drinkMinutes: 120,
   eyesMinutes: 20,
@@ -36,6 +44,7 @@ const DEFAULT_STATE = {
   windDownDoneDate: null,
   lastActivity: null,
   snoozeUntil: 0,
+  dndUntil: 0,
   nightAlertCount: 0,
   dismissedTypes: []
 };
@@ -46,11 +55,20 @@ function sanitizeSettings(raw) {
     const n = Number(val);
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
   };
+  const boolVal = (val, fallback) => (typeof val === "boolean" ? val : fallback);
   const lunchStart = clamp(src.lunchStartHour, 0, 23, DEFAULT_SETTINGS.lunchStartHour);
   const lunchEnd = clamp(src.lunchEndHour, lunchStart + 1, 24, Math.max(lunchStart + 1, DEFAULT_SETTINGS.lunchEndHour));
   const dinnerStart = clamp(src.dinnerStartHour, 0, 23, DEFAULT_SETTINGS.dinnerStartHour);
   const dinnerEnd = clamp(src.dinnerEndHour, dinnerStart + 1, 24, Math.max(dinnerStart + 1, DEFAULT_SETTINGS.dinnerEndHour));
   return {
+    enableMove: boolVal(src.enableMove, DEFAULT_SETTINGS.enableMove),
+    enableDrink: boolVal(src.enableDrink, DEFAULT_SETTINGS.enableDrink),
+    enableEyes: boolVal(src.enableEyes, DEFAULT_SETTINGS.enableEyes),
+    enablePosture: boolVal(src.enablePosture, DEFAULT_SETTINGS.enablePosture),
+    enableLunch: boolVal(src.enableLunch, DEFAULT_SETTINGS.enableLunch),
+    enableDinner: boolVal(src.enableDinner, DEFAULT_SETTINGS.enableDinner),
+    enableWindDown: boolVal(src.enableWindDown, DEFAULT_SETTINGS.enableWindDown),
+    enableNight: boolVal(src.enableNight, DEFAULT_SETTINGS.enableNight),
     moveMinutes: clamp(src.moveMinutes, 1, 480, DEFAULT_SETTINGS.moveMinutes),
     drinkMinutes: clamp(src.drinkMinutes, 1, 720, DEFAULT_SETTINGS.drinkMinutes),
     eyesMinutes: clamp(src.eyesMinutes, 1, 240, DEFAULT_SETTINGS.eyesMinutes),
@@ -72,7 +90,6 @@ function sanitizeSettings(raw) {
     idleResetMinutes: clamp(src.idleResetMinutes, 1, 240, DEFAULT_SETTINGS.idleResetMinutes)
   };
 }
-
 function getDateKey(d = new Date()) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
@@ -116,23 +133,11 @@ async function loadState() {
   return { ...DEFAULT_STATE, ...(res[STORAGE_KEY] || {}) };
 }
 
-async function broadcastPayload(state, settings) {
-  try {
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, { type: "BREAK_STATE_UPDATED", state, settings }).catch(() => {});
-      }
-    }
-  } catch (_err) {}
-}
-
-async function saveState(state, settings) {
-  const cfg = settings || (await loadSettings());
+async function saveState(state) {
   await chrome.storage.local.set({ [STORAGE_KEY]: state });
-  await broadcastPayload(state, cfg);
   return state;
 }
+
 function applyActivity(state, now = Date.now(), d = new Date(), cfg = DEFAULT_SETTINGS) {
   const s = sanitizeSettings(cfg);
   const idleResetMs = s.idleResetMinutes * 60 * 1000;
@@ -177,23 +182,19 @@ function applyAcknowledge(state, type, now = Date.now(), d = new Date(), cfg = D
   const dismissed = new Set(state.dismissedTypes || []);
   dismissed.add(type);
   const today = getDateKey(d);
-  if (type === "lunch") {
+  if (type === "lunch" || type === "dinner") {
     state.moveStart = now;
     state.drinkStart = now;
     state.eyesStart = now;
     state.postureStart = now;
-    state.lunchWindowStart = null;
-    state.lunchTakenDate = today;
-    state.snoozeUntil = 0;
-    state.nightAlertCount = 0;
-    ["move", "drink", "eyes", "posture"].forEach((k) => dismissed.add(k));
-  } else if (type === "dinner") {
-    state.moveStart = now;
-    state.drinkStart = now;
-    state.eyesStart = now;
-    state.postureStart = now;
-    state.dinnerWindowStart = null;
-    state.dinnerTakenDate = today;
+    if (type === "lunch") {
+      state.lunchWindowStart = null;
+      state.lunchTakenDate = today;
+      state.nightAlertCount = 0;
+    } else {
+      state.dinnerWindowStart = null;
+      state.dinnerTakenDate = today;
+    }
     state.snoozeUntil = 0;
     ["move", "drink", "eyes", "posture"].forEach((k) => dismissed.add(k));
   } else if (type === "winddown") {
@@ -233,63 +234,44 @@ async function handleAction(msg) {
   const d = new Date();
   if (msg.type === "BREAK_ACTIVITY") {
     state = applyActivity(state, now, d, cfg);
-    return { state: await saveState(state, cfg), settings: cfg };
+    return { state: await saveState(state), settings: cfg };
   }
   if (msg.type === "BREAK_ACK") {
     state = applyAcknowledge(state, msg.alertType, now, d, cfg);
-    return { state: await saveState(state, cfg), settings: cfg };
+    return { state: await saveState(state), settings: cfg };
   }
   if (msg.type === "BREAK_NIGHT_SHOWN") {
     state.nightAlertCount = (state.nightAlertCount || 0) + 1;
     state.dismissedTypes = (state.dismissedTypes || []).filter((t) => t !== "night");
-    return { state: await saveState(state, cfg), settings: cfg };
+    return { state: await saveState(state), settings: cfg };
+  }
+  if (msg.type === "BREAK_SET_DND") {
+    const mins = Math.max(0, Math.round(Number(msg.minutes) || 0));
+    state.dndUntil = mins > 0 ? now + mins * 60 * 1000 : 0;
+    return { state: await saveState(state), settings: cfg };
   }
   if (msg.type === "BREAK_SAVE_SETTINGS") {
     const nextCfg = sanitizeSettings(msg.settings);
     await chrome.storage.local.set({ [SETTINGS_KEY]: nextCfg });
-    await broadcastPayload(state, nextCfg);
     return { state, settings: nextCfg };
   }
   return { state, settings: cfg };
 }
 
-async function reinjectAllTabs() {
-  if (!chrome.scripting) return;
-  try {
-    const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
-    for (const tab of tabs) {
-      if (!tab.id) continue;
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => {
-            window.__bgBreakInit = false;
-            document.querySelectorAll(".gmc-break-stack, .gmc-break-lunch-pill").forEach((n) => n.remove());
-          }
-        });
-        await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles.css"] });
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["break_guard.js", "content.js"] });
-      } catch (_e) {}
-    }
-  } catch (_err) {}
-}
-
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
-  reinjectAllTabs();
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAME) {
-    const [st, cfg] = await Promise.all([loadState(), loadSettings()]);
-    await broadcastPayload(st, cfg);
+    const st = await loadState();
+    if (st.dndUntil && Date.now() >= st.dndUntil) {
+      st.dndUntil = 0;
+      await saveState(st);
+    }
   }
-});
-chrome.tabs.onActivated.addListener(async () => {
-  const [st, cfg] = await Promise.all([loadState(), loadSettings()]);
-  await broadcastPayload(st, cfg);
 });
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !String(msg.type || "").startsWith("BREAK_")) return;

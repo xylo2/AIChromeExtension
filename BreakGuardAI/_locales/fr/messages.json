@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "Break Guard — Alertes Santé, Yeux & Sommeil"
+  },
+  "extDescription": {
+    "message": "Rappels bien-être configurables : règle visuelle 20-20-20, posture, mouvement, hydratation, repas, fin de journée et coucher."
+  },
+  "actionTitle": {
+    "message": "Configurer Break Guard"
+  }
+}

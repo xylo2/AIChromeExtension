@@ -10,6 +10,14 @@ class GlobalBreakGuard {
     this.customStackPos = null;
     this.eyesTimerId = null;
     this.settings = {
+      enableMove: true,
+      enableDrink: true,
+      enableEyes: true,
+      enablePosture: true,
+      enableLunch: true,
+      enableDinner: true,
+      enableWindDown: true,
+      enableNight: true,
       moveMinutes: options.moveLimitMinutes ?? 30,
       drinkMinutes: options.drinkLimitMinutes ?? 120,
       eyesMinutes: options.eyesLimitMinutes ?? 20,
@@ -42,6 +50,7 @@ class GlobalBreakGuard {
       windDownDoneDate: null,
       lastActivity: null,
       snoozeUntil: 0,
+      dndUntil: 0,
       nightAlertCount: 0,
       dismissedTypes: []
     };
@@ -54,6 +63,10 @@ class GlobalBreakGuard {
   get lunchRepeatMs() { return this.settings.lunchRepeatMinutes * 60 * 1000; }
   get dinnerRepeatMs() { return this.settings.dinnerRepeatMinutes * 60 * 1000; }
   get idleResetMs() { return this.settings.idleResetMinutes * 60 * 1000; }
+
+  isDndActive() {
+    return Boolean(this.state.dndUntil && this.nowFn() < this.state.dndUntil);
+  }
 
   formatDuration(minutes) {
     const mins = Math.max(1, Math.round(Number(minutes) || 0));
@@ -98,17 +111,9 @@ class GlobalBreakGuard {
     return mins >= targetMins && !this.isAfterMidnight(d);
   }
 
-  hasEatenToday(d = this.dateFn()) {
-    return this.state.lunchTakenDate === this.getDateKey(d);
-  }
-
-  hasHadDinnerToday(d = this.dateFn()) {
-    return this.state.dinnerTakenDate === this.getDateKey(d);
-  }
-
-  hasWoundDownToday(d = this.dateFn()) {
-    return this.state.windDownDoneDate === this.getDateKey(d);
-  }
+  hasEatenToday(d = this.dateFn()) { return this.state.lunchTakenDate === this.getDateKey(d); }
+  hasHadDinnerToday(d = this.dateFn()) { return this.state.dinnerTakenDate === this.getDateKey(d); }
+  hasWoundDownToday(d = this.dateFn()) { return this.state.windDownDoneDate === this.getDateKey(d); }
 
   getNightRepeatMinutes(d = this.dateFn()) {
     const h = d.getHours();
@@ -123,12 +128,8 @@ class GlobalBreakGuard {
   }
 
   setState(newState, newSettings = null) {
-    if (newSettings && typeof newSettings === "object") {
-      this.settings = { ...this.settings, ...newSettings };
-    }
-    if (newState) {
-      this.state = { ...this.state, ...newState };
-    }
+    if (newSettings && typeof newSettings === "object") this.settings = { ...this.settings, ...newSettings };
+    if (newState) this.state = { ...this.state, ...newState };
     this.syncDom();
   }
 
@@ -136,43 +137,44 @@ class GlobalBreakGuard {
     const now = this.nowFn();
     const d = this.dateFn();
     const st = this.state;
+    const cfg = this.settings;
     const isNight = this.isAfterMidnight(d);
     if (!st.moveStart || !st.lastActivity) return [];
     if (now - st.lastActivity >= this.idleResetMs) return [];
-    if (now < (st.snoozeUntil || 0)) return [];
+    if (now < (st.snoozeUntil || 0) || this.isDndActive()) return [];
     const dismissed = new Set(st.dismissedTypes || []);
     const alerts = [];
 
-    if (isNight && !dismissed.has("night")) {
+    if (cfg.enableNight && isNight && !dismissed.has("night")) {
       const h = d.getHours();
       alerts.push({
         type: "night",
         message: h >= 1 ? `🌙 Il est ${h}h passées : Va te coucher maintenant !` : "🌙 Il est tard : Va te coucher !"
       });
     }
-    if (this.isLunchTime(d) && !this.hasEatenToday(d) && !dismissed.has("lunch")) {
+    if (cfg.enableLunch && this.isLunchTime(d) && !this.hasEatenToday(d) && !dismissed.has("lunch")) {
       if (st.lunchWindowStart && now - st.lunchWindowStart >= this.lunchRepeatMs) {
         alerts.push({ type: "lunch", message: "🍽️ Il est l'heure de déjeuner : pense à aller manger !" });
       }
     }
-    if (this.isDinnerTime(d) && !this.hasHadDinnerToday(d) && !dismissed.has("dinner")) {
+    if (cfg.enableDinner && this.isDinnerTime(d) && !this.hasHadDinnerToday(d) && !dismissed.has("dinner")) {
       if (st.dinnerWindowStart && now - st.dinnerWindowStart >= this.dinnerRepeatMs) {
         alerts.push({ type: "dinner", message: "🍲 Il est l'heure de dîner : pense à faire une vraie pause repas !" });
       }
     }
-    if (!isNight && this.isWindDownTime(d) && !this.hasWoundDownToday(d) && !dismissed.has("winddown")) {
+    if (cfg.enableWindDown && !isNight && this.isWindDownTime(d) && !this.hasWoundDownToday(d) && !dismissed.has("winddown")) {
       alerts.push({ type: "winddown", message: "🌇 Fin de journée : pense à clôturer tes tâches et décrocher des écrans" });
     }
-    if (st.drinkStart && now - st.drinkStart >= this.drinkLimitMs && !dismissed.has("drink")) {
+    if (cfg.enableDrink && st.drinkStart && now - st.drinkStart >= this.drinkLimitMs && !dismissed.has("drink")) {
       alerts.push({ type: "drink", message: "💧 N'oublie pas de boire" });
     }
-    if (!isNight && now - st.moveStart >= this.moveLimitMs && !dismissed.has("move")) {
+    if (cfg.enableMove && !isNight && now - st.moveStart >= this.moveLimitMs && !dismissed.has("move")) {
       alerts.push({ type: "move", message: "🚶 Ton corps a besoin de bouger, même un tout petit peu, lève-toi" });
     }
-    if (!isNight && st.postureStart && now - st.postureStart >= this.postureLimitMs && !dismissed.has("posture")) {
+    if (cfg.enablePosture && !isNight && st.postureStart && now - st.postureStart >= this.postureLimitMs && !dismissed.has("posture")) {
       alerts.push({ type: "posture", message: "🪑 Posture : redresse le dos, relâche les épaules et décroise les jambes" });
     }
-    if (!isNight && st.eyesStart && now - st.eyesStart >= this.eyesLimitMs && !dismissed.has("eyes")) {
+    if (cfg.enableEyes && !isNight && st.eyesStart && now - st.eyesStart >= this.eyesLimitMs && !dismissed.has("eyes")) {
       alerts.push({ type: "eyes", message: "👀 Pause visuelle (20-20-20) : regarde au loin à 6 m pendant 20 secondes" });
     }
     return alerts;
@@ -364,6 +366,4 @@ if (t && !activeTypes.has(t)) el.remove();
 alerts.forEach((a) => this.renderBanner(a));
 }
 }
-window.GlobalBreakGuard = GlobalBreakGuard; 
-```
-Dis **« Suite »** pour recevoir le **Lot 2/2** (`content.js`, `styles.css`, `popup.html`, `popup.js` et `break_guard.test.js`).
+window.GlobalBreakGuard = GlobalBreakGuard;

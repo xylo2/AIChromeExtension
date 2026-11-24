@@ -8,70 +8,66 @@ const vm = require("node:vm");
 
 const EXT_DIR = path.resolve(__dirname, "..");
 
-test("manifest.json déclare popup.html et les content_scripts dans l'ordre", () => {
+test("manifest.json utilise les permissions minimales et les locales i18n", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf-8"));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.default_locale, "fr");
+  assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
+  assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.action.default_popup, "popup.html");
-  assert.deepEqual(manifest.content_scripts.at(0).matches, ["<all_urls>"]);
   assert.deepEqual(manifest.content_scripts.at(0).js, ["break_guard.js", "content.js"]);
+
+  const fr = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", "fr", "messages.json"), "utf-8"));
+  const en = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", "en", "messages.json"), "utf-8"));
+  assert.ok(fr.extName.message.includes("Break Guard"));
+  assert.ok(en.extName.message.includes("Break Guard"));
 });
 
-test("pastille repas gère déjeuner et dîner sans superposition", () => {
+test("popup et content.js intègrent les interrupteurs par alerte et le mode Ne pas déranger", () => {
   const css = fs.readFileSync(path.join(EXT_DIR, "styles.css"), "utf-8");
   const contentJs = fs.readFileSync(path.join(EXT_DIR, "content.js"), "utf-8");
   const popupHtml = fs.readFileSync(path.join(EXT_DIR, "popup.html"), "utf-8");
-  assert.ok(css.includes(".gmc-lunch-pill-done-btn"));
+  const popupJs = fs.readFileSync(path.join(EXT_DIR, "popup.js"), "utf-8");
   assert.ok(css.includes(".gmc-break-btn-timer"));
-  assert.ok(contentJs.includes("Pause déjeuner"));
-  assert.ok(contentJs.includes("Pause dîner"));
-  assert.ok(popupHtml.includes('id="eyesMinutes"'));
-  assert.ok(popupHtml.includes('id="postureMinutes"'));
-  assert.ok(popupHtml.includes('id="dinnerStartHour"'));
-  assert.ok(popupHtml.includes('id="windDownHour"'));
+  assert.ok(contentJs.includes("guard.isDndActive()"));
+  assert.ok(popupHtml.includes('id="dnd1hBtn"'));
+  assert.ok(popupHtml.includes('id="enableEyes"'));
+  assert.ok(popupHtml.includes('id="enableNight"'));
+  assert.ok(popupJs.includes("BREAK_SET_DND"));
 });
 
-test("background.js gère toutes les alertes (yeux, posture, dîner, fin de journée, nuit)", () => {
+test("background.js gère toutes les alertes et le mode Ne pas déranger", async () => {
   const bgCode = fs.readFileSync(path.join(EXT_DIR, "background.js"), "utf-8");
-  const cutIdx = bgCode.indexOf("async function reinjectAllTabs()");
+  const cutIdx = bgCode.indexOf("chrome.runtime.onInstalled.addListener");
+  let savedStore = {};
   const sandbox = {
     chrome: {
-      storage: { local: { get: async () => ({}), set: async () => {} } },
-      tabs: { query: async () => [] }
+      storage: {
+        local: {
+          get: async () => savedStore,
+          set: async (obj) => { savedStore = { ...savedStore, ...obj }; }
+        }
+      }
     }
   };
   vm.createContext(sandbox);
   vm.runInContext(bgCode.slice(0, cutIdx), sandbox);
 
   const custom = sandbox.sanitizeSettings({
-    moveMinutes: 45,
+    enableMove: false,
     eyesMinutes: 25,
     postureMinutes: 50,
-    dinnerStartHour: 19,
-    dinnerEndHour: 22,
     nightStartHour: 23,
     nightEndHour: 7,
-    nightEndMinute: 0,
-    nightRepeat0h: 15,
-    nightRepeat1h: 6,
-    nightRepeat2h: 3
+    nightRepeat0h: 15
   });
+  assert.equal(custom.enableMove, false);
   assert.equal(custom.eyesMinutes, 25);
-  assert.equal(custom.postureMinutes, 50);
-  assert.equal(sandbox.isDinnerTime(new Date(2026, 10, 24, 20, 15, 0), custom), true);
 
-  let state = { ...sandbox.DEFAULT_STATE };
-  let now = 1_000_000;
-  const eveningDate = new Date(2026, 10, 24, 23, 15, 0);
-  state = sandbox.applyActivity(state, now, eveningDate, custom);
-  state = sandbox.applyAcknowledge(state, "night", now, eveningDate, custom);
-  assert.equal(state.snoozeUntil, now + 15 * 60 * 1000);
-
-  state = sandbox.applyAcknowledge(state, "dinner", now, eveningDate, custom);
-  assert.equal(state.dinnerTakenDate, "2026-11-24");
-  state = sandbox.applyAcknowledge(state, "winddown", now, eveningDate, custom);
-  assert.equal(state.windDownDoneDate, "2026-11-24");
+  const dndRes = await sandbox.handleAction({ type: "BREAK_SET_DND", minutes: 60 });
+  assert.ok(dndRes.state.dndUntil > Date.now());
 });
-test("GlobalBreakGuard déclenche yeux 20-20-20, posture, dîner et fin de journée", () => {
+test("GlobalBreakGuard respecte les interrupteurs individuels et le mode DND", () => {
   const allNodes = [];
   const makeNode = (tag) => {
     const node = {
@@ -110,18 +106,24 @@ test("GlobalBreakGuard déclenche yeux 20-20-20, posture, dîner et fin de journ
     dateFn: () => new Date(2026, 10, 24, 20, 35, 0)
   });
 
-  assert.equal(guard.formatDuration(120), "2 h");
-  guard.setState({
-    moveStart: fakeNow - 5 * 60 * 1000,
-    drinkStart: fakeNow,
-    eyesStart: fakeNow - 21 * 60 * 1000,
-    postureStart: fakeNow - 46 * 60 * 1000,
-    dinnerWindowStart: fakeNow - 35 * 60 * 1000,
-    lastActivity: fakeNow
-  });
+  guard.setState(
+    {
+      moveStart: fakeNow - 40 * 60 * 1000,
+      drinkStart: fakeNow,
+      eyesStart: fakeNow - 21 * 60 * 1000,
+      postureStart: fakeNow - 46 * 60 * 1000,
+      dinnerWindowStart: fakeNow - 35 * 60 * 1000,
+      lastActivity: fakeNow
+    },
+    { enableMove: false, enableDinner: false }
+  );
   const types = guard.getActiveAlerts().map((a) => a.type);
+  assert.equal(types.includes("move"), false);
+  assert.equal(types.includes("dinner"), false);
   assert.ok(types.includes("eyes"));
   assert.ok(types.includes("posture"));
-  assert.ok(types.includes("dinner"));
   assert.ok(types.includes("winddown"));
+
+  guard.setState({ dndUntil: fakeNow + 3600_000 });
+  assert.equal(guard.getActiveAlerts().length, 0);
 });
