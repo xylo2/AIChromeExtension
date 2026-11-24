@@ -11,6 +11,17 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector);
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector);
 
+  const DEV_EXCUSES = [
+    "Ça marchait pourtant sur ma branche avant le rebase quantique.",
+    "Ce n'est pas un bug, c'est une fonctionnalité non documentée en phase bêta.",
+    "Le cache du presse-papiers a décidé de prendre sa pause café.",
+    "Les rayons cosmiques ont dû inverser un bit dans le service worker.",
+    "C'est un comportement nominal sous un alignement défavorable de Saturne.",
+    "Chez moi ça compile, le problème vient sûrement de la gravité locale.",
+    "J'avais prévu de corriger ça juste après la conquête du monde."
+  ];
+  const pickDevExcuse = () => DEV_EXCUSES.at(Math.floor(Math.random() * DEV_EXCUSES.length));
+
   let scanTimer = null;
   let isStartingWatcher = false;
   let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, lastEvent: null };
@@ -41,11 +52,11 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true);
   const yesBtn = makeBtn("gmc-quick-yes-btn", "Oui", "Envoyer « Oui » à l'IA");
   const nextBtn = makeBtn("gmc-quick-next-btn", "Suite", "Envoyer « Suite » à l'IA");
+  const excuseBtn = makeBtn("gmc-quick-excuse-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat");
   const gitBtn = makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true);
   const exportBtn = makeBtn("gmc-global-export-btn", "📦 Exporter projet", "Exporter le projet et l'envoyer dans le chat", true);
   const testsBtn = makeBtn("gmc-global-tests-btn", "🧪 Lancer les tests", "Exécuter les tests et envoyer les échecs", true);
   const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page");
-
   const setBtnState = (btn, state, label) => {
     btn.classList.remove("state-running", "state-pass", "state-fail");
     if (state) btn.classList.add(`state-${state}`);
@@ -111,6 +122,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   eventPill.addEventListener("click", () => chatInjector.insertPrompt(eventPill.textContent, true));
   yesBtn.addEventListener("click", () => chatInjector.insertPrompt("Oui", true));
   nextBtn.addEventListener("click", () => chatInjector.insertPrompt("Suite", true));
+  excuseBtn.addEventListener("click", () => chatInjector.insertPrompt(pickDevExcuse(), false));
   gitBtn.addEventListener("click", () => {
     if (gitManager.panelEl) { gitManager.close(); return; }
     setBtnState(gitBtn, "running", "⏳ Git...");

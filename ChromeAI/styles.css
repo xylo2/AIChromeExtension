@@ -160,6 +160,12 @@ code.gmc-collapsed-code,
   border-color: #a5b4fc !important;
 }
 
+.gmc-quick-excuse-btn {
+  background-color: #fffbeb !important;
+  color: #92400e !important;
+  border-color: #fcd34d !important;
+}
+
 .gmc-global-event-pill {
   max-width: 240px;
   overflow: hidden;

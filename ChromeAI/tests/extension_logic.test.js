@@ -36,6 +36,7 @@ test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral
   );
   assert.ok(contentJs.includes('insertPrompt("Oui", true)'), "Bouton Oui manquant dans content.js");
   assert.ok(contentJs.includes('insertPrompt("Suite", true)'), "Bouton Suite manquant dans content.js");
+  assert.ok(contentJs.includes("pickDevExcuse()"), "Bouton Excuse manquant dans content.js");
 });
 
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
