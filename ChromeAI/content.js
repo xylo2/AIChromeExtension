@@ -5,7 +5,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcInitialized = true;
   if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
-  document.querySelectorAll(".gmc-composer-quick-group").forEach((el) => el.remove());
+  document
+    .querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn")
+    .forEach((el) => el.remove());
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
@@ -39,7 +41,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const makeBtn = (cls, text, title = "", hidden = false, parent = floatingBar) => {
     const firstClass = cls.split(" ").at(0);
-    let el = document.querySelector(`.${firstClass}`);
+    let el = parent.querySelector(`.${firstClass}`);
     if (!el) {
       el = document.createElement("button");
       el.type = "button";
@@ -71,21 +73,33 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (href.includes("udm=50") || href.includes("aim=") || path.includes("/aim") || path.includes("/app")) return true;
     if (document.querySelector("rich-textarea, [data-aim-turn], [data-turn-id], pre")) return true;
     if (chatInjector.findChatInputElement()) return true;
-    const isClassicHome = (path === "/" || path === "/webhp") && !href.includes("udm=");
-    return !isClassicHome;
+    return !((path === "/" || path === "/webhp") && !href.includes("udm="));
+  };
+
+  const attachQuickGroupToFloatingBar = () => {
+    quickReplyGroup.classList.remove("gmc-composer-below");
+    if (quickReplyGroup.parentElement !== floatingBar || quickReplyGroup.nextSibling !== gitBtn) {
+      floatingBar.insertBefore(quickReplyGroup, gitBtn);
+    }
+  };
+
+  const isBottomConversationComposer = (inputEl) => {
+    if (!inputEl || inputEl.closest('form[action="/search"], [role="search"]')) return false;
+    if (typeof inputEl.getBoundingClientRect !== "function") return true;
+    const rect = inputEl.getBoundingClientRect();
+    const viewH = window.innerHeight || 0;
+    return rect.height > 0 && (viewH === 0 || rect.top >= viewH * 0.45);
   };
 
   const mountQuickButtonsNearPlus = () => {
+    document.querySelectorAll(".gmc-composer-quick-group").forEach((el) => { if (el !== quickReplyGroup) el.remove(); });
     if (!isAiConversationPage()) {
-      quickReplyGroup.style.display = "none";
+      if (quickReplyGroup.style.display !== "none") quickReplyGroup.style.display = "none";
       return;
     }
-    quickReplyGroup.style.display = "";
+    if (quickReplyGroup.style.display !== "inline-flex") quickReplyGroup.style.display = "inline-flex";
     const inputEl = chatInjector.findChatInputElement();
-    if (!inputEl) {
-      if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
-      return;
-    }
+    if (!isBottomConversationComposer(inputEl)) { attachQuickGroupToFloatingBar(); return; }
     let box = inputEl.parentElement;
     for (let depth = 0; depth < 7 && box; depth++) {
       const plusBtn = Array.from(box.querySelectorAll("button, [role='button']")).find((btn) => {
@@ -95,19 +109,12 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       });
       if (plusBtn?.parentElement && box.contains(plusBtn)) {
         let anchor = plusBtn;
-        while (
-          anchor.parentElement &&
-          anchor.parentElement !== box &&
-          anchor.parentElement.children.length <= 2 &&
-          !anchor.parentElement.contains(inputEl)
-        ) {
+        while (anchor.parentElement && anchor.parentElement !== box && anchor.parentElement.children.length <= 2 && !anchor.parentElement.contains(inputEl)) {
           anchor = anchor.parentElement;
         }
         const rowContainer = anchor.parentElement;
         const siblingInputBox = anchor.nextElementSibling;
-        const isInsidePill = Boolean(rowContainer?.closest('form[action="/search"], [role="search"]'));
-        const isInlineNarrow = isInsidePill || (siblingInputBox && siblingInputBox.contains(inputEl));
-        if (isInlineNarrow && box.parentElement) {
+        if (siblingInputBox && siblingInputBox.contains(inputEl) && box.parentElement) {
           if (quickReplyGroup.parentElement !== box.parentElement || box.nextSibling !== quickReplyGroup) {
             quickReplyGroup.classList.add("gmc-composer-below");
             box.parentElement.insertBefore(quickReplyGroup, box.nextSibling);
@@ -122,7 +129,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       }
       box = box.parentElement;
     }
-    if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
+    attachQuickGroupToFloatingBar();
   };
 
   const setBtnState = (btn, state, label) => {
@@ -130,7 +137,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (state) btn.classList.add(`state-${state}`);
     btn.textContent = label;
   };
-
   const parseCoveragePercent = (reportText) => {
     const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i);
     return m ? Number.parseFloat(m.at(1)) : null;
@@ -147,24 +153,19 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     coverageBtn.classList.toggle("state-pass", isFull);
     coverageBtn.classList.toggle("state-fail", pct !== null && pct < 70);
     const pctSuffix = pct !== null ? ` (${pct.toFixed(1)}%)` : "";
-    if (isFull) {
-      coverageBtn.textContent = "✅ Couv. 100.0%";
-      coverageBtn.title = "Toutes les lignes exécutables mesurées sont couvertes par les tests";
-    } else {
-      coverageBtn.textContent = `📊 Couverture${pctSuffix}`;
-      coverageBtn.title = "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
-    }
+    coverageBtn.textContent = isFull ? "✅ Couv. 100.0%" : `📊 Couverture${pctSuffix}`;
+    coverageBtn.title = isFull
+      ? "Toutes les lignes exécutables mesurées sont couvertes par les tests"
+      : "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
   };
+
   const updateIndicators = () => {
     const running = Boolean(watcherState?.running);
     if (running) isStartingWatcher = false;
     statusPill.className = `gmc-global-status-pill ${running ? "online" : "offline"}`;
     const folder = watcherState.targetDir ? watcherState.targetDir.split(/[\\/]/).filter(Boolean).pop() : "";
-    if (running) {
-      statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
-    } else if (!isStartingWatcher) {
-      statusPill.textContent = "🔴 Watcher OFF";
-    }
+    if (running) statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
+    else if (!isStartingWatcher) statusPill.textContent = "🔴 Watcher OFF";
     gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
@@ -189,10 +190,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       return;
     }
     chrome.runtime.sendMessage(payload, (res) => {
-      if (chrome.runtime.lastError) {
-        onReply({ ok: false, error: chrome.runtime.lastError.message || "Port fermé" });
-        return;
-      }
+      if (chrome.runtime.lastError) { onReply({ ok: false, error: chrome.runtime.lastError.message || "Port fermé" }); return; }
       onReply(res);
     });
   };
@@ -204,11 +202,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     chrome.storage.local.get(["savedTargetDir", "savedExtraArgs"], (res) => {
       sendBgMessage(
         { type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() },
-        (reply) => {
-          isStartingWatcher = false;
-          if (reply?.state) watcherState = reply.state;
-          updateIndicators();
-        }
+        (reply) => { isStartingWatcher = false; if (reply?.state) watcherState = reply.state; updateIndicators(); }
       );
     });
   });
@@ -280,8 +274,19 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (msg?.type === "INSERT_TEST_RESULT" && msg.output) sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) });
   });
 
+  const isExternalMutation = (records) => records.some((r) => {
+    const t = r.target;
+    if (t && t.nodeType === 1 && (String(t.className || "").includes("gmc-") || t.closest?.(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-git-panel"))) return false;
+    const nodes = [...(r.addedNodes || []), ...(r.removedNodes || [])];
+    return nodes.length === 0 || nodes.some((n) => n.nodeType !== 1 || !String(n.className || "").includes("gmc-"));
+  });
+
   const scanAll = (preExisting = false) => { mountQuickButtonsNearPlus(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); };
-  window.__gmcObserver = new MutationObserver(() => { clearTimeout(scanTimer); scanTimer = setTimeout(() => scanAll(false), 300); });
+  window.__gmcObserver = new MutationObserver((records) => {
+    if (!isExternalMutation(records)) return;
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(() => scanAll(false), 300);
+  });
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
   scanAll(true);
   refreshState();

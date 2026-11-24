@@ -66,6 +66,23 @@
       outline: none;
       border-color: #38bdf8;
     }
+    input:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      background: #020617;
+      color: #94a3b8;
+    }
+    .lock-notice {
+      display: none;
+      font-size: 11px;
+      color: #fbbf24;
+      background: #451a03;
+      border: 1px solid #b45309;
+      border-radius: 5px;
+      padding: 5px 8px;
+      margin-bottom: 8px;
+      word-break: normal;
+    }
     .cmd-box {
       display: flex;
       align-items: center;
@@ -131,34 +148,6 @@
     .btn-stop:hover:not(:disabled) {
       background: #b91c1c;
     }
-    .btn-tests {
-      width: 100%;
-      margin-top: 8px;
-      background: #475569;
-      color: #f8fafc;
-      border: none;
-      border-radius: 5px;
-      padding: 7px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background-color 0.15s ease;
-    }
-    .btn-tests:hover:not(:disabled):not(.state-running):not(.state-pass):not(.state-fail) {
-      background: #64748b;
-    }
-    .btn-tests.state-running {
-      background: #7c3aed;
-      color: #ffffff;
-    }
-    .btn-tests.state-pass {
-      background: #16a34a;
-      color: #ffffff;
-    }
-    .btn-tests.state-fail {
-      background: #dc2626;
-      color: #ffffff;
-    }
     .btn-refresh {
       background: #334155;
       color: #f8fafc;
@@ -210,14 +199,6 @@
       <div id="activeTargetDir">-</div>
       <span class="label" style="margin-top: 6px;">PID processus :</span>
       <div id="pid">-</div>
-      <span class="label" style="margin-top: 6px;">Commande en cours :</span>
-      <div class="cmd-box" style="margin-top: 4px; margin-bottom: 0;">
-        <code id="activeCommand" class="cmd-text">-</code>
-        <button id="copyActiveBtn" class="btn-copy" type="button" title="Copier la commande">Copier</button>
-      </div>
-      <button id="runTestsBtn" class="btn-tests" type="button" style="display: none;">
-        Lancer les tests (→ chat)
-      </button>
     </div>
     <div id="detailsOffline">
       Le script n'est pas lancé. Configure ton dossier ci-dessous :
@@ -225,6 +206,10 @@
   </div>
 
   <div class="card">
+    <div id="configLockNotice" class="lock-notice">
+      🔒 Paramètres verrouillés pendant l'exécution (arrêtez le watcher pour modifier).
+    </div>
+
     <label class="label" for="rootDirInput">Racine workspace (contenant tools\watch_clipboard) :</label>
     <input id="rootDirInput" type="text" placeholder="Ex: C:\git" />
 

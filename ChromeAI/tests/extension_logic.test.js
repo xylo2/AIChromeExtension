@@ -40,8 +40,10 @@ test("chaque module est concis (<= 310 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes("res.uncovered"));
   assert.equal(contentJs.includes("GmcBreakGuard"), false);
   assert.ok(contentJs.includes("gmc-composer-below"));
+  assert.ok(contentJs.includes("isBottomConversationComposer"));
 });
-test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", () => {
+
+test("mountQuickButtonsNearPlus garde les boutons stables si le compositeur n'est pas en bas", () => {
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
   const start = contentJs.indexOf("const isAiConversationPage = () => {");
   const end = contentJs.indexOf("const setBtnState =");
@@ -65,14 +67,18 @@ test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", 
     nextElementSibling: null,
     nextSibling: null,
     isConnected: false,
+    removed: false,
+    rectTop: 650,
     classList: {
       set: new Set(),
       add(c) { this.set.add(c); },
       remove(c) { this.set.delete(c); },
       contains(c) { return this.set.has(c); }
     },
+    getBoundingClientRect() { return { top: this.rectTop, height: 40 }; },
     getAttribute() { return ""; },
     closest() { return null; },
+    remove() { this.removed = true; },
     querySelectorAll(sel) { return sel.includes("button") ? [plusBtn] : []; },
     contains(target) {
       if (target === this) return true;
@@ -99,23 +105,33 @@ test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", 
   wireParent(outerWrapper, [composerBox]);
 
   const quickReplyGroup = makeEl("DIV");
+  const staleDuplicateGroup = makeEl("DIV");
   const floatingBar = makeEl("DIV");
   const gitBtn = makeEl("BUTTON");
+  wireParent(floatingBar, [gitBtn]);
   const sandbox = {
-    window: { location: { href: "https://www.google.com", pathname: "/search" } },
-    document: { querySelector: () => ({}) },
+    window: { innerHeight: 800, location: { href: "https://www.google.com", pathname: "/search" } },
+    document: {
+      querySelector: () => ({}),
+      querySelectorAll: () => [staleDuplicateGroup, quickReplyGroup]
+    },
     chatInjector: { findChatInputElement: () => inputEl },
     quickReplyGroup,
     floatingBar,
     gitBtn
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${fnCode}\nmountQuickButtonsNearPlus();`, sandbox);
 
+  inputEl.rectTop = 220;
+  vm.runInContext(`${fnCode}\nmountQuickButtonsNearPlus();`, sandbox);
+  assert.equal(staleDuplicateGroup.removed, true);
+  assert.equal(quickReplyGroup.parentElement, floatingBar);
+
+  inputEl.rectTop = 650;
+  vm.runInContext("mountQuickButtonsNearPlus();", sandbox);
   assert.equal(quickReplyGroup.parentElement, outerWrapper);
   assert.equal(quickReplyGroup.classList.contains("gmc-composer-below"), true);
 });
-
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
@@ -154,6 +170,55 @@ test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolati
 
   const rawPushErr = "To https://example.com\n ! [rejected] HEAD -> main (non-fast-forward)\nfatal: failed to push";
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
+});
+
+test("popup.js verrouille les champs et masque commande en cours et tests dans la popup", () => {
+  const popupHtml = fs.readFileSync(path.join(EXTENSION_DIR, "popup.html"), "utf-8");
+  const popupCode = fs.readFileSync(path.join(EXTENSION_DIR, "popup.js"), "utf-8");
+  assert.equal(popupHtml.includes("activeCommand"), false);
+  assert.equal(popupHtml.includes("runTestsBtn"), false);
+  assert.equal(popupCode.includes("activeCommand"), false);
+  assert.equal(popupCode.includes("runTestsBtn"), false);
+
+  const endIdx = popupCode.indexOf('document.addEventListener("DOMContentLoaded"');
+  const elements = new Map();
+  const getEl = (id) => {
+    if (!elements.has(id)) {
+      elements.set(id, {
+        id,
+        value: "",
+        disabled: false,
+        title: "",
+        textContent: "",
+        className: "",
+        style: {},
+        classList: { remove() {}, add() {} }
+      });
+    }
+    return elements.get(id);
+  };
+  const sandbox = {
+    document: { getElementById: getEl },
+    chrome: {
+      runtime: { id: "test-ext-id" },
+      storage: { local: { get: (_k, cb) => cb({}) } }
+    }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(popupCode.slice(0, endIdx), sandbox);
+
+  const inputIds = ["rootDirInput", "targetDirInput", "testRunnerInput", "extraArgsInput"];
+  sandbox.renderState({ running: true, targetDir: "C:\\git\\tools", pid: 1234 });
+  for (const id of inputIds) {
+    assert.equal(getEl(id).disabled, true, `${id} doit être verrouillé quand running=true`);
+  }
+  assert.equal(getEl("configLockNotice").style.display, "block");
+
+  sandbox.renderState({ running: false });
+  for (const id of inputIds) {
+    assert.equal(getEl(id).disabled, false, `${id} doit être déverrouillé quand running=false`);
+  }
+  assert.equal(getEl("configLockNotice").style.display, "none");
 });
 
 test("background.js purge le jeton périmé après un 401 suivi d'un 200 OK", async () => {

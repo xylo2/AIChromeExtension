@@ -1,5 +1,8 @@
 const DEFAULT_ROOT_DIR = "C:\\git";
 const DEFAULT_TEST_RUNNER = "tools/run_tests_clip.py";
+const CONFIG_INPUT_IDS = ["rootDirInput", "targetDirInput", "testRunnerInput", "extraArgsInput"];
+
+let isWatcherRunning = false;
 
 function formatArg(value) {
   if (!value) return "";
@@ -36,6 +39,23 @@ function updateCommandPreview() {
   document.getElementById("installCommandText").textContent = buildInstallCommand(rootDir);
 }
 
+function setConfigInputsLocked(locked) {
+  isWatcherRunning = Boolean(locked);
+  for (const id of CONFIG_INPUT_IDS) {
+    const inputEl = document.getElementById(id);
+    if (inputEl) {
+      inputEl.disabled = isWatcherRunning;
+      inputEl.title = isWatcherRunning
+        ? "Arrêtez watch_clipboard avant de modifier ce paramètre."
+        : "";
+    }
+  }
+  const notice = document.getElementById("configLockNotice");
+  if (notice) {
+    notice.style.display = isWatcherRunning ? "block" : "none";
+  }
+}
+
 function bindCopyButton(btnId, codeId) {
   const btn = document.getElementById(btnId);
   btn.addEventListener("click", async () => {
@@ -60,7 +80,6 @@ function showError(msg) {
   box.style.display = "block";
   box.textContent = msg;
 }
-
 function showInstallHelp(installCommand) {
   const helpBox = document.getElementById("installHelpBox");
   if (!installCommand) {
@@ -77,38 +96,26 @@ function setButtonsBusy(busy) {
   document.getElementById("refreshBtn").disabled = busy;
 }
 
-function setPopupTestsButtonState(btn, stateName, labelText) {
-  btn.classList.remove("state-running", "state-pass", "state-fail");
-  if (stateName) {
-    btn.classList.add(`state-${stateName}`);
-  }
-  btn.textContent = labelText;
-}
-
 function renderState(state) {
   const pill = document.getElementById("statusPill");
   const detailsOnline = document.getElementById("detailsOnline");
   const detailsOffline = document.getElementById("detailsOffline");
   const activeTargetDir = document.getElementById("activeTargetDir");
   const pid = document.getElementById("pid");
-  const activeCommand = document.getElementById("activeCommand");
-  const runTestsBtn = document.getElementById("runTestsBtn");
   const lastCheck = document.getElementById("lastCheck");
   const startBtn = document.getElementById("startBtn");
   const stopBtn = document.getElementById("stopBtn");
+  const running = Boolean(state && state.running);
 
-  if (state && state.running) {
+  setConfigInputsLocked(running);
+
+  if (running) {
     pill.textContent = "ACTIF";
     pill.className = "pill on";
     detailsOnline.style.display = "block";
     detailsOffline.style.display = "none";
     activeTargetDir.textContent = state.targetDir || "-";
     pid.textContent = state.pid ? String(state.pid) : "-";
-    activeCommand.textContent = state.command || "-";
-    runTestsBtn.style.display = state.hasRunTestsClip ? "block" : "none";
-    if (state.testRunnerPath) {
-      runTestsBtn.title = `Exécuter ${state.testRunnerPath}`;
-    }
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
     showInstallHelp(null);
@@ -124,8 +131,6 @@ function renderState(state) {
     pill.className = "pill off";
     detailsOnline.style.display = "none";
     detailsOffline.style.display = "block";
-    runTestsBtn.style.display = "none";
-    setPopupTestsButtonState(runTestsBtn, null, "Lancer les tests (→ chat)");
     startBtn.style.display = "block";
     stopBtn.style.display = "none";
   }
@@ -139,21 +144,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const targetInput = document.getElementById("targetDirInput");
   const testRunnerInput = document.getElementById("testRunnerInput");
   const extraInput = document.getElementById("extraArgsInput");
-  const runTestsBtn = document.getElementById("runTestsBtn");
 
   rootInput.addEventListener("input", () => {
+    if (isWatcherRunning) return;
     chrome.storage.local.set({ savedRootDir: getCleanRootDir() });
     updateCommandPreview();
   });
   testRunnerInput.addEventListener("input", () => {
+    if (isWatcherRunning) return;
     const val = testRunnerInput.value.trim() || DEFAULT_TEST_RUNNER;
     chrome.storage.local.set({ savedTestRunner: val });
   });
-  targetInput.addEventListener("input", updateCommandPreview);
-  extraInput.addEventListener("input", updateCommandPreview);
+  targetInput.addEventListener("input", () => {
+    if (!isWatcherRunning) updateCommandPreview();
+  });
+  extraInput.addEventListener("input", () => {
+    if (!isWatcherRunning) updateCommandPreview();
+  });
 
   bindCopyButton("copyPreviewBtn", "previewCommand");
-  bindCopyButton("copyActiveBtn", "activeCommand");
   bindCopyButton("copyInstallBtn", "installCommandText");
 
   chrome.storage.local.get(
@@ -180,28 +189,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.addEventListener("unload", () => clearInterval(popupPoll));
 
-  runTestsBtn.addEventListener("click", () => {
-    showError("");
-    runTestsBtn.disabled = true;
-    setPopupTestsButtonState(runTestsBtn, "running", "⏳ Exécution des tests en cours...");
-
-    chrome.runtime.sendMessage(
-      { type: "RUN_PROJECT_TESTS", injectIntoActiveTab: true },
-      (res) => {
-        runTestsBtn.disabled = false;
-        if (!res || !res.ok) {
-          setPopupTestsButtonState(runTestsBtn, "fail", "❌ Erreur d'exécution");
-          showError(`Erreur tests : ${(res && res.error) || "Échec du lancement."}`);
-          return;
-        }
-        const statusMsg = res.passed ? "✅ Tests OK" : "⚠️ Échecs détectés";
-        const suffix = res.insertedInPage ? " (collé dans le chat !)" : " (copié !)";
-        setPopupTestsButtonState(runTestsBtn, res.passed ? "pass" : "fail", `${statusMsg}${suffix}`);
-      }
-    );
-  });
-
   document.getElementById("startBtn").addEventListener("click", () => {
+    if (isWatcherRunning) return;
     showError("");
     showInstallHelp(null);
     setButtonsBusy(true);
