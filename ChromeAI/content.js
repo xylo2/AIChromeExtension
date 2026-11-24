@@ -70,8 +70,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     const path = String(window.location?.pathname || "").toLowerCase();
     if (href.includes("udm=50") || href.includes("aim=") || path.includes("/aim") || path.includes("/app")) return true;
     if (document.querySelector("rich-textarea, [data-aim-turn], [data-turn-id], pre")) return true;
+    if (chatInjector.findChatInputElement()) return true;
     const isClassicHome = (path === "/" || path === "/webhp") && !href.includes("udm=");
-    return !isClassicHome && Boolean(document.querySelector('form[action="/search"] [aria-label*="Mode IA" i]'));
+    return !isClassicHome;
   };
 
   const mountQuickButtonsNearPlus = () => {
@@ -92,9 +93,14 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
         const meta = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.textContent || ""}`.toLowerCase();
         return meta.includes("ajouter") || meta.includes("importer") || meta.includes("plus") || meta.includes("upload") || btn.textContent.trim() === "+";
       });
-      if (plusBtn?.parentElement) {
+      if (plusBtn?.parentElement && box.contains(plusBtn)) {
         let anchor = plusBtn;
-        while (anchor.parentElement && anchor.parentElement !== box && anchor.parentElement.children.length <= 2) {
+        while (
+          anchor.parentElement &&
+          anchor.parentElement !== box &&
+          anchor.parentElement.children.length <= 2 &&
+          !anchor.parentElement.contains(inputEl)
+        ) {
           anchor = anchor.parentElement;
         }
         const rowContainer = anchor.parentElement;

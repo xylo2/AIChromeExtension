@@ -14,10 +14,7 @@ from project_exporter.gitignore import GitignoreManager
 
 
 class TestExporterExtra(unittest.TestCase):
-    """
-    Tests complémentaires couvrant les branches d'exclusion, encodage non-UTF8
-    de config.ini, règles .gitignore avancées et la CLI export_project.py.
-    """
+    """Tests complémentaires couvrant les branches d'exclusion et la CLI export_project.py."""
 
     def setUp(self) -> None:
         self.logger: logging.Logger = logging.getLogger("test_exporter_extra")
@@ -34,10 +31,7 @@ class TestExporterExtra(unittest.TestCase):
     def test_exporter_exclusions_and_gitignore_wildcards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            (root / ".gitignore").write_text(
-                "# comment\ndocs/**\n**/cache_dir/\n?temp.py\n",
-                encoding="utf-8",
-            )
+            (root / ".gitignore").write_text("# comment\ndocs/**\n**/cache_dir/\n?temp.py\n", encoding="utf-8")
             (root / "docs").mkdir()
             (root / "docs" / "readme.md").write_text("ignored\n", encoding="utf-8")
             (root / "pkg" / "cache_dir").mkdir(parents=True)
@@ -52,11 +46,8 @@ class TestExporterExtra(unittest.TestCase):
             cfg.excluded_patterns.add(".tmp")
 
             exp = ProjectExporter(
-                root_dir=root,
-                config=cfg,
-                output_file=out_file,
-                script_path=root / "export_project.py",
-                logger=self.logger,
+                root_dir=root, config=cfg, output_file=out_file,
+                script_path=root / "export_project.py", logger=self.logger,
             )
             self.assertFalse(exp.is_target_file(Path(tmp_dir).parent / "outside.py"))
             self.assertEqual(exp.export(), 1)
@@ -76,14 +67,23 @@ class TestExporterExtra(unittest.TestCase):
             proj.mkdir()
             (proj / "main.py").write_text("x = 42\n", encoding="utf-8")
             out_path = Path(tmp_dir) / "out.txt"
-            with patch.object(sys, "argv", ["export_project.py", str(proj), "-o", str(out_path), "--no-gitignore"]):
-                spec = importlib.util.spec_from_file_location("export_project_cli", str(cli_script))
+            argv_ok = ["export_project.py", str(proj), "-o", str(out_path), "-i", "py", "-e", "*.bak", "--no-gitignore", "-v"]
+            with patch.object(sys, "argv", argv_ok):
+                spec = importlib.util.spec_from_file_location("__main__", str(cli_script))
                 assert spec and spec.loader
                 mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                if hasattr(mod, "main"):
-                    rc = mod.main()
-                    self.assertIn(rc, (0, None))
+                try:
+                    spec.loader.exec_module(mod)
+                except SystemExit as exc:
+                    self.assertIn(exc.code, (0, None))
+            self.assertTrue(out_path.is_file())
+
+            with patch.object(sys, "argv", ["export_project.py", str(Path(tmp_dir) / "absent_dir")]):
+                spec_err = importlib.util.spec_from_file_location("__main__", str(cli_script))
+                assert spec_err and spec_err.loader
+                mod_err = importlib.util.module_from_spec(spec_err)
+                with self.assertRaises(SystemExit):
+                    spec_err.loader.exec_module(mod_err)
 
 
 if __name__ == "__main__":

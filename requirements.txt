@@ -1,0 +1,2 @@
+# Dépendance optionnelle uniquement pour exécuter les tests Node.js (ChromeAI) via nodeenv
+nodeenv>=1.9.1
