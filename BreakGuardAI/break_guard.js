@@ -8,13 +8,21 @@ class GlobalBreakGuard {
     this.onAcknowledge = options.onAcknowledge || (() => {});
     this.onNightShown = options.onNightShown || (() => {});
     this.customStackPos = null;
+    this.eyesTimerId = null;
     this.settings = {
       moveMinutes: options.moveLimitMinutes ?? 30,
       drinkMinutes: options.drinkLimitMinutes ?? 120,
+      eyesMinutes: options.eyesLimitMinutes ?? 20,
+      postureMinutes: options.postureLimitMinutes ?? 45,
       lunchStartHour: options.lunchStartHour ?? 12,
       lunchEndHour: options.lunchEndHour ?? 14,
       lunchRepeatMinutes: options.lunchRepeatMinutes ?? 30,
-      nightStartHour: options.midnightStartHour ?? 0,
+      dinnerStartHour: options.dinnerStartHour ?? 19,
+      dinnerEndHour: options.dinnerEndHour ?? 22,
+      dinnerRepeatMinutes: options.dinnerRepeatMinutes ?? 30,
+      windDownHour: options.windDownHour ?? 20,
+      windDownMinute: options.windDownMinute ?? 0,
+      nightStartHour: options.midnightStartHour ?? 23,
       nightEndHour: 6,
       nightEndMinute: 30,
       nightRepeat0h: 10,
@@ -25,8 +33,13 @@ class GlobalBreakGuard {
     this.state = {
       moveStart: null,
       drinkStart: null,
+      eyesStart: null,
+      postureStart: null,
       lunchWindowStart: null,
       lunchTakenDate: null,
+      dinnerWindowStart: null,
+      dinnerTakenDate: null,
+      windDownDoneDate: null,
       lastActivity: null,
       snoozeUntil: 0,
       nightAlertCount: 0,
@@ -36,7 +49,10 @@ class GlobalBreakGuard {
 
   get moveLimitMs() { return this.settings.moveMinutes * 60 * 1000; }
   get drinkLimitMs() { return this.settings.drinkMinutes * 60 * 1000; }
+  get eyesLimitMs() { return this.settings.eyesMinutes * 60 * 1000; }
+  get postureLimitMs() { return this.settings.postureMinutes * 60 * 1000; }
   get lunchRepeatMs() { return this.settings.lunchRepeatMinutes * 60 * 1000; }
+  get dinnerRepeatMs() { return this.settings.dinnerRepeatMinutes * 60 * 1000; }
   get idleResetMs() { return this.settings.idleResetMinutes * 60 * 1000; }
 
   formatDuration(minutes) {
@@ -71,8 +87,27 @@ class GlobalBreakGuard {
     return h >= this.settings.lunchStartHour && h < this.settings.lunchEndHour;
   }
 
+  isDinnerTime(d = this.dateFn()) {
+    const h = d.getHours();
+    return h >= this.settings.dinnerStartHour && h < this.settings.dinnerEndHour;
+  }
+
+  isWindDownTime(d = this.dateFn()) {
+    const mins = d.getHours() * 60 + d.getMinutes();
+    const targetMins = this.settings.windDownHour * 60 + this.settings.windDownMinute;
+    return mins >= targetMins && !this.isAfterMidnight(d);
+  }
+
   hasEatenToday(d = this.dateFn()) {
     return this.state.lunchTakenDate === this.getDateKey(d);
+  }
+
+  hasHadDinnerToday(d = this.dateFn()) {
+    return this.state.dinnerTakenDate === this.getDateKey(d);
+  }
+
+  hasWoundDownToday(d = this.dateFn()) {
+    return this.state.windDownDoneDate === this.getDateKey(d);
   }
 
   getNightRepeatMinutes(d = this.dateFn()) {
@@ -107,6 +142,7 @@ class GlobalBreakGuard {
     if (now < (st.snoozeUntil || 0)) return [];
     const dismissed = new Set(st.dismissedTypes || []);
     const alerts = [];
+
     if (isNight && !dismissed.has("night")) {
       const h = d.getHours();
       alerts.push({
@@ -119,21 +155,38 @@ class GlobalBreakGuard {
         alerts.push({ type: "lunch", message: "🍽️ Il est l'heure de déjeuner : pense à aller manger !" });
       }
     }
+    if (this.isDinnerTime(d) && !this.hasHadDinnerToday(d) && !dismissed.has("dinner")) {
+      if (st.dinnerWindowStart && now - st.dinnerWindowStart >= this.dinnerRepeatMs) {
+        alerts.push({ type: "dinner", message: "🍲 Il est l'heure de dîner : pense à faire une vraie pause repas !" });
+      }
+    }
+    if (!isNight && this.isWindDownTime(d) && !this.hasWoundDownToday(d) && !dismissed.has("winddown")) {
+      alerts.push({ type: "winddown", message: "🌇 Fin de journée : pense à clôturer tes tâches et décrocher des écrans" });
+    }
     if (st.drinkStart && now - st.drinkStart >= this.drinkLimitMs && !dismissed.has("drink")) {
       alerts.push({ type: "drink", message: "💧 N'oublie pas de boire" });
     }
     if (!isNight && now - st.moveStart >= this.moveLimitMs && !dismissed.has("move")) {
       alerts.push({ type: "move", message: "🚶 Ton corps a besoin de bouger, même un tout petit peu, lève-toi" });
     }
+    if (!isNight && st.postureStart && now - st.postureStart >= this.postureLimitMs && !dismissed.has("posture")) {
+      alerts.push({ type: "posture", message: "🪑 Posture : redresse le dos, relâche les épaules et décroise les jambes" });
+    }
+    if (!isNight && st.eyesStart && now - st.eyesStart >= this.eyesLimitMs && !dismissed.has("eyes")) {
+      alerts.push({ type: "eyes", message: "👀 Pause visuelle (20-20-20) : regarde au loin à 6 m pendant 20 secondes" });
+    }
     return alerts;
   }
-
   getAlertSvg(type) {
     const svgs = {
       night: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#c084fc" stroke-width="2.5"/><path d="M29.5 13.5C23.5 14.2 19 19.3 19 25.5C19 32.1 24.4 37.5 31 37.5C33.4 37.5 35.6 36.8 37.4 35.6C35.4 38.6 32 40.5 28 40.5C21.6 40.5 16.5 35.4 16.5 29C16.5 22.8 21.3 17.8 27.4 17.5C28.2 16 28.9 14.7 29.5 13.5Z" fill="#fde047"/><path d="M34 12L35 14.5L37.5 15.5L35 16.5L34 19L33 16.5L30.5 15.5L33 14.5L34 12Z" fill="#f472b6"/><circle cx="14" cy="16" r="1.8" fill="#fde047"/></svg>',
       move: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#022c22" stroke="#34d399" stroke-width="2.5"/><circle cx="25" cy="12" r="3.6" fill="#6ee7b7"/><path d="M17 20L24 18L32 15M24 18L22 28L16 37M22 28L29 31L31 38" stroke="#ecfdf5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 39H36" stroke="#10b981" stroke-width="2.5" stroke-linecap="round"/></svg>',
       drink: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#082f49" stroke="#38bdf8" stroke-width="2.5"/><path d="M16 14H32L29.5 36H18.5L16 14Z" stroke="#e0f2fe" stroke-width="2.5" stroke-linejoin="round"/><path d="M17.3 24C20 22.5 23 25.5 26 24C28 23 29.5 23.5 30.7 24L29.5 35H18.5L17.3 24Z" fill="#0ea5e9"/><path d="M35 12C35 12 38 15.2 38 17C38 18.7 36.7 20 35 20C33.3 20 32 18.7 32 17C32 15.2 35 12 35 12Z" fill="#7dd3fc"/></svg>',
-      lunch: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#290d02" stroke="#fb923c" stroke-width="2.5"/><circle cx="24" cy="25" r="10.5" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/><circle cx="24" cy="25" r="6" stroke="#ea580c" stroke-width="1.8" stroke-dasharray="2.5 2"/><path d="M10.5 13.5V21C10.5 22.8 11.8 24 13.5 24V36.5M13.5 13.5V21M36.5 13.5V36.5M36.5 13.5C38.8 13.5 39.6 16.2 39.6 19.5C39.6 22.2 38.3 23.8 36.5 23.8" stroke="#fef3c7" stroke-width="2.6" stroke-linecap="round"/></svg>'
+      lunch: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#290d02" stroke="#fb923c" stroke-width="2.5"/><circle cx="24" cy="25" r="10.5" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/><circle cx="24" cy="25" r="6" stroke="#ea580c" stroke-width="1.8" stroke-dasharray="2.5 2"/><path d="M10.5 13.5V21C10.5 22.8 11.8 24 13.5 24V36.5M13.5 13.5V21M36.5 13.5V36.5M36.5 13.5C38.8 13.5 39.6 16.2 39.6 19.5C39.6 22.2 38.3 23.8 36.5 23.8" stroke="#fef3c7" stroke-width="2.6" stroke-linecap="round"/></svg>',
+      dinner: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#431407" stroke="#f59e0b" stroke-width="2.5"/><path d="M12 24H36C36 30.6 30.6 36 24 36C17.4 36 12 30.6 12 24Z" fill="#fef3c7" stroke="#fbbf24" stroke-width="2"/><path d="M18 19C18 17 19.5 16 19.5 14M24 19C24 17 25.5 16 25.5 14M30 19C30 17 31.5 16 31.5 14" stroke="#fde68a" stroke-width="2.2" stroke-linecap="round"/></svg>',
+      eyes: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#042f2e" stroke="#2dd4bf" stroke-width="2.5"/><path d="M9 24C12.5 17.5 17.8 14.5 24 14.5C30.2 14.5 35.5 17.5 39 24C35.5 30.5 30.2 33.5 24 33.5C17.8 33.5 12.5 30.5 9 24Z" stroke="#ccfbf1" stroke-width="2.6" stroke-linejoin="round"/><circle cx="24" cy="24" r="5.5" fill="#14b8a6" stroke="#f0fdfa" stroke-width="2"/><circle cx="25.8" cy="22.2" r="1.6" fill="#ffffff"/></svg>',
+      posture: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#818cf8" stroke-width="2.5"/><circle cx="24" cy="12" r="3.6" fill="#c7d2fe"/><path d="M24 17V29H32V38M16 22H31M15 38H26" stroke="#eef2ff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      winddown: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#4c0519" stroke="#fb7185" stroke-width="2.5"/><path d="M10 31H38" stroke="#fda4af" stroke-width="2.5" stroke-linecap="round"/><path d="M15 31C15 26 19 22 24 22C29 22 33 26 33 31" fill="#fb923c" stroke="#fde047" stroke-width="2"/><path d="M24 13V17M15 17L17.5 19.5M33 17L30.5 19.5" stroke="#fde047" stroke-width="2.2" stroke-linecap="round"/></svg>'
     };
     return svgs[type] || svgs.lunch;
   }
@@ -219,6 +272,24 @@ class GlobalBreakGuard {
     if (p >= 1) banner.classList.add("gmc-break-fullscreen");
   }
 
+  startEyesCountdown(banner, timerBtn) {
+    if (this.eyesTimerId) clearInterval(this.eyesTimerId);
+    let remaining = 20;
+    timerBtn.disabled = true;
+    timerBtn.textContent = `⏳ Regarde au loin (${remaining} s)...`;
+    this.eyesTimerId = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(this.eyesTimerId);
+        this.eyesTimerId = null;
+        banner.remove();
+        this.onAcknowledge("eyes");
+      } else {
+        timerBtn.textContent = `⏳ Regarde au loin (${remaining} s)...`;
+      }
+    }, 1000);
+  }
+
   renderBanner(alertObj) {
     const container = this.getContainer();
     if (!container) return;
@@ -245,38 +316,54 @@ class GlobalBreakGuard {
     const ackLabels = {
       night: `😴 J'y vais (rappel dans ${repeatDelay})`,
       lunch: "🍽️ J'ai mangé",
+      dinner: "🍲 J'ai dîné",
+      winddown: "🌇 Bonne soirée",
       drink: `💧 C'est fait (prochain dans ${this.formatDuration(this.settings.drinkMinutes)})`,
-      move: `✅ Je me suis levé (prochain dans ${this.formatDuration(this.settings.moveMinutes)})`
+      move: `✅ Je me suis levé (prochain dans ${this.formatDuration(this.settings.moveMinutes)})`,
+      posture: `🪑 Posture corrigée (prochain dans ${this.formatDuration(this.settings.postureMinutes)})`,
+      eyes: `👀 C'est fait (prochain dans ${this.formatDuration(this.settings.eyesMinutes)})`
     };
+    if (alertObj.type === "eyes") {
+      const timerBtn = document.createElement("button");
+      timerBtn.type = "button";
+      timerBtn.className = "gmc-break-btn-timer";
+      timerBtn.textContent = "⏱️ Lancer 20 s";
+      timerBtn.addEventListener("click", () => this.startEyesCountdown(banner, timerBtn));
+      actions.append(timerBtn);
+    }
     const resetBtn = document.createElement("button");
     resetBtn.type = "button";
     resetBtn.className = "gmc-break-btn-reset";
     resetBtn.textContent = ackLabels[alertObj.type] || "✅ OK";
     resetBtn.addEventListener("click", () => {
-      banner.remove();
-      this.onAcknowledge(alertObj.type);
-    });
-
-    if (alertObj.type === "night") {
-      const nextCount = (this.state.nightAlertCount || 0) + 1;
-      this.applyNightEscalation(banner, iconEl, msg, resetBtn, nextCount);
-      this.onNightShown();
-    }
-    actions.append(resetBtn);
-    banner.append(bodyRow, actions);
-    container.appendChild(banner);
-    this.applyStackPosition(container);
-  }
-
-  syncDom() {
-    if (typeof document === "undefined" || !document.querySelectorAll) return;
-    const alerts = this.getActiveAlerts();
-    const activeTypes = new Set(alerts.map((a) => a.type));
-    document.querySelectorAll(".gmc-break-banner").forEach((el) => {
-      const t = el.dataset?.gmcBreakType;
-      if (t && !activeTypes.has(t)) el.remove();
-    });
-    alerts.forEach((a) => this.renderBanner(a));
-  }
+      if (alertObj.type === "eyes" && this.eyesTimerId) {
+        clearInterval(this.eyesTimerId);
+this.eyesTimerId = null;
 }
-window.GlobalBreakGuard = GlobalBreakGuard;
+banner.remove();
+this.onAcknowledge(alertObj.type);
+}); 
+if (alertObj.type === "night") {
+const nextCount = (this.state.nightAlertCount || 0) + 1;
+this.applyNightEscalation(banner, iconEl, msg, resetBtn, nextCount);
+this.onNightShown();
+}
+actions.append(resetBtn);
+banner.append(bodyRow, actions);
+container.appendChild(banner);
+this.applyStackPosition(container);
+} 
+syncDom() {
+if (typeof document === "undefined" || !document.querySelectorAll) return;
+const alerts = this.getActiveAlerts();
+const activeTypes = new Set(alerts.map((a) => a.type));
+document.querySelectorAll(".gmc-break-banner").forEach((el) => {
+const t = el.dataset?.gmcBreakType;
+if (t && !activeTypes.has(t)) el.remove();
+});
+alerts.forEach((a) => this.renderBanner(a));
+}
+}
+window.GlobalBreakGuard = GlobalBreakGuard; 
+```
+Dis **« Suite »** pour recevoir le **Lot 2/2** (`content.js`, `styles.css`, `popup.html`, `popup.js` et `break_guard.test.js`).

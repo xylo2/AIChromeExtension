@@ -5,10 +5,17 @@ const ALARM_NAME = "breakGuardTick";
 const DEFAULT_SETTINGS = {
   moveMinutes: 30,
   drinkMinutes: 120,
+  eyesMinutes: 20,
+  postureMinutes: 45,
   lunchStartHour: 12,
   lunchEndHour: 14,
   lunchRepeatMinutes: 30,
-  nightStartHour: 0,
+  dinnerStartHour: 19,
+  dinnerEndHour: 22,
+  dinnerRepeatMinutes: 30,
+  windDownHour: 20,
+  windDownMinute: 0,
+  nightStartHour: 23,
   nightEndHour: 6,
   nightEndMinute: 30,
   nightRepeat0h: 10,
@@ -20,8 +27,13 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_STATE = {
   moveStart: null,
   drinkStart: null,
+  eyesStart: null,
+  postureStart: null,
   lunchWindowStart: null,
   lunchTakenDate: null,
+  dinnerWindowStart: null,
+  dinnerTakenDate: null,
+  windDownDoneDate: null,
   lastActivity: null,
   snoozeUntil: 0,
   nightAlertCount: 0,
@@ -36,12 +48,21 @@ function sanitizeSettings(raw) {
   };
   const lunchStart = clamp(src.lunchStartHour, 0, 23, DEFAULT_SETTINGS.lunchStartHour);
   const lunchEnd = clamp(src.lunchEndHour, lunchStart + 1, 24, Math.max(lunchStart + 1, DEFAULT_SETTINGS.lunchEndHour));
+  const dinnerStart = clamp(src.dinnerStartHour, 0, 23, DEFAULT_SETTINGS.dinnerStartHour);
+  const dinnerEnd = clamp(src.dinnerEndHour, dinnerStart + 1, 24, Math.max(dinnerStart + 1, DEFAULT_SETTINGS.dinnerEndHour));
   return {
     moveMinutes: clamp(src.moveMinutes, 1, 480, DEFAULT_SETTINGS.moveMinutes),
     drinkMinutes: clamp(src.drinkMinutes, 1, 720, DEFAULT_SETTINGS.drinkMinutes),
+    eyesMinutes: clamp(src.eyesMinutes, 1, 240, DEFAULT_SETTINGS.eyesMinutes),
+    postureMinutes: clamp(src.postureMinutes, 1, 480, DEFAULT_SETTINGS.postureMinutes),
     lunchStartHour: lunchStart,
     lunchEndHour: lunchEnd,
     lunchRepeatMinutes: clamp(src.lunchRepeatMinutes, 1, 180, DEFAULT_SETTINGS.lunchRepeatMinutes),
+    dinnerStartHour: dinnerStart,
+    dinnerEndHour: dinnerEnd,
+    dinnerRepeatMinutes: clamp(src.dinnerRepeatMinutes, 1, 180, DEFAULT_SETTINGS.dinnerRepeatMinutes),
+    windDownHour: clamp(src.windDownHour, 0, 23, DEFAULT_SETTINGS.windDownHour),
+    windDownMinute: clamp(src.windDownMinute, 0, 59, DEFAULT_SETTINGS.windDownMinute),
     nightStartHour: clamp(src.nightStartHour, 0, 23, DEFAULT_SETTINGS.nightStartHour),
     nightEndHour: clamp(src.nightEndHour, 0, 12, DEFAULT_SETTINGS.nightEndHour),
     nightEndMinute: clamp(src.nightEndMinute, 0, 59, DEFAULT_SETTINGS.nightEndMinute),
@@ -69,6 +90,12 @@ function isLunchTime(d = new Date(), cfg = DEFAULT_SETTINGS) {
   const s = sanitizeSettings(cfg);
   const h = d.getHours();
   return h >= s.lunchStartHour && h < s.lunchEndHour;
+}
+
+function isDinnerTime(d = new Date(), cfg = DEFAULT_SETTINGS) {
+  const s = sanitizeSettings(cfg);
+  const h = d.getHours();
+  return h >= s.dinnerStartHour && h < s.dinnerEndHour;
 }
 
 function getNightRepeatMs(d = new Date(), cfg = DEFAULT_SETTINGS) {
@@ -112,6 +139,8 @@ function applyActivity(state, now = Date.now(), d = new Date(), cfg = DEFAULT_SE
   const isIdle = state.lastActivity && (now - state.lastActivity >= idleResetMs);
   if (!state.moveStart || isIdle) {
     state.moveStart = now;
+    state.eyesStart = now;
+    state.postureStart = now;
     state.snoozeUntil = 0;
     if (isIdle) {
       state.nightAlertCount = 0;
@@ -119,15 +148,24 @@ function applyActivity(state, now = Date.now(), d = new Date(), cfg = DEFAULT_SE
     }
   }
   if (!state.drinkStart) state.drinkStart = now;
+  if (!state.eyesStart) state.eyesStart = now;
+  if (!state.postureStart) state.postureStart = now;
   if (!isAfterMidnight(d, s)) {
     state.nightAlertCount = 0;
     state.dismissedTypes = state.dismissedTypes.filter((t) => t !== "night");
   }
-  if (isLunchTime(d, s) && state.lunchTakenDate !== getDateKey(d)) {
+  const today = getDateKey(d);
+  if (isLunchTime(d, s) && state.lunchTakenDate !== today) {
     if (!state.lunchWindowStart || isIdle) state.lunchWindowStart = now;
   } else {
     state.lunchWindowStart = null;
     state.dismissedTypes = state.dismissedTypes.filter((t) => t !== "lunch");
+  }
+  if (isDinnerTime(d, s) && state.dinnerTakenDate !== today) {
+    if (!state.dinnerWindowStart || isIdle) state.dinnerWindowStart = now;
+  } else {
+    state.dinnerWindowStart = null;
+    state.dismissedTypes = state.dismissedTypes.filter((t) => t !== "dinner");
   }
   state.lastActivity = now;
   return state;
@@ -138,15 +176,28 @@ function applyAcknowledge(state, type, now = Date.now(), d = new Date(), cfg = D
   state.lastActivity = now;
   const dismissed = new Set(state.dismissedTypes || []);
   dismissed.add(type);
+  const today = getDateKey(d);
   if (type === "lunch") {
     state.moveStart = now;
     state.drinkStart = now;
+    state.eyesStart = now;
+    state.postureStart = now;
     state.lunchWindowStart = null;
-    state.lunchTakenDate = getDateKey(d);
+    state.lunchTakenDate = today;
     state.snoozeUntil = 0;
     state.nightAlertCount = 0;
-    dismissed.add("move");
-    dismissed.add("drink");
+    ["move", "drink", "eyes", "posture"].forEach((k) => dismissed.add(k));
+  } else if (type === "dinner") {
+    state.moveStart = now;
+    state.drinkStart = now;
+    state.eyesStart = now;
+    state.postureStart = now;
+    state.dinnerWindowStart = null;
+    state.dinnerTakenDate = today;
+    state.snoozeUntil = 0;
+    ["move", "drink", "eyes", "posture"].forEach((k) => dismissed.add(k));
+  } else if (type === "winddown") {
+    state.windDownDoneDate = today;
   } else if (type === "night") {
     state.moveStart = now;
     state.snoozeUntil = now + getNightRepeatMs(d, s);
@@ -157,8 +208,18 @@ function applyAcknowledge(state, type, now = Date.now(), d = new Date(), cfg = D
       dismissed.add("move");
     }
     state.snoozeUntil = 0;
+  } else if (type === "eyes") {
+    state.eyesStart = now;
+    state.snoozeUntil = 0;
+  } else if (type === "posture") {
+    state.postureStart = now;
+    state.snoozeUntil = 0;
   } else if (type === "move") {
     state.moveStart = now;
+    state.eyesStart = now;
+    state.postureStart = now;
+    dismissed.add("eyes");
+    dismissed.add("posture");
     state.snoozeUntil = 0;
   }
   state.dismissedTypes = Array.from(dismissed);

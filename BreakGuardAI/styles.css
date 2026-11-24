@@ -63,7 +63,29 @@
   box-shadow: 0 16px 40px rgba(2, 132, 199, 0.5);
 }
 
-.gmc-break-banner[data-gmc-break-type="lunch"] {
+.gmc-break-banner[data-gmc-break-type="eyes"] {
+  background: linear-gradient(135deg, #042f2e, #115e59);
+  border: 3px solid #2dd4bf;
+  color: #f0fdfa;
+  box-shadow: 0 16px 40px rgba(13, 148, 136, 0.5);
+}
+
+.gmc-break-banner[data-gmc-break-type="posture"] {
+  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  border: 3px solid #818cf8;
+  color: #eef2ff;
+  box-shadow: 0 16px 40px rgba(79, 70, 229, 0.5);
+}
+
+.gmc-break-banner[data-gmc-break-type="winddown"] {
+  background: linear-gradient(135deg, #4c0519, #881337);
+  border: 3px solid #fb7185;
+  color: #fff1f2;
+  box-shadow: 0 16px 40px rgba(225, 29, 72, 0.55);
+}
+
+.gmc-break-banner[data-gmc-break-type="lunch"],
+.gmc-break-banner[data-gmc-break-type="dinner"] {
   width: 620px;
   background: linear-gradient(135deg, #431407, #9a3412);
   border: 3px solid #fb923c;
@@ -74,13 +96,14 @@
   font-weight: 700;
   box-shadow: 0 20px 50px rgba(234, 88, 12, 0.65);
 }
-
-.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-icon {
+.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-icon,
+.gmc-break-banner[data-gmc-break-type="dinner"] .gmc-break-icon {
   width: 68px;
   height: 68px;
 }
 
-.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-btn-reset {
+.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-btn-reset,
+.gmc-break-banner[data-gmc-break-type="dinner"] .gmc-break-btn-reset {
   padding: 13px 24px;
   font-size: 17px;
   border-radius: 10px;
@@ -91,6 +114,7 @@
   border: 3px solid #f43f5e;
   color: #fdf4ff;
 }
+
 .gmc-break-banner.gmc-break-fullscreen {
   align-items: center;
   justify-content: center;
@@ -142,7 +166,8 @@
   flex-shrink: 0;
 }
 
-.gmc-break-btn-reset {
+.gmc-break-btn-reset,
+.gmc-break-btn-timer {
   border: none;
   border-radius: 8px;
   padding: 10px 18px;
@@ -154,33 +179,20 @@
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
 }
 
-.gmc-break-banner[data-gmc-break-type="move"] .gmc-break-btn-reset {
-  background: #10b981;
-  color: #022c22;
-}
-
-.gmc-break-banner[data-gmc-break-type="drink"] .gmc-break-btn-reset {
-  background: #0284c7;
-  color: #ffffff;
-}
-
-.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-btn-reset {
-  background: #ea580c;
-  color: #ffffff;
-}
-
-.gmc-break-banner.gmc-break-night .gmc-break-btn-reset {
-  background: #e11d48;
-  color: #ffffff;
-}
+.gmc-break-btn-timer { background: #0f766e; border: 1px solid #5eead4; }
+.gmc-break-btn-timer:disabled { opacity: 0.9; cursor: default; }
+.gmc-break-banner[data-gmc-break-type="move"] .gmc-break-btn-reset { background: #10b981; color: #022c22; }
+.gmc-break-banner[data-gmc-break-type="drink"] .gmc-break-btn-reset { background: #0284c7; color: #ffffff; }
+.gmc-break-banner[data-gmc-break-type="eyes"] .gmc-break-btn-reset { background: #14b8a6; color: #042f2e; }
+.gmc-break-banner[data-gmc-break-type="posture"] .gmc-break-btn-reset { background: #6366f1; color: #ffffff; }
+.gmc-break-banner[data-gmc-break-type="winddown"] .gmc-break-btn-reset { background: #e11d48; color: #ffffff; }
+.gmc-break-banner[data-gmc-break-type="lunch"] .gmc-break-btn-reset,
+.gmc-break-banner[data-gmc-break-type="dinner"] .gmc-break-btn-reset { background: #ea580c; color: #ffffff; }
+.gmc-break-banner.gmc-break-night .gmc-break-btn-reset { background: #e11d48; color: #ffffff; }
 
 @keyframes gmc-lunch-pulse {
-  0%, 100% {
-    box-shadow: 0 14px 36px rgba(154, 52, 18, 0.65), 0 0 0 0 rgba(251, 146, 60, 0.75);
-  }
-  50% {
-    box-shadow: 0 20px 48px rgba(154, 52, 18, 0.85), 0 0 0 14px rgba(251, 146, 60, 0);
-  }
+  0%, 100% { box-shadow: 0 14px 36px rgba(154, 52, 18, 0.65), 0 0 0 0 rgba(251, 146, 60, 0.75); }
+  50% { box-shadow: 0 20px 48px rgba(154, 52, 18, 0.85), 0 0 0 14px rgba(251, 146, 60, 0); }
 }
 
 .gmc-break-lunch-pill {
@@ -221,24 +233,7 @@
   background: #16a34a;
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  transition: background-color 0.15s ease, transform 0.12s ease;
 }
 
-.gmc-lunch-pill-done-btn:hover {
-  background: #15803d;
-  transform: scale(1.04);
-}
-
-.gmc-lunch-pill-icon {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.gmc-break-lunch-pill.gmc-dragging {
-  cursor: grabbing;
-  opacity: 0.92;
-}
+.gmc-lunch-pill-icon { width: 36px; height: 36px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.gmc-break-lunch-pill.gmc-dragging { cursor: grabbing; opacity: 0.92; }

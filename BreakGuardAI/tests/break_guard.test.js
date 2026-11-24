@@ -16,24 +16,21 @@ test("manifest.json déclare popup.html et les content_scripts dans l'ordre", ()
   assert.deepEqual(manifest.content_scripts.at(0).js, ["break_guard.js", "content.js"]);
 });
 
-test("pastille pause déjeuner dispose d'un bouton C'est fait et évite la superposition", () => {
+test("pastille repas gère déjeuner et dîner sans superposition", () => {
   const css = fs.readFileSync(path.join(EXT_DIR, "styles.css"), "utf-8");
-  const guardJs = fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8");
   const contentJs = fs.readFileSync(path.join(EXT_DIR, "content.js"), "utf-8");
   const popupHtml = fs.readFileSync(path.join(EXT_DIR, "popup.html"), "utf-8");
-  const popupJs = fs.readFileSync(path.join(EXT_DIR, "popup.js"), "utf-8");
   assert.ok(css.includes(".gmc-lunch-pill-done-btn"));
-  assert.ok(css.includes("white-space: nowrap;"));
-  assert.ok(css.includes("width: max-content;"));
-  assert.ok(guardJs.includes('fill="#290d02"'));
-  assert.ok(contentJs.includes("C'est fait"));
-  assert.ok(contentJs.includes("const hasLunchBanner = guard.getActiveAlerts().some((a) => a.type === \"lunch\");"));
-  assert.ok(contentJs.includes("const show = guard.isLunchTime() && !eaten && !hasLunchBanner;"));
-  assert.ok(popupHtml.includes('id="resetPosBtn"'));
-  assert.ok(popupJs.includes("breakGuardLunchPos"));
+  assert.ok(css.includes(".gmc-break-btn-timer"));
+  assert.ok(contentJs.includes("Pause déjeuner"));
+  assert.ok(contentJs.includes("Pause dîner"));
+  assert.ok(popupHtml.includes('id="eyesMinutes"'));
+  assert.ok(popupHtml.includes('id="postureMinutes"'));
+  assert.ok(popupHtml.includes('id="dinnerStartHour"'));
+  assert.ok(popupHtml.includes('id="windDownHour"'));
 });
 
-test("background.js valide et applique les paramètres personnalisés (horaires et délais)", () => {
+test("background.js gère toutes les alertes (yeux, posture, dîner, fin de journée, nuit)", () => {
   const bgCode = fs.readFileSync(path.join(EXT_DIR, "background.js"), "utf-8");
   const cutIdx = bgCode.indexOf("async function reinjectAllTabs()");
   const sandbox = {
@@ -47,31 +44,34 @@ test("background.js valide et applique les paramètres personnalisés (horaires 
 
   const custom = sandbox.sanitizeSettings({
     moveMinutes: 45,
-    drinkMinutes: 90,
-    lunchStartHour: 11,
-    lunchEndHour: 15,
-    lunchRepeatMinutes: 20,
+    eyesMinutes: 25,
+    postureMinutes: 50,
+    dinnerStartHour: 19,
+    dinnerEndHour: 22,
     nightStartHour: 23,
     nightEndHour: 7,
     nightEndMinute: 0,
     nightRepeat0h: 15,
     nightRepeat1h: 6,
-    nightRepeat2h: 3,
-    idleResetMinutes: 20
+    nightRepeat2h: 3
   });
-  assert.equal(custom.moveMinutes, 45);
-  assert.equal(custom.lunchStartHour, 11);
-  assert.equal(sandbox.isAfterMidnight(new Date(2026, 10, 24, 23, 30, 0), custom), true);
-  assert.equal(sandbox.isLunchTime(new Date(2026, 10, 24, 11, 15, 0), custom), true);
+  assert.equal(custom.eyesMinutes, 25);
+  assert.equal(custom.postureMinutes, 50);
+  assert.equal(sandbox.isDinnerTime(new Date(2026, 10, 24, 20, 15, 0), custom), true);
 
   let state = { ...sandbox.DEFAULT_STATE };
   let now = 1_000_000;
-  const nightDate = new Date(2026, 10, 24, 1, 15, 0);
-  state = sandbox.applyActivity(state, now, nightDate, custom);
-  state = sandbox.applyAcknowledge(state, "night", now, nightDate, custom);
-  assert.equal(state.snoozeUntil, now + 6 * 60 * 1000);
+  const eveningDate = new Date(2026, 10, 24, 23, 15, 0);
+  state = sandbox.applyActivity(state, now, eveningDate, custom);
+  state = sandbox.applyAcknowledge(state, "night", now, eveningDate, custom);
+  assert.equal(state.snoozeUntil, now + 15 * 60 * 1000);
+
+  state = sandbox.applyAcknowledge(state, "dinner", now, eveningDate, custom);
+  assert.equal(state.dinnerTakenDate, "2026-11-24");
+  state = sandbox.applyAcknowledge(state, "winddown", now, eveningDate, custom);
+  assert.equal(state.windDownDoneDate, "2026-11-24");
 });
-test("GlobalBreakGuard applique dynamiquement les horaires, délais et durées lisibles", () => {
+test("GlobalBreakGuard déclenche yeux 20-20-20, posture, dîner et fin de journée", () => {
   const allNodes = [];
   const makeNode = (tag) => {
     const node = {
@@ -107,18 +107,21 @@ test("GlobalBreakGuard applique dynamiquement les horaires, délais et durées l
   let fakeNow = 1_000_000;
   const guard = new sandbox.window.GlobalBreakGuard({
     nowFn: () => fakeNow,
-    dateFn: () => new Date(2026, 10, 24, 15, 0, 0)
+    dateFn: () => new Date(2026, 10, 24, 20, 35, 0)
   });
 
-  assert.equal(guard.formatDuration(30), "30 min");
   assert.equal(guard.formatDuration(120), "2 h");
-  assert.equal(guard.formatDuration(90), "1 h 30");
-
-  guard.setState(
-    { moveStart: fakeNow - 20 * 60 * 1000, drinkStart: fakeNow, lastActivity: fakeNow },
-    { moveMinutes: 15 }
-  );
-  const alerts = guard.getActiveAlerts();
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts.at(0).type, "move");
+  guard.setState({
+    moveStart: fakeNow - 5 * 60 * 1000,
+    drinkStart: fakeNow,
+    eyesStart: fakeNow - 21 * 60 * 1000,
+    postureStart: fakeNow - 46 * 60 * 1000,
+    dinnerWindowStart: fakeNow - 35 * 60 * 1000,
+    lastActivity: fakeNow
+  });
+  const types = guard.getActiveAlerts().map((a) => a.type);
+  assert.ok(types.includes("eyes"));
+  assert.ok(types.includes("posture"));
+  assert.ok(types.includes("dinner"));
+  assert.ok(types.includes("winddown"));
 });

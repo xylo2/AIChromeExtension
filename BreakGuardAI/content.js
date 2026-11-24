@@ -10,7 +10,7 @@ if (!window.__bgBreakInit) {
     if (res.state) guard.setState(res.state, res.settings);
     else if (res.settings) guard.applySettings(res.settings);
     else guard.setState(res);
-    updateLunchPill();
+    updateMealPill();
   };
 
   const sendMsg = (payload, cb) => {
@@ -27,31 +27,31 @@ if (!window.__bgBreakInit) {
     onNightShown: () => sendMsg({ type: "BREAK_NIGHT_SHOWN" }, syncReply)
   });
 
-  const lunchPill = document.createElement("div");
-  lunchPill.className = "gmc-break-lunch-pill";
-  lunchPill.title = "Glisser pour déplacer";
-  lunchPill.style.display = "none";
-  document.body.appendChild(lunchPill);
+  const mealPill = document.createElement("div");
+  mealPill.className = "gmc-break-lunch-pill";
+  mealPill.title = "Glisser pour déplacer";
+  mealPill.style.display = "none";
+  document.body.appendChild(mealPill);
 
   let customPillPos = null;
   let wasDragged = false;
 
   const applyPillPosition = () => {
     if (!customPillPos) {
-      lunchPill.style.left = "24px";
-      lunchPill.style.bottom = "24px";
-      lunchPill.style.top = "auto";
-      lunchPill.style.transform = "none";
+      mealPill.style.left = "24px";
+      mealPill.style.bottom = "24px";
+      mealPill.style.top = "auto";
+      mealPill.style.transform = "none";
       return;
     }
-    const maxX = Math.max(8, window.innerWidth - lunchPill.offsetWidth - 8);
-    const maxY = Math.max(8, window.innerHeight - lunchPill.offsetHeight - 8);
+    const maxX = Math.max(8, window.innerWidth - mealPill.offsetWidth - 8);
+    const maxY = Math.max(8, window.innerHeight - mealPill.offsetHeight - 8);
     const clampedX = Math.min(Math.max(8, customPillPos.x), maxX);
     const clampedY = Math.min(Math.max(8, customPillPos.y), maxY);
-    lunchPill.style.left = `${clampedX}px`;
-    lunchPill.style.top = `${clampedY}px`;
-    lunchPill.style.bottom = "auto";
-    lunchPill.style.transform = "none";
+    mealPill.style.left = `${clampedX}px`;
+    mealPill.style.top = `${clampedY}px`;
+    mealPill.style.bottom = "auto";
+    mealPill.style.transform = "none";
   };
 
   chrome.storage?.local?.get(["breakGuardLunchPos", "breakGuardStackPos", "breakGuardSettings"], (res) => {
@@ -63,17 +63,17 @@ if (!window.__bgBreakInit) {
     if (res?.breakGuardStackPos) guard.setStackPosition(res.breakGuardStackPos);
   });
 
-  lunchPill.addEventListener("pointerdown", (e) => {
+  mealPill.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target?.closest?.("button")) return;
-    const rect = lunchPill.getBoundingClientRect();
+    const rect = mealPill.getBoundingClientRect();
     const startX = e.clientX;
     const startY = e.clientY;
     const offsetX = startX - rect.left;
     const offsetY = startY - rect.top;
     wasDragged = false;
-    lunchPill.classList.add("gmc-dragging");
-    if (lunchPill.setPointerCapture) {
-      try { lunchPill.setPointerCapture(e.pointerId); } catch (_err) {}
+    mealPill.classList.add("gmc-dragging");
+    if (mealPill.setPointerCapture) {
+      try { mealPill.setPointerCapture(e.pointerId); } catch (_err) {}
     }
 
     const onMove = (ev) => {
@@ -84,56 +84,58 @@ if (!window.__bgBreakInit) {
     };
 
     const onUp = (ev) => {
-      lunchPill.classList.remove("gmc-dragging");
-      lunchPill.removeEventListener("pointermove", onMove);
-      lunchPill.removeEventListener("pointerup", onUp);
-      lunchPill.removeEventListener("pointercancel", onUp);
-      if (lunchPill.releasePointerCapture) {
-        try { lunchPill.releasePointerCapture(ev.pointerId); } catch (_err) {}
+      mealPill.classList.remove("gmc-dragging");
+      mealPill.removeEventListener("pointermove", onMove);
+      mealPill.removeEventListener("pointerup", onUp);
+      mealPill.removeEventListener("pointercancel", onUp);
+      if (mealPill.releasePointerCapture) {
+        try { mealPill.releasePointerCapture(ev.pointerId); } catch (_err) {}
       }
       if (wasDragged && customPillPos) {
         chrome.storage?.local?.set({ breakGuardLunchPos: customPillPos });
       }
     };
 
-    lunchPill.addEventListener("pointermove", onMove);
-    lunchPill.addEventListener("pointerup", onUp);
-    lunchPill.addEventListener("pointercancel", onUp);
+    mealPill.addEventListener("pointermove", onMove);
+    mealPill.addEventListener("pointerup", onUp);
+    mealPill.addEventListener("pointercancel", onUp);
   });
   window.addEventListener("resize", () => {
-    if (lunchPill.style.display !== "none") applyPillPosition();
+    if (mealPill.style.display !== "none") applyPillPosition();
     const stack = document.querySelector(".gmc-break-stack");
     if (stack) guard.applyStackPosition(stack);
   });
-  let lastRenderedLunchState = null;
+  let lastRenderedMealType = null;
 
-  const updateLunchPill = () => {
-    const eaten = guard.hasEatenToday();
-    const hasLunchBanner = guard.getActiveAlerts().some((a) => a.type === "lunch");
-    const show = guard.isLunchTime() && !eaten && !hasLunchBanner;
-    lunchPill.style.display = show ? "inline-flex" : "none";
-    if (!show) {
-      lastRenderedLunchState = null;
+  const updateMealPill = () => {
+    const activeAlerts = guard.getActiveAlerts();
+    const showLunch = guard.isLunchTime() && !guard.hasEatenToday() && !activeAlerts.some((a) => a.type === "lunch");
+    const showDinner = !showLunch && guard.isDinnerTime() && !guard.hasHadDinnerToday() && !activeAlerts.some((a) => a.type === "dinner");
+    const mealType = showLunch ? "lunch" : (showDinner ? "dinner" : null);
+    mealPill.style.display = mealType ? "inline-flex" : "none";
+    if (!mealType) {
+      lastRenderedMealType = null;
       return;
     }
-    if (lastRenderedLunchState !== "pending") {
-      lastRenderedLunchState = "pending";
-      lunchPill.innerHTML = "";
+    if (lastRenderedMealType !== mealType) {
+      lastRenderedMealType = mealType;
+      mealPill.dataset.gmcMealType = mealType;
+      mealPill.innerHTML = "";
       const iconWrap = document.createElement("span");
       iconWrap.className = "gmc-lunch-pill-icon";
-      iconWrap.innerHTML = guard.getAlertSvg("lunch");
+      iconWrap.innerHTML = guard.getAlertSvg(mealType);
       const labelSpan = document.createElement("span");
-      labelSpan.textContent = "Pause déjeuner";
+      labelSpan.textContent = mealType === "lunch" ? "Pause déjeuner" : "Pause dîner";
       const doneBtn = document.createElement("button");
       doneBtn.type = "button";
       doneBtn.className = "gmc-lunch-pill-done-btn";
       doneBtn.textContent = "✅ C'est fait";
-      doneBtn.title = "Fermer l'alerte pause déjeuner pour aujourd'hui";
+      doneBtn.title = mealType === "lunch" ? "Valider la pause déjeuner pour aujourd'hui" : "Valider le dîner pour aujourd'hui";
       doneBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        sendMsg({ type: "BREAK_ACK", alertType: "lunch" }, syncReply);
+        sendMsg({ type: "BREAK_ACK", alertType: mealType }, syncReply);
       });
-      lunchPill.append(iconWrap, labelSpan, doneBtn);
+      mealPill.append(iconWrap, labelSpan, doneBtn);
     }
     applyPillPosition();
   };
@@ -155,18 +157,18 @@ if (!window.__bgBreakInit) {
     if (area !== "local") return;
     if (changes.breakGuardSettings?.newValue) {
       guard.applySettings(changes.breakGuardSettings.newValue);
-      updateLunchPill();
+      updateMealPill();
     }
     if (changes.breakGuardState?.newValue) {
       guard.setState(changes.breakGuardState.newValue);
-      updateLunchPill();
+      updateMealPill();
     }
-    if (changes.breakGuardLunchPos?.newValue) {
-      customPillPos = changes.breakGuardLunchPos.newValue;
+    if ("breakGuardLunchPos" in changes) {
+      customPillPos = changes.breakGuardLunchPos.newValue || null;
       applyPillPosition();
     }
-    if (changes.breakGuardStackPos?.newValue) {
-      guard.setStackPosition(changes.breakGuardStackPos.newValue);
+    if ("breakGuardStackPos" in changes) {
+      guard.setStackPosition(changes.breakGuardStackPos.newValue || null);
     }
   });
 
@@ -183,7 +185,7 @@ if (!window.__bgBreakInit) {
   window.__bgBreakTimer = setInterval(() => {
     if (!document.hidden) {
       guard.syncDom();
-      updateLunchPill();
+      updateMealPill();
     }
   }, 3000);
 }
