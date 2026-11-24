@@ -1,16 +1,17 @@
 /**
- * Garde-fou : mouvement (30m), hydratation (2h), déjeuner (12h-14h) et coucher (0h-6h).
+ * Garde-fou : mouvement (30m), hydratation (2h), déjeuner (12h-14h) et coucher (0h-6h30).
  */
 class BreakGuard {
   constructor(options = {}) {
     this.MIDNIGHT_START_HOUR = options.midnightStartHour ?? 0;
-    this.MIDNIGHT_END_HOUR = options.midnightEndHour ?? 6;
+    this.MIDNIGHT_END_MINUTES = options.midnightEndMinutes ?? (6 * 60 + 30);
     this.LUNCH_START_HOUR = options.lunchStartHour ?? 12;
     this.LUNCH_END_HOUR = options.lunchEndHour ?? 14;
     this.MOVE_LIMIT_MS = (options.moveLimitMinutes ?? 30) * 60 * 1000;
     this.DRINK_LIMIT_MS = (options.drinkLimitMinutes ?? 120) * 60 * 1000;
     this.LUNCH_REPEAT_MS = (options.lunchRepeatMinutes ?? 30) * 60 * 1000;
     this.MIDNIGHT_REPEAT_MS = (options.midnightRepeatMinutes ?? 10) * 60 * 1000;
+    this.LATE_NIGHT_REPEAT_MS = (options.lateNightRepeatMinutes ?? 5) * 60 * 1000;
     this.IDLE_RESET_MS = (options.idleResetMinutes ?? 15) * 60 * 1000;
     this.nowFn = options.nowFn || (() => Date.now());
     this.dateFn = options.dateFn || (() => new Date());
@@ -31,7 +32,17 @@ class BreakGuard {
 
   isAfterMidnight(dateObj = this.dateFn()) {
     const h = dateObj.getHours();
-    return h >= this.MIDNIGHT_START_HOUR && h < this.MIDNIGHT_END_HOUR;
+    const m = typeof dateObj.getMinutes === "function" ? dateObj.getMinutes() : 0;
+    const totalMinutes = h * 60 + m;
+    return totalMinutes >= this.MIDNIGHT_START_HOUR * 60 && totalMinutes < this.MIDNIGHT_END_MINUTES;
+  }
+
+  getNightRepeatMinutes(dateObj = this.dateFn()) {
+    return dateObj.getHours() >= 1 ? 5 : 10;
+  }
+
+  getNightRepeatMs(dateObj = this.dateFn()) {
+    return dateObj.getHours() >= 1 ? this.LATE_NIGHT_REPEAT_MS : this.MIDNIGHT_REPEAT_MS;
   }
 
   isLunchTime(dateObj = this.dateFn()) {
@@ -85,7 +96,7 @@ class BreakGuard {
     }
     if (this.activeType === "night") {
       this.moveStart = now;
-      this.snoozeUntil = now + this.MIDNIGHT_REPEAT_MS;
+      this.snoozeUntil = now + this.getNightRepeatMs();
     } else if (this.activeType === "drink") {
       this.drinkStart = now;
       if (this.moveStart && now - this.moveStart >= this.MOVE_LIMIT_MS) this.moveStart = now;
@@ -119,11 +130,14 @@ class BreakGuard {
       return { shouldWarn: false, type: null, isNight, message: "" };
     }
     if (isNight) {
+      const h = dateObj.getHours();
       return {
         shouldWarn: true,
         type: "night",
         isNight: true,
-        message: "🌙 Il est minuit passé : Va te coucher !"
+        message: h >= 1
+          ? `🌙 Il est ${h}h passées : Va te coucher maintenant !`
+          : "🌙 Il est minuit passé : Va te coucher !"
       };
     }
     if (this.isLunchTime(dateObj) && !this.hasEatenToday(dateObj)) {
@@ -167,6 +181,7 @@ class BreakGuard {
     if (this.bannerEl && this.activeType === status.type) return;
     this.hideBanner();
     this.activeType = status.type;
+    const repeatMin = status.type === "night" ? this.getNightRepeatMinutes() : 10;
 
     const banner = document.createElement("div");
     banner.className = "gmc-break-banner";
@@ -180,13 +195,13 @@ class BreakGuard {
       const snoozeBtn = document.createElement("button");
       snoozeBtn.type = "button";
       snoozeBtn.className = "gmc-break-btn-snooze";
-      snoozeBtn.textContent = "Rappel dans 10 min";
-      snoozeBtn.addEventListener("click", () => this.snooze(10));
+      snoozeBtn.textContent = `Rappel dans ${repeatMin} min`;
+      snoozeBtn.addEventListener("click", () => this.snooze(repeatMin));
       actions.append(snoozeBtn);
     }
 
     const ackLabels = {
-      night: "😴 J'y vais (10 min)",
+      night: `😴 J'y vais (${repeatMin} min)`,
       lunch: "🍽️ J'ai mangé",
       drink: "💧 C'est fait (2h)",
       move: "✅ Je me suis levé (30 min)",

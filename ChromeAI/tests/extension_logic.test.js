@@ -38,16 +38,23 @@ test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes("takeLunchBreak()"));
 });
 
-test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (0h-6h)", () => {
+test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (0h-6h30)", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "break_guard.js"), "utf-8"), sandbox);
 
   let fakeNow = 1_000_000;
   let fakeHour = 12;
+  let fakeMinute = 0;
   const guard = new sandbox.window.GmcBreakGuard({
     nowFn: () => fakeNow,
-    dateFn: () => ({ getHours: () => fakeHour, getFullYear: () => 2026, getMonth: () => 10, getDate: () => 24 })
+    dateFn: () => ({
+      getHours: () => fakeHour,
+      getMinutes: () => fakeMinute,
+      getFullYear: () => 2026,
+      getMonth: () => 10,
+      getDate: () => 24
+    })
   });
 
   guard.recordActivity();
@@ -64,9 +71,29 @@ test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et
   guard.recordActivity();
   assert.equal(guard.getStatus().type, "move");
 
-  fakeHour = 2;
+  fakeHour = 0;
   assert.equal(guard.getStatus().type, "night");
+  guard.activeType = "night";
+  guard.acknowledge();
+  assert.equal(guard.snoozeUntil - fakeNow, 10 * 60 * 1000);
+
+  fakeHour = 2;
+  fakeNow += 11 * 60 * 1000;
+  guard.recordActivity();
+  assert.equal(guard.getStatus().type, "night");
+  guard.activeType = "night";
+  guard.acknowledge();
+  assert.equal(guard.snoozeUntil - fakeNow, 5 * 60 * 1000);
+
+  fakeHour = 6;
+  fakeMinute = 29;
+  assert.equal(guard.isAfterMidnight(), true);
+
+  fakeMinute = 30;
+  assert.equal(guard.isAfterMidnight(), false);
+  assert.equal(guard.getStatus().shouldWarn, false);
 });
+
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
