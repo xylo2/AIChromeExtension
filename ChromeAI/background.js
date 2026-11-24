@@ -159,6 +159,7 @@ function generateSessionToken() {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
 function startWatchClipboard(targetDir, extraArgs) {
   if (activeStartPromise) return activeStartPromise;
   activeStartPromise = (async () => {
@@ -248,13 +249,13 @@ async function reinjectContentScriptsIntoOpenTabs() {
           target: { tabId: tab.id },
           func: () => {
             window.__gmcInitialized = false;
-            document.querySelectorAll(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar, .gmc-break-banner").forEach((n) => n.remove());
+            document.querySelectorAll(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar").forEach((n) => n.remove());
             document.querySelectorAll("[data-gmc-processed], [data-gmc-commit-processed]").forEach((el) => { el.removeAttribute("data-gmc-processed"); el.removeAttribute("data-gmc-commit-processed"); el.classList.remove("gmc-collapsed-code"); });
             document.querySelectorAll("[data-gmc-has-purge], [data-gmc-copy-watched]").forEach((el) => { el.removeAttribute("data-gmc-has-purge"); el.removeAttribute("data-gmc-copy-watched"); });
           }
         });
         await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles.css"] });
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "break_guard.js", "content.js"] });
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "content.js"] });
       } catch (_tabErr) {}
     }
   } catch (_err) {}

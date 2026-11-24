@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Google AI Code Collapser & Watch Clipboard",
-  "version": "2.4.0",
+  "version": "2.5.1",
   "description": "Allège les blocs de code Google AI et pilote watch_clipboard en temps réel.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "alarms",
     "storage",
@@ -18,7 +23,12 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Watch Clipboard & Code Collapser"
+    "default_title": "Watch Clipboard & Code Collapser",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "content_scripts": [
     {
@@ -29,7 +39,6 @@
         "chat_injector.js",
         "git_panel.js",
         "block_manager.js",
-        "break_guard.js",
         "content.js"
       ],
       "css": ["styles.css"],

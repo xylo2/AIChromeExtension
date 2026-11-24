@@ -194,18 +194,26 @@ class ClipboardTestRunner:
         compact_report: str = self.compact_error_report(combined, top_dir=top_dir)
         return rc or 1, f"[{suite_name}] ÉCHEC :\n{compact_report}"
 
-    def _run_chrome_ai_node_tests(self) -> Optional[Tuple[int, str]]:
-        chrome_ai_dir: str = os.path.join(self.workspace_root, "ChromeAI")
-        js_test_file: str = os.path.join(chrome_ai_dir, "tests", "extension_logic.test.js")
+    def _run_node_extension_tests(self) -> List[Tuple[int, str]]:
+        results: List[Tuple[int, str]] = []
         node_exe: Optional[str] = shutil.which("node")
-        if not os.path.isfile(js_test_file) or not node_exe:
-            return None
-
-        rc, combined = self._stream_subprocess([node_exe, "--test", js_test_file], cwd=chrome_ai_dir, env=os.environ.copy())
-        if rc == 0:
-            summary: List[str] = [ln.strip() for ln in combined.splitlines() if ln.strip().startswith("# ")]
-            return 0, f"[ChromeAI] {' | '.join(summary) if summary else 'OK'}"
-        return rc or 1, f"[ChromeAI] ÉCHEC :\n{combined}"
+        if not node_exe:
+            return results
+        targets: List[Tuple[str, str, str]] = [
+            ("ChromeAI", os.path.join(self.workspace_root, "ChromeAI"), os.path.join("tests", "extension_logic.test.js")),
+            ("BreakGuardAI", os.path.join(self.workspace_root, "BreakGuardAI"), os.path.join("tests", "break_guard.test.js")),
+        ]
+        for label, ext_dir, rel_test in targets:
+            js_test_file: str = os.path.join(ext_dir, rel_test)
+            if not os.path.isfile(js_test_file):
+                continue
+            rc, combined = self._stream_subprocess([node_exe, "--test", js_test_file], cwd=ext_dir, env=os.environ.copy())
+            if rc == 0:
+                summary: List[str] = [ln.strip() for ln in combined.splitlines() if ln.strip().startswith("# ")]
+                results.append((0, f"[{label}] {' | '.join(summary) if summary else 'OK'}"))
+            else:
+                results.append((rc or 1, f"[{label}] ÉCHEC :\n{combined}"))
+        return results
 
     def run(self, report_file: str = "") -> int:
         suites: List[Tuple[str, str, str]] = self._discover_suites()
@@ -218,9 +226,7 @@ class ClipboardTestRunner:
                 overall_rc = rc
             reports.append(report)
 
-        js_res: Optional[Tuple[int, str]] = self._run_chrome_ai_node_tests()
-        if js_res is not None:
-            js_rc, js_report = js_res
+        for js_rc, js_report in self._run_node_extension_tests():
             if js_rc != 0 and overall_rc == 0:
                 overall_rc = js_rc
             reports.append(js_report)

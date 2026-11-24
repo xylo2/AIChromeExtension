@@ -221,17 +221,21 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if self._is_within_allowed_roots(cand, [git_root]):
                 safe_files.append(rel)
 
+        env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         if safe_files:
-            subprocess.run(["git", "reset", "-q"], cwd=git_root, capture_output=True, check=False)
+            subprocess.run(["git", "reset", "-q"], cwd=git_root, env=env, capture_output=True, timeout=15, check=False)
             add_cmd: List[str] = ["git", "add", "-A", "--", *safe_files]
         else:
             add_cmd = ["git", "add", "-A"]
 
-        add_proc = subprocess.run(add_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-        if add_proc.returncode != 0:
-            return False, (add_proc.stderr or add_proc.stdout or "Échec de git add.").strip()
+        try:
+            add_proc = subprocess.run(add_cmd, cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+            if add_proc.returncode != 0:
+                return False, (add_proc.stderr or add_proc.stdout or "Échec de git add.").strip()
 
-        proc = subprocess.run(["git", "commit", "-m", clean_msg], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25, check=False)
+            proc = subprocess.run(["git", "commit", "-m", clean_msg], cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25, check=False)
+        except subprocess.TimeoutExpired:
+            return False, "Délai dépassé (25s) lors de `git commit` (vérifie les hooks pre-commit ou GPG)."
         output: str = (proc.stdout or proc.stderr or "").strip()
         if proc.returncode != 0:
             return False, output or "Échec de git commit."
@@ -519,14 +523,14 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
 class StatusServer:
     """Serveur HTTP léger exécuté dans un thread démon."""
 
-    def __init__(self, host: str, port: int, target_dir: str, test_runner_path: str = "tools/run_tests_clip.py", api_token: str = "", allowed_origin: str = "", assembler: Any = None) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 18765, target_dir: str = ".", test_runner_path: str = "tools/run_tests_clip.py", api_token: str = "", allowed_origin: str = "", assembler: Any = None) -> None:
         self.host, self.port, self.target_dir = host, port, os.path.realpath(target_dir)
         self.test_runner_path, self.api_token, self.allowed_origin, self.assembler = test_runner_path, api_token, allowed_origin, assembler
-        self._httpd: Optional[ThreadingHTTPServer] = None
+        self._httpd: Optional[_QuietThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> bool:
-        handler_cls = type("BoundStatusHandler", (_StatusRequestHandler,), {
+        handler_cls = type("_BoundStatusHandler", (_StatusRequestHandler,), {
             "target_dir": self.target_dir, "default_test_runner": self.test_runner_path,
             "api_token": self.api_token, "allowed_origin": self.allowed_origin, "assembler_ref": self.assembler,
         })

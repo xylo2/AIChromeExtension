@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Break Guard — Alertes Santé & Sommeil",
+  "version": "1.0.1",
+  "description": "Rappels globaux : mouvement (30 min), hydratation (2h), déjeuner (12h-14h) et coucher.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "alarms",
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": false,
+      "js": [
+        "break_guard.js",
+        "content.js"
+      ],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

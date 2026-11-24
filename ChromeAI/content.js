@@ -5,13 +5,12 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcInitialized = true;
   if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
+  document.querySelectorAll(".gmc-composer-quick-group").forEach((el) => el.remove());
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector);
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector);
-  const breakGuard = new window.GmcBreakGuard();
-  breakGuard.recordActivity();
 
   const DEV_EXCUSES = [
     "Ça marchait pourtant sur ma branche avant le rebase quantique.",
@@ -55,7 +54,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const statusPill = makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF");
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true);
-  const lunchBtn = makeBtn("gmc-quick-lunch-btn", "🍽️ Pause déjeuner", "Prendre sa pause déjeuner (12h-14h)", !breakGuard.isLunchTime());
   const yesBtn = makeBtn("gmc-quick-yes-btn gmc-composer-btn", "Oui", "Envoyer « Oui » à l'IA", false, quickReplyGroup);
   const nextBtn = makeBtn("gmc-quick-next-btn gmc-composer-btn", "Suite", "Envoyer « Suite » à l'IA", false, quickReplyGroup);
   const excuseBtn = makeBtn("gmc-quick-excuse-btn gmc-composer-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat", false, quickReplyGroup);
@@ -64,7 +62,21 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const testsBtn = makeBtn("gmc-global-tests-btn", "🧪 Lancer les tests", "Exécuter les tests et envoyer les échecs", true);
   const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page");
 
+  const isAiConversationPage = () => {
+    const href = String(window.location?.href || "").toLowerCase();
+    const path = String(window.location?.pathname || "").toLowerCase();
+    if (href.includes("udm=50") || href.includes("aim=") || path.includes("/aim") || path.includes("/app")) return true;
+    if (document.querySelector("rich-textarea, [data-aim-turn], [data-turn-id], pre")) return true;
+    const isClassicHome = (path === "/" || path === "/webhp") && !href.includes("udm=");
+    return !isClassicHome && Boolean(document.querySelector('form[action="/search"] [aria-label*="Mode IA" i]'));
+  };
+
   const mountQuickButtonsNearPlus = () => {
+    if (!isAiConversationPage()) {
+      quickReplyGroup.style.display = "none";
+      return;
+    }
+    quickReplyGroup.style.display = "";
     const inputEl = chatInjector.findChatInputElement();
     if (!inputEl) {
       if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
@@ -84,7 +96,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
         }
         const rowContainer = anchor.parentElement;
         const siblingInputBox = anchor.nextElementSibling;
-        const isInlineNarrow = siblingInputBox && siblingInputBox.contains(inputEl);
+        const isInsidePill = Boolean(rowContainer?.closest('form[action="/search"], [role="search"]'));
+        const isInlineNarrow = isInsidePill || (siblingInputBox && siblingInputBox.contains(inputEl));
         if (isInlineNarrow && box.parentElement) {
           if (quickReplyGroup.parentElement !== box.parentElement || box.nextSibling !== quickReplyGroup) {
             quickReplyGroup.classList.add("gmc-composer-below");
@@ -108,14 +121,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     btn.textContent = label;
   };
 
-  const updateLunchButton = () => {
-    const showLunch = breakGuard.isLunchTime();
-    lunchBtn.style.display = showLunch ? "inline-flex" : "none";
-    if (showLunch) {
-      lunchBtn.textContent = breakGuard.hasEatenToday() ? "✅ Déjeuner pris" : "🍽️ Pause déjeuner";
-    }
-  };
-
   const updateIndicators = () => {
     const running = Boolean(watcherState?.running);
     if (running) isStartingWatcher = false;
@@ -131,7 +136,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) eventPill.textContent = String(watcherState.lastEvent);
-    updateLunchButton();
   };
 
   const refreshState = () => {
@@ -174,7 +178,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     });
   });
   eventPill.addEventListener("click", () => chatInjector.insertPrompt(eventPill.textContent, true));
-  lunchBtn.addEventListener("click", () => { breakGuard.takeLunchBreak(); updateLunchButton(); });
   yesBtn.addEventListener("click", () => chatInjector.insertPrompt("Oui", true));
   nextBtn.addEventListener("click", () => chatInjector.insertPrompt("Suite", true));
   excuseBtn.addEventListener("click", () => chatInjector.insertPrompt(pickDevExcuse(), false));
@@ -214,10 +217,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   });
   purgeBtn.addEventListener("click", () => blockManager.purgeAll());
 
-  ["click", "keydown"].forEach((evt) => {
-    document.addEventListener(evt, () => { if (!document.hidden) breakGuard.recordActivity(); }, { passive: true });
-  });
-
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area === "local" && changes.watchClipboardState?.newValue) { watcherState = changes.watchClipboardState.newValue; updateIndicators(); }
   });
@@ -231,5 +230,5 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
   scanAll(true);
   refreshState();
-  window.__gmcStatusTimer = setInterval(() => { if (!document.hidden) { refreshState(); updateLunchButton(); breakGuard.tick(); } }, 4000);
+  window.__gmcStatusTimer = setInterval(() => { if (!document.hidden) refreshState(); }, 4000);
 }

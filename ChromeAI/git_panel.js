@@ -184,6 +184,38 @@ class GitPanelManager {
     box.append(topRow, preDetail);
   }
 
+  sendRuntimeSafe(payload, onDone, timeoutMs = 20000) {
+    if (!chrome.runtime?.id) {
+      onDone({ ok: false, error: "Extension rechargée : actualise la page (F5) puis réessaie." });
+      return;
+    }
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        onDone({ ok: false, error: `Délai dépassé (${Math.round(timeoutMs / 1000)}s) sans réponse de l'extension.` });
+      }
+    }, timeoutMs);
+    try {
+      chrome.runtime.sendMessage(payload, (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (chrome.runtime.lastError) {
+          onDone({ ok: false, error: chrome.runtime.lastError.message || "Erreur de communication extension." });
+          return;
+        }
+        onDone(res || { ok: false, error: "Réponse vide du service worker." });
+      });
+    } catch (err) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        onDone({ ok: false, error: err?.message || "Contexte d'extension invalidé (F5 requis)." });
+      }
+    }
+  }
+
   createPushButton(bar) {
     const pushBtn = document.createElement("button");
     pushBtn.type = "button";
@@ -194,7 +226,7 @@ class GitPanelManager {
       pushBtn.disabled = true;
       pushBtn.classList.remove("state-fail", "state-pass");
       pushBtn.textContent = "⏳ Push en cours...";
-      chrome.runtime.sendMessage({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, async (res) => {
+      this.sendRuntimeSafe({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, async (res) => {
         if (res?.ok) {
           pushBtn.textContent = "✅ Push origin OK";
           pushBtn.title = res.output || "Push effectué";
@@ -210,7 +242,7 @@ class GitPanelManager {
           pushBtn.classList.add("state-fail");
           this.renderGitErrorBox(bar, "Détail de l'erreur git push", fullErr);
         }
-      });
+      }, 68000);
     });
     return pushBtn;
   }
@@ -233,9 +265,14 @@ class GitPanelManager {
         commitBtn.disabled = true;
         commitBtn.textContent = "⏳ Commit en cours...";
         try { await navigator.clipboard.writeText(msgText); } catch (_err) {}
-        const stored = chrome.storage?.local ? await chrome.storage.local.get("savedGitSelectedFiles") : {};
-        const filesToCommit = this.lastValidatedFiles.length > 0 ? this.lastValidatedFiles : (stored.savedGitSelectedFiles || []);
-        chrome.runtime.sendMessage({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
+        let filesToCommit = this.lastValidatedFiles;
+        if (filesToCommit.length === 0 && chrome.storage?.local && chrome.runtime?.id) {
+          try {
+            const stored = await chrome.storage.local.get("savedGitSelectedFiles");
+            filesToCommit = stored.savedGitSelectedFiles || [];
+          } catch (_e) {}
+        }
+        this.sendRuntimeSafe({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
           if (res?.ok) {
             commitBtn.textContent = "✅ Commit effectué & copié";
             commitBtn.classList.add("state-pass");
@@ -249,7 +286,7 @@ class GitPanelManager {
             commitBtn.classList.add("state-fail");
             this.renderGitErrorBox(bar, "Détail de l'erreur git commit", fullErr);
           }
-        });
+        }, 30000);
       });
       bar.appendChild(commitBtn);
       pre.parentNode.insertBefore(bar, pre.nextSibling);
