@@ -26,6 +26,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   let scanTimer = null;
   let isStartingWatcher = false;
   let lastUncoveredReport = "";
+  let lastCoveragePercent = null;
   let lastTestsPassed = false;
   let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, lastEvent: null };
 
@@ -61,10 +62,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const excuseBtn = makeBtn("gmc-quick-excuse-btn gmc-composer-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat", false, quickReplyGroup);
   const gitBtn = makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true);
   const exportBtn = makeBtn("gmc-global-export-btn", "📦 Exporter projet", "Exporter le projet et l'envoyer dans le chat", true);
-  const coverageBtn = makeBtn("gmc-global-coverage-btn", "📊 Lignes non couvertes", "Envoyer à l'IA les lignes non couvertes par les tests", true);
+  const coverageBtn = makeBtn("gmc-global-coverage-btn", "📊 Couverture", "Envoyer à l'IA le rapport de couverture des tests", true);
   const testsBtn = makeBtn("gmc-global-tests-btn", "🧪 Lancer les tests", "Exécuter les tests et envoyer les échecs", true);
   const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page");
-
   const isAiConversationPage = () => {
     const href = String(window.location?.href || "").toLowerCase();
     const path = String(window.location?.pathname || "").toLowerCase();
@@ -118,29 +118,37 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     }
     if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
   };
+
   const setBtnState = (btn, state, label) => {
     btn.classList.remove("state-running", "state-pass", "state-fail");
     if (state) btn.classList.add(`state-${state}`);
     btn.textContent = label;
   };
 
+  const parseCoveragePercent = (reportText) => {
+    const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i);
+    return m ? Number.parseFloat(m.at(1)) : null;
+  };
+
   const renderCoverageIndicator = () => {
-    if (!watcherState?.running || !watcherState.hasRunTestsClip || !lastTestsPassed) {
+    if (!watcherState?.running || !watcherState.hasRunTestsClip || !lastTestsPassed || !lastUncoveredReport) {
       coverageBtn.style.display = "none";
       return;
     }
     coverageBtn.style.display = "inline-flex";
-    if (lastUncoveredReport) {
-      coverageBtn.classList.remove("state-pass");
-      coverageBtn.textContent = "📊 Lignes non couvertes";
-      coverageBtn.title = "Envoyer à l'IA les lignes non couvertes par les tests";
+    const pct = lastCoveragePercent ?? parseCoveragePercent(lastUncoveredReport);
+    const isFull = pct !== null && pct >= 100;
+    coverageBtn.classList.toggle("state-pass", isFull);
+    coverageBtn.classList.toggle("state-fail", pct !== null && pct < 70);
+    const pctSuffix = pct !== null ? ` (${pct.toFixed(1)}%)` : "";
+    if (isFull) {
+      coverageBtn.textContent = "✅ Couv. 100.0%";
+      coverageBtn.title = "Toutes les lignes exécutables mesurées sont couvertes par les tests";
     } else {
-      coverageBtn.classList.add("state-pass");
-      coverageBtn.textContent = "✅ 100 % couvert";
-      coverageBtn.title = "Toutes les lignes exécutables sont couvertes par les tests";
+      coverageBtn.textContent = `📊 Couverture${pctSuffix}`;
+      coverageBtn.title = "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
     }
   };
-
   const updateIndicators = () => {
     const running = Boolean(watcherState?.running);
     if (running) isStartingWatcher = false;
@@ -226,9 +234,10 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   });
   coverageBtn.addEventListener("click", () => {
     if (!lastUncoveredReport) return;
-    const prompt = "Voici les lignes non encore couvertes par les tests unitaires :\n" + "\x60\x60\x60text\n" + lastUncoveredReport + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour couvrir ces branches ?\n";
+    const prompt = "Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n" + "\x60\x60\x60text\n" + lastUncoveredReport + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n";
     chatInjector.insertPrompt(prompt, true);
     lastUncoveredReport = "";
+    lastCoveragePercent = null;
     lastTestsPassed = false;
     renderCoverageIndicator();
   });
@@ -236,6 +245,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     setBtnState(testsBtn, "running", "⏳ Tests...");
     lastTestsPassed = false;
     lastUncoveredReport = "";
+    lastCoveragePercent = null;
     renderCoverageIndicator();
     sendBgMessage({ type: "RUN_PROJECT_TESTS", injectIntoActiveTab: false }, async (res) => {
       if (!res?.ok) return setBtnState(testsBtn, "fail", "❌ Erreur");
@@ -243,6 +253,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
         setBtnState(testsBtn, "pass", "✅ Tests OK");
         lastTestsPassed = true;
         lastUncoveredReport = String(res.uncovered || "").trim();
+        lastCoveragePercent = parseCoveragePercent(lastUncoveredReport);
         renderCoverageIndicator();
         return;
       }

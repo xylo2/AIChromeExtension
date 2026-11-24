@@ -36,12 +36,11 @@ test("chaque module est concis (<= 240 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
   assert.ok(contentJs.includes("pickDevExcuse()"));
   assert.ok(contentJs.includes("gmc-global-coverage-btn"));
-  assert.ok(contentJs.includes("100 % couvert"));
+  assert.ok(contentJs.includes("parseCoveragePercent"));
   assert.ok(contentJs.includes("res.uncovered"));
   assert.equal(contentJs.includes("GmcBreakGuard"), false);
   assert.ok(contentJs.includes("gmc-composer-below"));
 });
-
 test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", () => {
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
   const start = contentJs.indexOf("const mountQuickButtonsNearPlus = () => {");
@@ -115,6 +114,7 @@ test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", 
   assert.equal(quickReplyGroup.parentElement, outerWrapper);
   assert.equal(quickReplyGroup.classList.contains("gmc-composer-below"), true);
 });
+
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);

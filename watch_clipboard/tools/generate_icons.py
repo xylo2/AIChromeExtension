@@ -56,35 +56,13 @@ def _draw_chrome_ai(x: int, y: int, size: int) -> RGBA:
     return (r, g, b, alpha)
 
 
-def _draw_break_guard(x: int, y: int, size: int) -> RGBA:
-    alpha: int = _rounded_alpha(x, y, size, size * 0.22)
-    if alpha == 0:
-        return (0, 0, 0, 0)
-    nx, ny = (x + 0.5) / size, (y + 0.5) / size
-    r, g, b = 46, 16, 101
-    dist_center: float = math.hypot(nx - 0.5, ny - 0.5)
-    if 0.31 <= dist_center <= 0.38:
-        r, g, b = 244, 63, 94
-    d1: float = math.hypot(nx - 0.47, ny - 0.51)
-    d2: float = math.hypot(nx - 0.56, ny - 0.46)
-    if d1 <= 0.21 and d2 > 0.17:
-        r, g, b = 253, 224, 71
-    if math.hypot(nx - 0.66, ny - 0.35) <= 0.06:
-        r, g, b = 56, 189, 248
-    return (r, g, b, alpha)
-
-
 def generate_all_icons(tools_dir: str) -> None:
-    targets = [
-        (os.path.join(tools_dir, "ChromeAI", "icons"), _draw_chrome_ai),
-        (os.path.join(tools_dir, "CareBreakAI", "icons"), _draw_break_guard),
-    ]
-    for folder, fn in targets:
-        os.makedirs(folder, exist_ok=True)
-        for sz in (16, 48, 128):
-            out_path: str = os.path.join(folder, f"icon{sz}.png")
-            with open(out_path, "wb") as f_out:
-                f_out.write(_make_png(sz, fn))
+    folder: str = os.path.join(tools_dir, "ChromeAI", "icons")
+    os.makedirs(folder, exist_ok=True)
+    for sz in (16, 48, 128):
+        out_path: str = os.path.join(folder, f"icon{sz}.png")
+        with open(out_path, "wb") as f_out:
+            f_out.write(_make_png(sz, _draw_chrome_ai))
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from tools.run_tests_clip import ClipboardTestRunner
 class TestClipboardTestRunner(unittest.TestCase):
     """
     Tests unitaires vérifiant le compactage des rapports d'erreurs unittest,
-    la déduplication des échecs identiques, la troncature et le calcul des lignes non couvertes.
+    la déduplication des échecs identiques, la troncature et le tableau de couverture.
     """
 
     def test_compact_error_report_deduplication_and_truncation(self) -> None:
@@ -56,13 +56,16 @@ class TestClipboardTestRunner(unittest.TestCase):
             self.assertIn("[...]", report)
             self.assertIn("Ran 3 tests in 0.005s | FAILED (failures=1, errors=2)", report)
 
-    def test_run_single_suite_detects_uncovered_lines(self) -> None:
+    def test_run_single_suite_detects_uncovered_lines_and_table_format(self) -> None:
         sample_lines = list((2, 3, 4, 8, 10, 11))
         self.assertEqual(ClipboardTestRunner._format_line_ranges(sample_lines), "2-4, 8, 10-11")
         with tempfile.TemporaryDirectory() as tmp_dir:
             mod_file: str = os.path.join(tmp_dir, "demo.py")
             with open(mod_file, "w", encoding="utf-8") as f_mod:
                 f_mod.write('"""Docstring."""\ndef fn(x):\n    if x:\n        return 1\n    return 2\n')
+            unused_file: str = os.path.join(tmp_dir, "unused.py")
+            with open(unused_file, "w", encoding="utf-8") as f_un:
+                f_un.write("def never_called():\n    x = 1\n    return x\n")
             tests_dir: str = os.path.join(tmp_dir, "tests")
             os.makedirs(tests_dir, exist_ok=True)
             with open(os.path.join(tests_dir, "__init__.py"), "w", encoding="utf-8") as f_init:
@@ -71,11 +74,15 @@ class TestClipboardTestRunner(unittest.TestCase):
                 f_t.write("import unittest\nfrom demo import fn\nclass T(unittest.TestCase):\n    def test_true(self):\n        self.assertEqual(fn(True), 1)\n")
 
             runner = ClipboardTestRunner(project_root=tmp_dir, use_clipboard=False)
-            rc, summary, uncov = runner._run_single_suite("demo", tests_dir, tmp_dir)
+            rc, summary, rows = runner._run_single_suite("demo", tests_dir, tmp_dir)
             self.assertEqual(rc, 0, msg=summary)
             self.assertIn("OK", summary)
-            self.assertEqual(len(uncov), 1)
-            self.assertIn("demo.py (67%) : lignes 5", next(iter(uncov)))
+            pct, table_text = runner.format_coverage_report(rows, total_tests=1)
+            self.assertAlmostEqual(pct, 40.0)
+            self.assertIn("COUVERTURE GLOBALE : 40.0% (2/5 lignes) (1 tests unitaires)", table_text)
+            self.assertIn("0.0% | BAS     | 0/2", table_text)
+            self.assertIn("66.7% | BAS     | 2/3", table_text)
+            self.assertIn("demo.py (66.7%) : lignes 5", table_text)
 
 
 if __name__ == "__main__":
