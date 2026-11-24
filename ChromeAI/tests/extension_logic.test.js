@@ -12,6 +12,7 @@ const JS_MODULES = [
   "chat_injector.js",
   "git_panel.js",
   "block_manager.js",
+  "break_guard.js",
   "content.js"
 ];
 
@@ -30,15 +31,42 @@ test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
   }
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
-  assert.ok(
-    contentJs.indexOf("let floatingBar") < contentJs.indexOf("const makeBtn"),
-    "floatingBar doit être déclaré avant makeBtn dans content.js"
-  );
-  assert.ok(contentJs.includes('insertPrompt("Oui", true)'), "Bouton Oui manquant dans content.js");
-  assert.ok(contentJs.includes('insertPrompt("Suite", true)'), "Bouton Suite manquant dans content.js");
-  assert.ok(contentJs.includes("pickDevExcuse()"), "Bouton Excuse manquant dans content.js");
+  assert.ok(contentJs.indexOf("let floatingBar") < contentJs.indexOf("const makeBtn"));
+  assert.ok(contentJs.includes('insertPrompt("Oui", true)'));
+  assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
+  assert.ok(contentJs.includes("pickDevExcuse()"));
+  assert.ok(contentJs.includes("takeLunchBreak()"));
 });
 
+test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (0h-6h)", () => {
+  const sandbox = { window: {} };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "break_guard.js"), "utf-8"), sandbox);
+
+  let fakeNow = 1_000_000;
+  let fakeHour = 12;
+  const guard = new sandbox.window.GmcBreakGuard({
+    nowFn: () => fakeNow,
+    dateFn: () => ({ getHours: () => fakeHour, getFullYear: () => 2026, getMonth: () => 10, getDate: () => 24 })
+  });
+
+  guard.recordActivity();
+  assert.equal(guard.isLunchTime(), true);
+  fakeNow += 30 * 60 * 1000;
+  assert.equal(guard.getStatus().type, "lunch");
+
+  guard.takeLunchBreak();
+  assert.equal(guard.hasEatenToday(), true);
+  assert.equal(guard.getStatus().shouldWarn, false);
+
+  fakeHour = 15;
+  fakeNow += 30 * 60 * 1000;
+  guard.recordActivity();
+  assert.equal(guard.getStatus().type, "move");
+
+  fakeHour = 2;
+  assert.equal(guard.getStatus().type, "night");
+});
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);

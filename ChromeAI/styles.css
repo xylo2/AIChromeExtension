@@ -148,83 +148,59 @@ code.gmc-collapsed-code,
   transform: translateY(-1px);
 }
 
-.gmc-quick-yes-btn {
-  background-color: #ecfdf5 !important;
-  color: #065f46 !important;
-  border-color: #6ee7b7 !important;
-}
-
-.gmc-quick-next-btn {
-  background-color: #eef2ff !important;
-  color: #3730a3 !important;
-  border-color: #a5b4fc !important;
-}
-
-.gmc-quick-excuse-btn {
-  background-color: #fffbeb !important;
-  color: #92400e !important;
-  border-color: #fcd34d !important;
-}
+.gmc-quick-lunch-btn { background-color: #fff7ed !important; color: #9a3412 !important; border-color: #fdba74 !important; }
+.gmc-quick-yes-btn { background-color: #ecfdf5 !important; color: #065f46 !important; border-color: #6ee7b7 !important; }
+.gmc-quick-next-btn { background-color: #eef2ff !important; color: #3730a3 !important; border-color: #a5b4fc !important; }
+.gmc-quick-excuse-btn { background-color: #fffbeb !important; color: #92400e !important; border-color: #fcd34d !important; }
 
 .gmc-global-event-pill {
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background-color: #eff6ff !important;
-  color: #1d4ed8 !important;
-  border-color: #93c5fd !important;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  background-color: #eff6ff !important; color: #1d4ed8 !important; border-color: #93c5fd !important;
 }
 
-.gmc-global-git-btn.state-running,
-.gmc-global-export-btn.state-running,
-.gmc-global-tests-btn.state-running {
-  background-color: #f3e8ff;
-  color: #6b21a8;
-  border-color: #c084fc;
+.gmc-global-git-btn.state-running, .gmc-global-export-btn.state-running, .gmc-global-tests-btn.state-running {
+  background-color: #f3e8ff; color: #6b21a8; border-color: #c084fc;
 }
 
-.gmc-global-status-pill.offline,
-.gmc-global-git-btn.state-fail,
-.gmc-global-export-btn.state-fail,
-.gmc-global-tests-btn.state-fail,
-.gmc-git-commit-btn.state-fail,
-.gmc-git-push-btn.state-fail {
-  background-color: #fce8e6;
-  color: #c5221f;
-  border-color: #f28b82;
+.gmc-global-status-pill.offline, .gmc-global-git-btn.state-fail, .gmc-global-export-btn.state-fail,
+.gmc-global-tests-btn.state-fail, .gmc-git-commit-btn.state-fail, .gmc-git-push-btn.state-fail {
+  background-color: #fce8e6; color: #c5221f; border-color: #f28b82;
 }
 
-.gmc-global-status-pill.online,
-.gmc-global-git-btn.state-pass,
-.gmc-global-export-btn.state-pass,
-.gmc-global-tests-btn.state-pass,
-.gmc-git-commit-btn.state-pass,
-.gmc-git-push-btn.state-pass {
-  background-color: #e6f4ea;
-  color: #137333;
-  border-color: #81c995;
+.gmc-global-status-pill.online, .gmc-global-git-btn.state-pass, .gmc-global-export-btn.state-pass,
+.gmc-global-tests-btn.state-pass, .gmc-git-commit-btn.state-pass, .gmc-git-push-btn.state-pass {
+  background-color: #e6f4ea; color: #137333; border-color: #81c995;
 }
+
+.gmc-break-banner {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 2147483647;
+  max-width: 420px;
+  background: #1e1b4b;
+  color: #f8fafc;
+  border: 1px solid #818cf8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.4);
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 13px;
+}
+.gmc-break-msg { margin-bottom: 10px; line-height: 1.4; }
+.gmc-break-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.gmc-break-btn-snooze, .gmc-break-btn-reset {
+  border: none; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.gmc-break-btn-snooze { background: #312e81; color: #c7d2fe; border: 1px solid #6366f1; }
+.gmc-break-btn-reset { background: #16a34a; color: #ffffff; }
 
 .gmc-git-panel {
-  position: fixed;
-  bottom: 66px;
-  right: 20px;
-  width: 390px;
-  max-width: calc(100vw - 40px);
-  max-height: 360px;
-  z-index: 2147483647;
-  display: flex;
-  flex-direction: column;
-  background: #1e293b;
-  color: #f8fafc;
-  border: 1px solid #475569;
-  border-radius: 10px;
-  padding: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  font-family: 'Google Sans', Roboto, Arial, sans-serif;
-  font-size: 12px;
+  position: fixed; bottom: 66px; right: 20px; width: 390px; max-width: calc(100vw - 40px); max-height: 360px;
+  z-index: 2147483647; display: flex; flex-direction: column; background: #1e293b; color: #f8fafc;
+  border: 1px solid #475569; border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px;
 }
-
 .gmc-git-panel-header { font-weight: 600; margin-bottom: 8px; color: #e2e8f0; }
 .gmc-git-panel-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .gmc-git-item-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; background: #0f172a; }
@@ -241,9 +217,8 @@ code.gmc-collapsed-code,
 .gmc-git-commit-btn { background: #1a73e8; color: #ffffff; }
 .gmc-git-push-btn { background: #7c3aed; color: #ffffff; }
 .gmc-git-error-box {
-  width: 100%; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
-  background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;
-  font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; text-align: left;
+  width: 100%; margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #fef2f2;
+  border: 1px solid #fca5a5; color: #991b1b; font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; text-align: left;
 }
 .gmc-git-error-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; margin-bottom: 6px; }
 .gmc-git-error-actions { display: flex; gap: 6px; }

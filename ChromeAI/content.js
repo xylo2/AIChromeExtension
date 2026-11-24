@@ -10,6 +10,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const chatInjector = new window.GmcChatInjector();
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector);
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector);
+  const breakGuard = new window.GmcBreakGuard();
+  breakGuard.recordActivity();
 
   const DEV_EXCUSES = [
     "Ça marchait pourtant sur ma branche avant le rebase quantique.",
@@ -50,6 +52,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const statusPill = makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF");
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true);
+  const lunchBtn = makeBtn("gmc-quick-lunch-btn", "🍽️ Pause déjeuner", "Prendre sa pause déjeuner (12h-14h)", !breakGuard.isLunchTime());
   const yesBtn = makeBtn("gmc-quick-yes-btn", "Oui", "Envoyer « Oui » à l'IA");
   const nextBtn = makeBtn("gmc-quick-next-btn", "Suite", "Envoyer « Suite » à l'IA");
   const excuseBtn = makeBtn("gmc-quick-excuse-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat");
@@ -61,6 +64,14 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     btn.classList.remove("state-running", "state-pass", "state-fail");
     if (state) btn.classList.add(`state-${state}`);
     btn.textContent = label;
+  };
+
+  const updateLunchButton = () => {
+    const showLunch = breakGuard.isLunchTime();
+    lunchBtn.style.display = showLunch ? "inline-flex" : "none";
+    if (showLunch) {
+      lunchBtn.textContent = breakGuard.hasEatenToday() ? "✅ Déjeuner pris" : "🍽️ Pause déjeuner";
+    }
   };
 
   const updateIndicators = () => {
@@ -78,6 +89,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) eventPill.textContent = String(watcherState.lastEvent);
+    updateLunchButton();
   };
 
   const refreshState = () => {
@@ -120,6 +132,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     });
   });
   eventPill.addEventListener("click", () => chatInjector.insertPrompt(eventPill.textContent, true));
+  lunchBtn.addEventListener("click", () => { breakGuard.takeLunchBreak(); updateLunchButton(); });
   yesBtn.addEventListener("click", () => chatInjector.insertPrompt("Oui", true));
   nextBtn.addEventListener("click", () => chatInjector.insertPrompt("Suite", true));
   excuseBtn.addEventListener("click", () => chatInjector.insertPrompt(pickDevExcuse(), false));
@@ -159,6 +172,10 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   });
   purgeBtn.addEventListener("click", () => blockManager.purgeAll());
 
+  ["click", "keydown"].forEach((evt) => {
+    document.addEventListener(evt, () => { if (!document.hidden) breakGuard.recordActivity(); }, { passive: true });
+  });
+
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area === "local" && changes.watchClipboardState?.newValue) { watcherState = changes.watchClipboardState.newValue; updateIndicators(); }
   });
@@ -172,5 +189,5 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
   scanAll(true);
   refreshState();
-  window.__gmcStatusTimer = setInterval(() => { if (!document.hidden) refreshState(); }, 4000);
+  window.__gmcStatusTimer = setInterval(() => { if (!document.hidden) { refreshState(); updateLunchButton(); breakGuard.tick(); } }, 4000);
 }

@@ -29,6 +29,7 @@
         "chat_injector.js",
         "git_panel.js",
         "block_manager.js",
+        "break_guard.js",
         "content.js"
       ],
       "css": ["styles.css"],

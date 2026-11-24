@@ -59,7 +59,6 @@ async function fetchWithTokenFallback(url, options, apiToken) {
   }
   return response;
 }
-
 async function checkWatchClipboardStatus(forceBroadcast = false) {
   if (isChecking) {
     const stored = await chrome.storage.local.get("watchClipboardState");
@@ -160,41 +159,24 @@ function generateSessionToken() {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
-
 function startWatchClipboard(targetDir, extraArgs) {
-  if (activeStartPromise) {
-    return activeStartPromise;
-  }
+  if (activeStartPromise) return activeStartPromise;
   activeStartPromise = (async () => {
     try {
       const current = await checkWatchClipboardStatus(false);
-      if (current && current.running) {
-        return { ok: true, alreadyRunning: true, state: current };
-      }
+      if (current && current.running) return { ok: true, alreadyRunning: true, state: current };
       const apiToken = generateSessionToken();
       await chrome.storage.local.set({ watcherApiToken: apiToken });
-
       return await new Promise((resolve) => {
         chrome.runtime.sendNativeMessage(
           NATIVE_HOST_NAME,
-          {
-            action: "start",
-            target_dir: targetDir || ".",
-            extra_args: extraArgs || "",
-            api_token: apiToken,
-            allowed_origin: `chrome-extension://${chrome.runtime.id}`
-          },
+          { action: "start", target_dir: targetDir || ".", extra_args: extraArgs || "", api_token: apiToken, allowed_origin: `chrome-extension://${chrome.runtime.id}` },
           async (response) => {
             if (chrome.runtime.lastError) {
               const errMsg = chrome.runtime.lastError.message || "Erreur Native Messaging";
               const stored = await chrome.storage.local.get("savedRootDir");
               const rootDir = (stored.savedRootDir || DEFAULT_ROOT_DIR).replace(/[\\/]+$/, "");
-              resolve({
-                ok: false,
-                error: errMsg,
-                missingHost: isMissingHostError(errMsg),
-                installCommand: `python "${rootDir}\\tools\\watch_clipboard\\install_native_host.py" ${chrome.runtime.id}`
-              });
+              resolve({ ok: false, error: errMsg, missingHost: isMissingHostError(errMsg), installCommand: `python "${rootDir}\\tools\\watch_clipboard\\install_native_host.py" ${chrome.runtime.id}` });
               return;
             }
             const ok = Boolean(response && response.ok);
@@ -203,9 +185,7 @@ function startWatchClipboard(targetDir, extraArgs) {
           }
         );
       });
-    } finally {
-      activeStartPromise = null;
-    }
+    } finally { activeStartPromise = null; }
   })();
   return activeStartPromise;
 }
@@ -219,109 +199,27 @@ async function stopWatchClipboard() {
   return waitForExpectedState(false, 2000);
 }
 
-async function exportProjectFiles() {
+async function postJsonEndpoint(endpoint, bodyObj, timeoutMs = 15000, errFallback = "Erreur serveur.") {
   try {
     const apiToken = await getApiToken();
     const response = await fetchWithTokenFallback(
-      `${BASE_URL}/export-project`,
-      { method: "POST", signal: AbortSignal.timeout(65000) },
-      apiToken
-    );
-    return await response.json();
-  } catch (_err) {
-    return { ok: false, error: "Impossible de générer l'export du projet." };
-  }
-}
-async function getGitStatus() {
-  try {
-    const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/git-status`,
-      { signal: AbortSignal.timeout(10000), cache: "no-store" },
-      apiToken
-    );
-    return await response.json();
-  } catch (_err) {
-    return { ok: false, error: "Impossible de lire git status." };
-  }
-}
-
-async function getGitDiffSelected(files) {
-  try {
-    const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/git-diff`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: files || [] }),
-        signal: AbortSignal.timeout(15000)
-      },
-      apiToken
-    );
-    return await response.json();
-  } catch (_err) {
-    return { ok: false, error: "Impossible de récupérer git diff." };
-  }
-}
-
-async function executeGitCommit(message, files) {
-  try {
-    const apiToken = await getApiToken();
-    const payload = { message: message || "" };
-    if (Array.isArray(files) && files.length > 0) {
-      payload.files = files;
-    }
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/git-commit`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
-      },
-      apiToken
-    );
-    return await response.json();
-  } catch (_err) {
-    return { ok: false, error: "Impossible d'exécuter git commit." };
-  }
-}
-
-async function executeGitPush(remote = "origin", branch = "HEAD") {
-  const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
-  try {
-    const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/git-push`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ remote, branch }),
-        signal: AbortSignal.timeout(65000)
-      },
+      `${BASE_URL}${endpoint}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) },
       apiToken
     );
     return await response.json();
   } catch (err) {
-    const detail = err && err.message ? err.message : "délai ou connexion réseau";
-    return { ok: false, error: `Impossible d'exécuter git push (${detail}).` };
-  } finally {
-    clearInterval(keepAlive);
+    return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` };
   }
 }
 
-async function readSavedFile(header) {
+async function getJsonEndpoint(endpoint, timeoutMs = 10000, errFallback = "Erreur lecture.") {
   try {
     const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/read-file?header=${encodeURIComponent(header || "")}`,
-      { signal: AbortSignal.timeout(5000), cache: "no-store" },
-      apiToken
-    );
+    const response = await fetchWithTokenFallback(`${BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, apiToken);
     return await response.json();
   } catch (_err) {
-    return { ok: false, error: "Impossible de relire le fichier sauvegardé." };
+    return { ok: false, error: errFallback };
   }
 }
 
@@ -329,42 +227,26 @@ async function runProjectTests(injectIntoActiveTab = true) {
   const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
   try {
     const stored = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
-    const testRunner = (stored.savedTestRunner || "").trim();
-    const apiToken = stored.watcherApiToken || "";
     const response = await fetchWithTokenFallback(
       `${BASE_URL}/run-tests`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test_runner: testRunner }),
-        signal: AbortSignal.timeout(185000)
-      },
-      apiToken
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) },
+      stored.watcherApiToken || ""
     );
     const result = await response.json();
-    if (result && result.ok && result.output && injectIntoActiveTab) {
+    if (result?.ok && result.output && injectIntoActiveTab) {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const activeTab = tabs && tabs.at(0);
-      if (activeTab && activeTab.id) {
+      const activeTab = tabs?.at(0);
+      if (activeTab?.id) {
         try {
-          const tabReply = await chrome.tabs.sendMessage(activeTab.id, {
-            type: "INSERT_TEST_RESULT",
-            output: result.output,
-            passed: Boolean(result.passed)
-          });
-          result.insertedInPage = Boolean(tabReply && tabReply.inserted);
-        } catch (_err) {
-          result.insertedInPage = false;
-        }
+          const tabReply = await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) });
+          result.insertedInPage = Boolean(tabReply?.inserted);
+        } catch (_err) { result.insertedInPage = false; }
       }
     }
     return result;
   } catch (err) {
-    const detail = err && err.message ? err.message : "délai dépassé";
-    return { ok: false, error: `Impossible d'exécuter les tests (${detail}).` };
-  } finally {
-    clearInterval(keepAlive);
-  }
+    return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` };
+  } finally { clearInterval(keepAlive); }
 }
 
 async function reinjectContentScriptsIntoOpenTabs() {
@@ -378,7 +260,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
           target: { tabId: tab.id },
           func: () => {
             window.__gmcInitialized = false;
-            document.querySelectorAll(".gmc-floating-bar, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar").forEach((n) => n.remove());
+            document.querySelectorAll(".gmc-floating-bar, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar, .gmc-break-banner").forEach((n) => n.remove());
             document.querySelectorAll("[data-gmc-processed], [data-gmc-commit-processed]").forEach((el) => {
               el.removeAttribute("data-gmc-processed");
               el.removeAttribute("data-gmc-commit-processed");
@@ -393,7 +275,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
         await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles.css"] });
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "content.js"]
+          files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "break_guard.js", "content.js"]
         });
       } catch (_tabErr) {}
     }
@@ -401,11 +283,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
 }
 
 setInterval(() => checkWatchClipboardStatus(), FAST_POLL_INTERVAL_MS);
-chrome.runtime.onInstalled.addListener(() => {
-  checkWatchClipboardStatus(true);
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
-  reinjectContentScriptsIntoOpenTabs();
-});
+chrome.runtime.onInstalled.addListener(() => { checkWatchClipboardStatus(true); chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 }); reinjectContentScriptsIntoOpenTabs(); });
 chrome.runtime.onStartup.addListener(() => { checkWatchClipboardStatus(true); chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 }); });
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === ALARM_NAME) checkWatchClipboardStatus(true); });
 chrome.tabs.onActivated.addListener(() => checkWatchClipboardStatus(true));
@@ -416,11 +294,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "REFRESH_STATUS") { checkWatchClipboardStatus(true).then(sendResponse); return true; }
   if (message.type === "START_WATCHER") { startWatchClipboard(message.targetDir, message.extraArgs).then(sendResponse); return true; }
   if (message.type === "STOP_WATCHER") { stopWatchClipboard().then(sendResponse); return true; }
-  if (message.type === "EXPORT_PROJECT") { exportProjectFiles().then(sendResponse); return true; }
-  if (message.type === "GIT_STATUS") { getGitStatus().then(sendResponse); return true; }
-  if (message.type === "GIT_DIFF_SELECTED") { getGitDiffSelected(message.files).then(sendResponse); return true; }
-  if (message.type === "GIT_COMMIT") { executeGitCommit(message.message, message.files).then(sendResponse); return true; }
-  if (message.type === "GIT_PUSH") { executeGitPush(message.remote || "origin", message.branch || "HEAD").then(sendResponse); return true; }
-  if (message.type === "READ_SAVED_FILE") { readSavedFile(message.header).then(sendResponse); return true; }
+  if (message.type === "EXPORT_PROJECT") { postJsonEndpoint("/export-project", {}, 65000, "Impossible de générer l'export du projet.").then(sendResponse); return true; }
+  if (message.type === "GIT_STATUS") { getJsonEndpoint("/git-status", 10000, "Impossible de lire git status.").then(sendResponse); return true; }
+  if (message.type === "GIT_DIFF_SELECTED") { postJsonEndpoint("/git-diff", { files: message.files || [] }, 15000, "Impossible de récupérer git diff.").then(sendResponse); return true; }
+  if (message.type === "GIT_COMMIT") {
+    const payload = { message: message.message || "" };
+    if (Array.isArray(message.files) && message.files.length > 0) payload.files = message.files;
+    postJsonEndpoint("/git-commit", payload, 15000, "Impossible d'exécuter git commit.").then(sendResponse);
+    return true;
+  }
+  if (message.type === "GIT_PUSH") {
+    const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
+    postJsonEndpoint("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(keepAlive));
+    return true;
+  }
+  if (message.type === "READ_SAVED_FILE") { getJsonEndpoint(`/read-file?header=${encodeURIComponent(message.header || "")}`, 5000, "Impossible de relire le fichier sauvegardé.").then(sendResponse); return true; }
   if (message.type === "RUN_PROJECT_TESTS") { runProjectTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
 });
