@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Lancer avec : node --test tools/BreakGuardAI/tests/break_guard.test.js
 
 const test = require("node:test");
@@ -8,32 +9,47 @@ const vm = require("node:vm");
 
 const EXT_DIR = path.resolve(__dirname, "..");
 
-test("manifest.json utilise les permissions minimales et les locales i18n", () => {
+test("manifest.json utilise les permissions minimales et les 4 langues i18n (en, fr, de, es)", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf-8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.default_locale, "fr");
+  assert.equal(manifest.default_locale, "en");
   assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
   assert.equal(manifest.host_permissions, undefined);
   assert.equal(manifest.action.default_popup, "popup.html");
   assert.deepEqual(manifest.content_scripts.at(0).js, ["break_guard.js", "content.js"]);
 
-  const fr = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", "fr", "messages.json"), "utf-8"));
   const en = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", "en", "messages.json"), "utf-8"));
-  assert.ok(fr.extName.message.includes("Break Guard"));
-  assert.ok(en.extName.message.includes("Break Guard"));
+  const expectedKeys = Object.keys(en);
+  for (const lang of ["en", "fr", "de", "es"]) {
+    const dict = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", lang, "messages.json"), "utf-8"));
+    assert.deepEqual(Object.keys(dict), expectedKeys, `Clés manquantes ou différentes pour ${lang}`);
+  }
 });
 
-test("popup et content.js intègrent les interrupteurs par alerte et le mode Ne pas déranger", () => {
+test("LICENSE contient la licence GNU GPL v3 et chaque fichier JS porte l'en-tête SPDX", () => {
+  const licenseTxt = fs.readFileSync(path.join(EXT_DIR, "LICENSE"), "utf-8");
+  assert.ok(licenseTxt.includes("GNU GENERAL PUBLIC LICENSE"));
+  assert.ok(licenseTxt.includes("Version 3, 29 June 2007"));
+  const storeListing = fs.readFileSync(path.join(EXT_DIR, "STORE_LISTING.md"), "utf-8");
+  assert.ok(storeListing.includes("GNU GPL v3"));
+
+  for (const relJs of ["background.js", "break_guard.js", "content.js", "popup.js", "tests/break_guard.test.js"]) {
+    const firstLine = fs.readFileSync(path.join(EXT_DIR, relJs), "utf-8").split("\n").at(0).trim();
+    assert.equal(firstLine, "// SPDX-License-Identifier: GPL-3.0-or-later", `En-tête SPDX manquant dans ${relJs}`);
+  }
+});
+
+test("popup et content.js utilisent i18n, interrupteurs par alerte et mode Ne pas déranger", () => {
   const css = fs.readFileSync(path.join(EXT_DIR, "styles.css"), "utf-8");
   const contentJs = fs.readFileSync(path.join(EXT_DIR, "content.js"), "utf-8");
   const popupHtml = fs.readFileSync(path.join(EXT_DIR, "popup.html"), "utf-8");
   const popupJs = fs.readFileSync(path.join(EXT_DIR, "popup.js"), "utf-8");
-  assert.ok(css.includes(".gmc-break-btn-timer"));
+  assert.ok(css.includes("background-clip: padding-box;"));
   assert.ok(contentJs.includes("guard.isDndActive()"));
-  assert.ok(popupHtml.includes('id="dnd1hBtn"'));
-  assert.ok(popupHtml.includes('id="enableEyes"'));
+  assert.ok(contentJs.includes('guard.t("pillLunchLabel"'));
+  assert.ok(popupHtml.includes('data-i18n="secEyesPosture"'));
   assert.ok(popupHtml.includes('id="enableNight"'));
-  assert.ok(popupJs.includes("BREAK_SET_DND"));
+  assert.ok(popupJs.includes("applyI18n()"));
 });
 
 test("background.js gère toutes les alertes et le mode Ne pas déranger", async () => {
@@ -67,7 +83,7 @@ test("background.js gère toutes les alertes et le mode Ne pas déranger", async
   const dndRes = await sandbox.handleAction({ type: "BREAK_SET_DND", minutes: 60 });
   assert.ok(dndRes.state.dndUntil > Date.now());
 });
-test("GlobalBreakGuard respecte les interrupteurs individuels et le mode DND", () => {
+test("GlobalBreakGuard respecte i18n, le dégradé progressif des repas et le mode DND", () => {
   const allNodes = [];
   const makeNode = (tag) => {
     const node = {
@@ -89,6 +105,11 @@ test("GlobalBreakGuard respecte les interrupteurs individuels et le mode DND", (
   };
   const body = makeNode("body");
   const sandbox = {
+    chrome: {
+      i18n: {
+        getMessage: (key) => (key === "alertEyes" ? "👀 Augenpause (20-20-20)" : "")
+      }
+    },
     window: {},
     document: {
       body,
@@ -103,8 +124,10 @@ test("GlobalBreakGuard respecte les interrupteurs individuels et le mode DND", (
   let fakeNow = 1_000_000;
   const guard = new sandbox.window.GlobalBreakGuard({
     nowFn: () => fakeNow,
-    dateFn: () => new Date(2026, 10, 24, 20, 35, 0)
+    dateFn: () => new Date(2026, 10, 24, 13, 0, 0)
   });
+
+  assert.equal(guard.getMealProgress("lunch"), 0.5);
 
   guard.setState(
     {
@@ -112,17 +135,14 @@ test("GlobalBreakGuard respecte les interrupteurs individuels et le mode DND", (
       drinkStart: fakeNow,
       eyesStart: fakeNow - 21 * 60 * 1000,
       postureStart: fakeNow - 46 * 60 * 1000,
-      dinnerWindowStart: fakeNow - 35 * 60 * 1000,
       lastActivity: fakeNow
     },
-    { enableMove: false, enableDinner: false }
+    { enableMove: false }
   );
-  const types = guard.getActiveAlerts().map((a) => a.type);
-  assert.equal(types.includes("move"), false);
-  assert.equal(types.includes("dinner"), false);
-  assert.ok(types.includes("eyes"));
-  assert.ok(types.includes("posture"));
-  assert.ok(types.includes("winddown"));
+  const alerts = guard.getActiveAlerts();
+  assert.equal(alerts.some((a) => a.type === "move"), false);
+  const eyeAlert = alerts.find((a) => a.type === "eyes");
+  assert.equal(eyeAlert?.message, "👀 Augenpause (20-20-20)");
 
   guard.setState({ dndUntil: fakeNow + 3600_000 });
   assert.equal(guard.getActiveAlerts().length, 0);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Script de contenu global pour les alertes santé/sommeil sur tous les onglets.
  */
@@ -107,10 +108,27 @@ if (!window.__bgBreakInit) {
   });
   let lastRenderedMealType = null;
 
+  const applyMealPillGradient = (mealType) => {
+    const p = guard.getMealProgress(mealType);
+    const hueStart = Math.round(28 - p * 18);
+    const hueEnd = Math.round(22 - p * 18);
+    const lightStart = Math.round(16 + p * 22);
+    const lightEnd = Math.round(30 + p * 20);
+    const borderHue = Math.round(34 - p * 22);
+    mealPill.style.background = `linear-gradient(135deg, hsl(${hueStart}, 85%, ${lightStart}%), hsl(${hueEnd}, 90%, ${lightEnd}%))`;
+    mealPill.style.borderColor = `hsl(${borderHue}, 96%, 62%)`;
+    mealPill.style.boxShadow = `0 12px 30px hsla(${hueEnd}, 90%, 38%, ${(0.45 + p * 0.35).toFixed(2)})`;
+  };
+
   const updateMealPill = () => {
+    if (guard.isDndActive()) {
+      mealPill.style.display = "none";
+      lastRenderedMealType = null;
+      return;
+    }
     const activeAlerts = guard.getActiveAlerts();
-    const showLunch = guard.isLunchTime() && !guard.hasEatenToday() && !activeAlerts.some((a) => a.type === "lunch");
-    const showDinner = !showLunch && guard.isDinnerTime() && !guard.hasHadDinnerToday() && !activeAlerts.some((a) => a.type === "dinner");
+    const showLunch = guard.settings.enableLunch && guard.isLunchTime() && !guard.hasEatenToday() && !activeAlerts.some((a) => a.type === "lunch");
+    const showDinner = !showLunch && guard.settings.enableDinner && guard.isDinnerTime() && !guard.hasHadDinnerToday() && !activeAlerts.some((a) => a.type === "dinner");
     const mealType = showLunch ? "lunch" : (showDinner ? "dinner" : null);
     mealPill.style.display = mealType ? "inline-flex" : "none";
     if (!mealType) {
@@ -137,6 +155,7 @@ if (!window.__bgBreakInit) {
       });
       mealPill.append(iconWrap, labelSpan, doneBtn);
     }
+    applyMealPillGradient(mealType);
     applyPillPosition();
   };
 
@@ -170,10 +189,6 @@ if (!window.__bgBreakInit) {
     if ("breakGuardStackPos" in changes) {
       guard.setStackPosition(changes.breakGuardStackPos.newValue || null);
     }
-  });
-
-  chrome.runtime?.onMessage?.addListener((msg) => {
-    if (msg?.type === "BREAK_STATE_UPDATED") syncReply(msg);
   });
 
   document.addEventListener("visibilitychange", () => {

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Break Guard — Configuration</title>
+  <title>Break Guard</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      width: 372px;
+      width: 376px;
       margin: 0;
       padding: 12px;
       background: #0f172a;
@@ -29,8 +29,7 @@
     .btn-dnd { background: #334155; color: #f8fafc; padding: 4px 8px; font-size: 11px; flex: 0 0 auto; }
     .btn-dnd:hover { background: #475569; }
     .btn-dnd-stop { background: #dc2626; color: #ffffff; padding: 4px 8px; font-size: 11px; flex: 0 0 auto; }
-    .section-title { font-size: 12px; font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
-    .section-desc { font-size: 11px; line-height: 1.3; color: #cbd5e1; margin: 0 0 7px 0; }
+    .section-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
     .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
     .toggle-lbl { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #e2e8f0; cursor: pointer; margin: 0; }
     .toggle-lbl input[type="checkbox"] { width: auto; margin: 0; accent-color: #38bdf8; }
@@ -64,145 +63,145 @@
 <body>
   <div class="header">
     <span class="title">Break Guard</span>
-    <span class="badge">Alertes &amp; Horaires</span>
+    <span class="badge" data-i18n="popupBadge">Alerts &amp; Schedules</span>
   </div>
 
   <div class="card">
     <div class="dnd-bar">
-      <span id="dndStatus" class="dnd-status">🔕 Mode réunion : inactif</span>
+      <span id="dndStatus" class="dnd-status" data-i18n="dndInactive">🔔 Alerts active</span>
       <div class="dnd-btns">
-        <button id="dnd1hBtn" class="btn-dnd" type="button">Pause 1 h</button>
-        <button id="dnd2hBtn" class="btn-dnd" type="button">2 h</button>
-        <button id="dndOffBtn" class="btn-dnd-stop" type="button" style="display:none;">Reprendre</button>
+        <button id="dnd1hBtn" class="btn-dnd" type="button" data-i18n="dndPause1h">Pause 1 h</button>
+        <button id="dnd2hBtn" class="btn-dnd" type="button" data-i18n="dndPause2h">2 h</button>
+        <button id="dndOffBtn" class="btn-dnd-stop" type="button" style="display:none;" data-i18n="dndResume">Resume</button>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="section-title c-move">🚶 Mouvement &amp; Hydratation</div>
+    <div class="section-title c-move" data-i18n="secMoveDrink">🚶 Movement &amp; Hydration</div>
     <div class="toggle-row">
-      <label class="toggle-lbl"><input id="enableMove" type="checkbox" /> Bouger</label>
-      <label class="toggle-lbl"><input id="enableDrink" type="checkbox" /> Boire</label>
+      <label class="toggle-lbl"><input id="enableMove" type="checkbox" /> <span data-i18n="lblMove">Move</span></label>
+      <label class="toggle-lbl"><input id="enableDrink" type="checkbox" /> <span data-i18n="lblDrink">Drink</span></label>
     </div>
     <div class="grid-3">
       <div>
-        <label for="moveMinutes">Bouger (min)</label>
+        <label for="moveMinutes" data-i18n="fldMoveMin">Move (min)</label>
         <input id="moveMinutes" type="number" min="1" max="480" />
       </div>
       <div>
-        <label for="drinkMinutes">Boire (min)</label>
+        <label for="drinkMinutes" data-i18n="fldDrinkMin">Drink (min)</label>
         <input id="drinkMinutes" type="number" min="1" max="720" />
       </div>
       <div>
-        <label for="idleResetMinutes">Inactivité (min)</label>
+        <label for="idleResetMinutes" data-i18n="fldIdleMin">Idle reset (min)</label>
         <input id="idleResetMinutes" type="number" min="1" max="240" />
       </div>
     </div>
   </div>
   <div class="card">
-    <div class="section-title c-eyes">👀 Pause visuelle (20-20-20) &amp; Posture</div>
+    <div class="section-title c-eyes" data-i18n="secEyesPosture">👀 Eye Break (20-20-20) &amp; Posture</div>
     <div class="toggle-row">
-      <label class="toggle-lbl"><input id="enableEyes" type="checkbox" /> Yeux 20-20-20</label>
-      <label class="toggle-lbl"><input id="enablePosture" type="checkbox" /> Posture dos</label>
+      <label class="toggle-lbl"><input id="enableEyes" type="checkbox" /> <span data-i18n="lblEyes">20-20-20 Eyes</span></label>
+      <label class="toggle-lbl"><input id="enablePosture" type="checkbox" /> <span data-i18n="lblPosture">Posture</span></label>
     </div>
     <div class="grid-2">
       <div>
-        <label for="eyesMinutes">Yeux 20-20-20 (min)</label>
+        <label for="eyesMinutes" data-i18n="fldEyesMin">20-20-20 Eyes (min)</label>
         <input id="eyesMinutes" type="number" min="1" max="240" />
       </div>
       <div>
-        <label for="postureMinutes">Posture dos (min)</label>
+        <label for="postureMinutes" data-i18n="fldPostureMin">Posture (min)</label>
         <input id="postureMinutes" type="number" min="1" max="480" />
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="section-title c-lunch">🍽️ Repas (Déjeuner &amp; Dîner)</div>
+    <div class="section-title c-lunch" data-i18n="secMeals">🍽️ Meals (Lunch &amp; Dinner)</div>
     <div class="toggle-row">
-      <label class="toggle-lbl"><input id="enableLunch" type="checkbox" /> Déjeuner</label>
-      <label class="toggle-lbl"><input id="enableDinner" type="checkbox" /> Dîner</label>
+      <label class="toggle-lbl"><input id="enableLunch" type="checkbox" /> <span data-i18n="lblLunch">Lunch</span></label>
+      <label class="toggle-lbl"><input id="enableDinner" type="checkbox" /> <span data-i18n="lblDinner">Dinner</span></label>
     </div>
     <div class="grid-3" style="margin-bottom: 6px;">
       <div>
-        <label for="lunchStartHour">Déj. début (h)</label>
+        <label for="lunchStartHour" data-i18n="fldLunchStart">Lunch start (h)</label>
         <input id="lunchStartHour" type="number" min="0" max="23" />
       </div>
       <div>
-        <label for="lunchEndHour">Déj. fin (h)</label>
+        <label for="lunchEndHour" data-i18n="fldLunchEnd">Lunch end (h)</label>
         <input id="lunchEndHour" type="number" min="1" max="24" />
       </div>
       <div>
-        <label for="lunchRepeatMinutes">Rappel déj. (min)</label>
+        <label for="lunchRepeatMinutes" data-i18n="fldLunchRep">Lunch delay (min)</label>
         <input id="lunchRepeatMinutes" type="number" min="1" max="180" />
       </div>
     </div>
     <div class="grid-3">
       <div>
-        <label for="dinnerStartHour">Dîner début (h)</label>
+        <label for="dinnerStartHour" data-i18n="fldDinnerStart">Dinner start (h)</label>
         <input id="dinnerStartHour" type="number" min="0" max="23" />
       </div>
       <div>
-        <label for="dinnerEndHour">Dîner fin (h)</label>
+        <label for="dinnerEndHour" data-i18n="fldDinnerEnd">Dinner end (h)</label>
         <input id="dinnerEndHour" type="number" min="1" max="24" />
       </div>
       <div>
-        <label for="dinnerRepeatMinutes">Rappel dîner (min)</label>
+        <label for="dinnerRepeatMinutes" data-i18n="fldDinnerRep">Dinner delay (min)</label>
         <input id="dinnerRepeatMinutes" type="number" min="1" max="180" />
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="section-title c-night">🌇 Fin de journée &amp; Coucher</div>
+    <div class="section-title c-night" data-i18n="secNight">🌇 Wind-Down &amp; Bedtime</div>
     <div class="toggle-row">
-      <label class="toggle-lbl"><input id="enableWindDown" type="checkbox" /> Fin de journée</label>
-      <label class="toggle-lbl"><input id="enableNight" type="checkbox" /> Coucher (nuit)</label>
+      <label class="toggle-lbl"><input id="enableWindDown" type="checkbox" /> <span data-i18n="lblWindDown">Wind-down</span></label>
+      <label class="toggle-lbl"><input id="enableNight" type="checkbox" /> <span data-i18n="lblNight">Bedtime (night)</span></label>
     </div>
     <div class="grid-2" style="margin-bottom: 6px;">
       <div>
-        <label for="windDownHour">Fin journée (h)</label>
+        <label for="windDownHour" data-i18n="fldWindHour">Wind-down (h)</label>
         <input id="windDownHour" type="number" min="0" max="23" />
       </div>
       <div>
-        <label for="windDownMinute">Fin journée (min)</label>
+        <label for="windDownMinute" data-i18n="fldWindMin">Wind-down (min)</label>
         <input id="windDownMinute" type="number" min="0" max="59" />
       </div>
     </div>
     <div class="grid-3" style="margin-bottom: 6px;">
       <div>
-        <label for="nightStartHour">Début nuit (h)</label>
+        <label for="nightStartHour" data-i18n="fldNightStart">Night start (h)</label>
         <input id="nightStartHour" type="number" min="0" max="23" />
       </div>
       <div>
-        <label for="nightEndHour">Fin nuit (h)</label>
+        <label for="nightEndHour" data-i18n="fldNightEndH">Night end (h)</label>
         <input id="nightEndHour" type="number" min="0" max="12" />
       </div>
       <div>
-        <label for="nightEndMinute">Fin nuit (min)</label>
+        <label for="nightEndMinute" data-i18n="fldNightEndM">Night end (min)</label>
         <input id="nightEndMinute" type="number" min="0" max="59" />
       </div>
     </div>
     <div class="grid-3">
       <div>
-        <label for="nightRepeat0h">Avant 1h (min)</label>
+        <label for="nightRepeat0h" data-i18n="fldNightRep0">Before 1am (min)</label>
         <input id="nightRepeat0h" type="number" min="1" max="120" />
       </div>
       <div>
-        <label for="nightRepeat1h">À 1h (min)</label>
+        <label for="nightRepeat1h" data-i18n="fldNightRep1">At 1am (min)</label>
         <input id="nightRepeat1h" type="number" min="1" max="120" />
       </div>
       <div>
-        <label for="nightRepeat2h">Dès 2h (min)</label>
+        <label for="nightRepeat2h" data-i18n="fldNightRep2">From 2am (min)</label>
         <input id="nightRepeat2h" type="number" min="1" max="120" />
       </div>
     </div>
   </div>
 
   <div class="actions">
-    <button id="saveBtn" class="btn-save" type="button">Enregistrer</button>
-    <button id="resetPosBtn" class="btn-reset" type="button" title="Replacer les cartes à leur position initiale">Positions</button>
-    <button id="resetBtn" class="btn-reset" type="button" title="Rétablir les valeurs d'origine">Défaut</button>
+    <button id="saveBtn" class="btn-save" type="button" data-i18n="btnSave">Save</button>
+    <button id="resetPosBtn" class="btn-reset" type="button" data-i18n="btnPositions">Positions</button>
+    <button id="resetBtn" class="btn-reset" type="button" data-i18n="btnDefault">Defaults</button>
   </div>
   <div id="statusMsg" class="status-msg"></div>
 

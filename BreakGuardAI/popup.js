@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 const DEFAULT_SETTINGS = {
   enableMove: true,
   enableDrink: true,
@@ -31,6 +33,22 @@ const DEFAULT_SETTINGS = {
 const BOOL_IDS = ["enableMove", "enableDrink", "enableEyes", "enablePosture", "enableLunch", "enableDinner", "enableWindDown", "enableNight"];
 const NUM_IDS = Object.keys(DEFAULT_SETTINGS).filter((k) => !BOOL_IDS.includes(k));
 
+function t(key, subs = null, fallback = "") {
+  if (typeof chrome !== "undefined" && chrome.i18n?.getMessage) {
+    const msg = chrome.i18n.getMessage(key, subs == null ? undefined : String(subs));
+    if (msg) return msg;
+  }
+  return fallback;
+}
+
+function applyI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    const translated = t(key, null, el.textContent);
+    if (translated) el.textContent = translated;
+  });
+}
+
 function fillForm(cfg) {
   const merged = { ...DEFAULT_SETTINGS, ...(cfg || {}) };
   for (const id of BOOL_IDS) {
@@ -56,17 +74,16 @@ function readForm() {
   }
   return out;
 }
-
 function renderDnd(state) {
   const statusEl = document.getElementById("dndStatus");
   const offBtn = document.getElementById("dndOffBtn");
   const dndUntil = Number(state?.dndUntil || 0);
   if (dndUntil > Date.now()) {
     const remMin = Math.max(1, Math.ceil((dndUntil - Date.now()) / 60000));
-    statusEl.textContent = `🔕 Pause active (${remMin} min)`;
+    statusEl.textContent = t("dndActive", remMin, `🔕 Pause (${remMin} min)`);
     offBtn.style.display = "inline-block";
   } else {
-    statusEl.textContent = "🔔 Alertes actives";
+    statusEl.textContent = t("dndInactive", null, "🔔 Alerts active");
     offBtn.style.display = "none";
   }
 }
@@ -82,6 +99,7 @@ function showStatus(text) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  applyI18n();
   chrome.storage.local.get(["breakGuardSettings", "breakGuardState"], (res) => {
     fillForm(res?.breakGuardSettings);
     renderDnd(res?.breakGuardState);
@@ -100,20 +118,20 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("saveBtn").addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "BREAK_SAVE_SETTINGS", settings: readForm() }, (res) => {
       if (res?.settings) fillForm(res.settings);
-      showStatus("✅ Réglages enregistrés !");
+      showStatus(t("statusSaved", null, "✅ Saved!"));
     });
   });
 
   document.getElementById("resetPosBtn").addEventListener("click", () => {
     chrome.storage.local.remove(["breakGuardLunchPos", "breakGuardStackPos"], () => {
-      showStatus("📍 Positions réinitialisées");
+      showStatus(t("statusPosReset", null, "📍 Positions reset"));
     });
   });
 
   document.getElementById("resetBtn").addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "BREAK_SAVE_SETTINGS", settings: DEFAULT_SETTINGS }, (res) => {
       fillForm(res?.settings || DEFAULT_SETTINGS);
-      showStatus("↺ Valeurs par défaut restaurées");
+      showStatus(t("statusDefaultReset", null, "↺ Defaults restored"));
     });
   });
 });

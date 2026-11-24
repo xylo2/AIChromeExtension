@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 const STORAGE_KEY = "breakGuardState";
 const SETTINGS_KEY = "breakGuardSettings";
 const ALARM_NAME = "breakGuardTick";
@@ -175,7 +177,6 @@ function applyActivity(state, now = Date.now(), d = new Date(), cfg = DEFAULT_SE
   state.lastActivity = now;
   return state;
 }
-
 function applyAcknowledge(state, type, now = Date.now(), d = new Date(), cfg = DEFAULT_SETTINGS) {
   const s = sanitizeSettings(cfg);
   state.lastActivity = now;

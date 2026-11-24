@@ -2,8 +2,8 @@
 
 ## Informations générales
 - **Catégorie recommandée** : Productivité (Productivity) ou Bien-être / Santé
-- **Langues** : Français (défaut), Anglais
-- **Modèle économique** : Gratuit (Free)
+- **Langues** : Français (défaut), Anglais, Allemand, Espagnol
+- **Modèle économique** : Gratuit & Open Source (GNU GPL v3)
 - **URL de politique de confidentialité** : lien brut GitHub vers `PRIVACY.md`
 
 ---
@@ -26,8 +26,8 @@ Prenez soin de votre santé devant l'écran sans casser votre concentration. **B
 - **🔕 Mode Réunion / Ne pas déranger** : suspendez toutes les alertes pendant 1 h ou 2 h en un clic.
 - **🎛️ 100 % personnalisable** : activez/désactivez chaque alerte individuellement, ajustez chaque durée et déplacez librement les cartes à la souris.
 
-### Respect total de la vie privée
-Aucune donnée personnelle collectée, aucun compte requis et zéro requête réseau externe : tous vos réglages restent stockés localement dans votre navigateur.
+### Respect total de la vie privée & Open Source
+Aucune donnée personnelle collectée, aucun compte requis et zéro requête réseau externe : tous vos réglages restent stockés localement dans votre navigateur. Code source publié sous licence libre **GNU GPL v3**.
 
 ---
 
@@ -43,8 +43,9 @@ Take care of your health while working at your screen without losing focus. **Br
 - **🔕 Meeting / Do Not Disturb Mode**: pause all reminders for 1 or 2 hours with a single click.
 - **🎛️ Fully Customizable**: toggle each reminder individually, fine-tune intervals and schedules, and drag cards anywhere on screen.
 
-### 100% Privacy-First
-No personal data collected, no account required, and zero external network requests: all settings stay locally in your browser.
+### 100% Privacy-First & Open Source
+No personal data collected, no account required, and zero external network requests: all settings stay locally in your browser. Licensed under **GNU GPL v3**.
+
 ---
 
 ## Justifications des permissions (onglet Confidentialité du Developer Dashboard)
@@ -69,5 +70,5 @@ No personal data collected, no account required, and zero external network reque
 ## Liste de contrôle avant création du `.zip`
 1. Exécuter les tests unitaires : `node --test tools/BreakGuardAI/tests/break_guard.test.js`
 2. Vérifier la présence des icônes : `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png`
-3. Compresser **le contenu** du dossier `tools/BreakGuardAI/` (avec `manifest.json` à la racine du `.zip`, en excluant `tests/`, `PRIVACY.md` et `STORE_LISTING.md`).
+3. Compresser **le contenu** du dossier `tools/BreakGuardAI/` (avec `manifest.json` et `LICENSE` à la racine du `.zip`, en excluant `tests/`, `PRIVACY.md` et `STORE_LISTING.md`).
 4. Préparer 1 à 3 captures d'écran au format **1280×800 px** (ex. bannière 20-20-20, pastille repas et popup de configuration).
