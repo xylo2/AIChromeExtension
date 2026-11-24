@@ -12,6 +12,7 @@ class BreakGuard {
     this.LUNCH_REPEAT_MS = (options.lunchRepeatMinutes ?? 30) * 60 * 1000;
     this.MIDNIGHT_REPEAT_MS = (options.midnightRepeatMinutes ?? 10) * 60 * 1000;
     this.LATE_NIGHT_REPEAT_MS = (options.lateNightRepeatMinutes ?? 5) * 60 * 1000;
+    this.VERY_LATE_NIGHT_REPEAT_MS = (options.veryLateNightRepeatMinutes ?? 2) * 60 * 1000;
     this.IDLE_RESET_MS = (options.idleResetMinutes ?? 15) * 60 * 1000;
     this.nowFn = options.nowFn || (() => Date.now());
     this.dateFn = options.dateFn || (() => new Date());
@@ -38,11 +39,17 @@ class BreakGuard {
   }
 
   getNightRepeatMinutes(dateObj = this.dateFn()) {
-    return dateObj.getHours() >= 1 ? 5 : 10;
+    const h = dateObj.getHours();
+    if (h >= 2) return 2;
+    if (h >= 1) return 5;
+    return 10;
   }
 
   getNightRepeatMs(dateObj = this.dateFn()) {
-    return dateObj.getHours() >= 1 ? this.LATE_NIGHT_REPEAT_MS : this.MIDNIGHT_REPEAT_MS;
+    const h = dateObj.getHours();
+    if (h >= 2) return this.VERY_LATE_NIGHT_REPEAT_MS;
+    if (h >= 1) return this.LATE_NIGHT_REPEAT_MS;
+    return this.MIDNIGHT_REPEAT_MS;
   }
 
   isLunchTime(dateObj = this.dateFn()) {

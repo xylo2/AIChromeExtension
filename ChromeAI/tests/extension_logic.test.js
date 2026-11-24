@@ -38,7 +38,7 @@ test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes("takeLunchBreak()"));
 });
 
-test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (0h-6h30)", () => {
+test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (10m/5m/2m jusqu'à 6h30)", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "break_guard.js"), "utf-8"), sandbox);
@@ -77,13 +77,21 @@ test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et
   guard.acknowledge();
   assert.equal(guard.snoozeUntil - fakeNow, 10 * 60 * 1000);
 
-  fakeHour = 2;
+  fakeHour = 1;
   fakeNow += 11 * 60 * 1000;
   guard.recordActivity();
   assert.equal(guard.getStatus().type, "night");
   guard.activeType = "night";
   guard.acknowledge();
   assert.equal(guard.snoozeUntil - fakeNow, 5 * 60 * 1000);
+
+  fakeHour = 2;
+  fakeNow += 6 * 60 * 1000;
+  guard.recordActivity();
+  assert.equal(guard.getStatus().type, "night");
+  guard.activeType = "night";
+  guard.acknowledge();
+  assert.equal(guard.snoozeUntil - fakeNow, 2 * 60 * 1000);
 
   fakeHour = 6;
   fakeMinute = 29;
