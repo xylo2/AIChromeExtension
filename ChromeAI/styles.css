@@ -207,6 +207,14 @@ code.gmc-collapsed-code,
   background-color: #eff6ff !important; color: #1d4ed8 !important; border-color: #93c5fd !important;
 }
 
+.gmc-global-coverage-btn {
+  background-color: #fef3c7; color: #92400e; border-color: #f59e0b;
+}
+
+.gmc-global-coverage-btn.state-pass {
+  cursor: default;
+}
+
 .gmc-global-git-btn.state-running, .gmc-global-export-btn.state-running, .gmc-global-tests-btn.state-running {
   background-color: #f3e8ff; color: #6b21a8; border-color: #c084fc;
 }
@@ -217,7 +225,7 @@ code.gmc-collapsed-code,
 }
 
 .gmc-global-status-pill.online, .gmc-global-git-btn.state-pass, .gmc-global-export-btn.state-pass,
-.gmc-global-tests-btn.state-pass, .gmc-git-commit-btn.state-pass, .gmc-git-push-btn.state-pass {
+.gmc-global-tests-btn.state-pass, .gmc-global-coverage-btn.state-pass, .gmc-git-commit-btn.state-pass, .gmc-git-push-btn.state-pass {
   background-color: #e6f4ea; color: #137333; border-color: #81c995;
 }
 

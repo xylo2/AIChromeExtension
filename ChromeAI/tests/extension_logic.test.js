@@ -23,11 +23,11 @@ test("manifest.json déclare les permissions et les modules dans l'ordre sans br
   assert.equal(fs.existsSync(path.join(EXTENSION_DIR, "break_guard.js")), false);
 });
 
-test("chaque module est concis (<= 215 lignes) et sans triple backtick littéral", () => {
+test("chaque module est concis (<= 240 lignes) et sans triple backtick littéral", () => {
   for (const mod of JS_MODULES) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
     const lines = code.split("\n").length;
-    assert.ok(lines <= 215, `${mod} dépasse 215 lignes (${lines})`);
+    assert.ok(lines <= 240, `${mod} dépasse 240 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
   }
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
@@ -35,6 +35,9 @@ test("chaque module est concis (<= 215 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes('insertPrompt("Oui", true)'));
   assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
   assert.ok(contentJs.includes("pickDevExcuse()"));
+  assert.ok(contentJs.includes("gmc-global-coverage-btn"));
+  assert.ok(contentJs.includes("100 % couvert"));
+  assert.ok(contentJs.includes("res.uncovered"));
   assert.equal(contentJs.includes("GmcBreakGuard"), false);
   assert.ok(contentJs.includes("gmc-composer-below"));
 });

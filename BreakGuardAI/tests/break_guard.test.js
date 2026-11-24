@@ -8,14 +8,32 @@ const vm = require("node:vm");
 
 const EXT_DIR = path.resolve(__dirname, "..");
 
-test("manifest.json de BreakGuardAI couvre toutes les URLs et charge break_guard.js puis content.js", () => {
+test("manifest.json déclare popup.html et les content_scripts dans l'ordre", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf-8"));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.action.default_popup, "popup.html");
   assert.deepEqual(manifest.content_scripts.at(0).matches, ["<all_urls>"]);
   assert.deepEqual(manifest.content_scripts.at(0).js, ["break_guard.js", "content.js"]);
 });
 
-test("état partagé : fermer une alerte empêche sa réapparition au changement d'onglet", () => {
+test("pastille pause déjeuner dispose d'un bouton C'est fait et évite la superposition", () => {
+  const css = fs.readFileSync(path.join(EXT_DIR, "styles.css"), "utf-8");
+  const guardJs = fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8");
+  const contentJs = fs.readFileSync(path.join(EXT_DIR, "content.js"), "utf-8");
+  const popupHtml = fs.readFileSync(path.join(EXT_DIR, "popup.html"), "utf-8");
+  const popupJs = fs.readFileSync(path.join(EXT_DIR, "popup.js"), "utf-8");
+  assert.ok(css.includes(".gmc-lunch-pill-done-btn"));
+  assert.ok(css.includes("white-space: nowrap;"));
+  assert.ok(css.includes("width: max-content;"));
+  assert.ok(guardJs.includes('fill="#290d02"'));
+  assert.ok(contentJs.includes("C'est fait"));
+  assert.ok(contentJs.includes("const hasLunchBanner = guard.getActiveAlerts().some((a) => a.type === \"lunch\");"));
+  assert.ok(contentJs.includes("const show = guard.isLunchTime() && !eaten && !hasLunchBanner;"));
+  assert.ok(popupHtml.includes('id="resetPosBtn"'));
+  assert.ok(popupJs.includes("breakGuardLunchPos"));
+});
+
+test("background.js valide et applique les paramètres personnalisés (horaires et délais)", () => {
   const bgCode = fs.readFileSync(path.join(EXT_DIR, "background.js"), "utf-8");
   const cutIdx = bgCode.indexOf("async function reinjectAllTabs()");
   const sandbox = {
@@ -27,25 +45,33 @@ test("état partagé : fermer une alerte empêche sa réapparition au changement
   vm.createContext(sandbox);
   vm.runInContext(bgCode.slice(0, cutIdx), sandbox);
 
+  const custom = sandbox.sanitizeSettings({
+    moveMinutes: 45,
+    drinkMinutes: 90,
+    lunchStartHour: 11,
+    lunchEndHour: 15,
+    lunchRepeatMinutes: 20,
+    nightStartHour: 23,
+    nightEndHour: 7,
+    nightEndMinute: 0,
+    nightRepeat0h: 15,
+    nightRepeat1h: 6,
+    nightRepeat2h: 3,
+    idleResetMinutes: 20
+  });
+  assert.equal(custom.moveMinutes, 45);
+  assert.equal(custom.lunchStartHour, 11);
+  assert.equal(sandbox.isAfterMidnight(new Date(2026, 10, 24, 23, 30, 0), custom), true);
+  assert.equal(sandbox.isLunchTime(new Date(2026, 10, 24, 11, 15, 0), custom), true);
+
   let state = { ...sandbox.DEFAULT_STATE };
   let now = 1_000_000;
-  const dayDate = new Date(2026, 10, 24, 15, 0, 0);
-
-  state = sandbox.applyActivity(state, now, dayDate);
-  now += 35 * 60 * 1000;
-  state = sandbox.applyAcknowledge(state, "move", now, dayDate);
-  assert.equal(state.dismissedTypes.includes("move"), true);
-
-  const clientGuard = new (vm.runInNewContext(
-    fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8") + "; GlobalBreakGuard",
-    { window: {} }
-  ))({ nowFn: () => now + 1000, dateFn: () => dayDate });
-
-  clientGuard.setState(state);
-  assert.equal(clientGuard.getActiveAlerts().length, 0);
+  const nightDate = new Date(2026, 10, 24, 1, 15, 0);
+  state = sandbox.applyActivity(state, now, nightDate, custom);
+  state = sandbox.applyAcknowledge(state, "night", now, nightDate, custom);
+  assert.equal(state.snoozeUntil, now + 6 * 60 * 1000);
 });
-
-test("GlobalBreakGuard gère déjeuner (12h-14h), hydratation (2h) et escalade nocturne", () => {
+test("GlobalBreakGuard applique dynamiquement les horaires, délais et durées lisibles", () => {
   const allNodes = [];
   const makeNode = (tag) => {
     const node = {
@@ -79,17 +105,20 @@ test("GlobalBreakGuard gère déjeuner (12h-14h), hydratation (2h) et escalade n
   vm.runInContext(fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8"), sandbox);
 
   let fakeNow = 1_000_000;
-  let fakeHour = 1;
-  let nightShownCalls = 0;
   const guard = new sandbox.window.GlobalBreakGuard({
     nowFn: () => fakeNow,
-    dateFn: () => ({ getHours: () => fakeHour, getMinutes: () => 10, getFullYear: () => 2026, getMonth: () => 10, getDate: () => 24 }),
-    onNightShown: () => { nightShownCalls += 1; }
+    dateFn: () => new Date(2026, 10, 24, 15, 0, 0)
   });
 
-  guard.setState({ moveStart: fakeNow, drinkStart: fakeNow, lastActivity: fakeNow, nightAlertCount: 5 });
-  assert.equal(nightShownCalls, 1);
-  const banner = allNodes.find((n) => n.className === "gmc-break-banner");
-  assert.equal(banner.style.minHeight, "100vh");
-  assert.equal(banner.classList.contains("gmc-break-fullscreen"), true);
+  assert.equal(guard.formatDuration(30), "30 min");
+  assert.equal(guard.formatDuration(120), "2 h");
+  assert.equal(guard.formatDuration(90), "1 h 30");
+
+  guard.setState(
+    { moveStart: fakeNow - 20 * 60 * 1000, drinkStart: fakeNow, lastActivity: fakeNow },
+    { moveMinutes: 15 }
+  );
+  const alerts = guard.getActiveAlerts();
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts.at(0).type, "move");
 });

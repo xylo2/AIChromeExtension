@@ -268,7 +268,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return False, "Nom de remote invalide."
         if clean_branch and (not re.match(ref_pattern, clean_branch) or clean_branch.startswith("-")):
             return False, "Nom de branche invalide."
-
         target_ref: str = clean_branch if clean_branch else "HEAD"
         env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         if os.name == "nt" and not env.get("HOME") and env.get("USERPROFILE"):
@@ -431,34 +430,28 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         has_git: bool = self._get_git_root() is not None
         cmdline: str = " ".join(shlex.quote(arg) for arg in [sys.executable, *sys.argv])
         last_event: Optional[str] = getattr(self.assembler_ref, "last_event", None)
-        self._send_json(200, {
-            "status": "running", "service": "watch_clipboard", "pid": os.getpid(),
-            "target_dir": abs_target, "command": cmdline, "has_run_tests_clip": has_tests,
-            "has_exporter": has_exporter, "has_git": has_git,
-            "configured_test_runner": custom_runner or self.default_test_runner,
-            "test_runner_path": test_script if has_tests else None, "last_event": last_event,
-        })
-    def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str]:
+        self._send_json(200, {"status": "running", "service": "watch_clipboard", "pid": os.getpid(), "target_dir": abs_target, "command": cmdline, "has_run_tests_clip": has_tests, "has_exporter": has_exporter, "has_git": has_git, "configured_test_runner": custom_runner or self.default_test_runner, "test_runner_path": test_script if has_tests else None, "last_event": last_event})
+    def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str, str]:
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
         with tempfile.TemporaryDirectory(prefix="watch_clip_tests_") as tmp_dir:
             report_path: str = os.path.join(tmp_dir, "compact_report.txt")
+            coverage_path: str = os.path.join(tmp_dir, "uncovered_report.txt")
             cmd: List[str] = [sys.executable, "-u", test_script]
             if is_clip_runner:
-                cmd.extend(["--no-clipboard", "--report-file", report_path])
+                cmd.extend(["--no-clipboard", "--report-file", report_path, "--coverage-file", coverage_path])
                 creation_flags: int = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0
                 proc = subprocess.Popen(cmd, cwd=os.path.realpath(self.target_dir), env=env, creationflags=creation_flags)
                 rc: int = proc.wait(timeout=180)
-                compact_out: str = ""
-                if os.path.isfile(report_path):
-                    with open(report_path, "r", encoding="utf-8", errors="replace") as f_rep:
-                        compact_out = f_rep.read().strip()
+                compact_out: str = open(report_path, "r", encoding="utf-8", errors="replace").read().strip() if os.path.isfile(report_path) else ""
+                uncovered_out: str = open(coverage_path, "r", encoding="utf-8", errors="replace").read().strip() if os.path.isfile(coverage_path) else ""
             else:
                 res = subprocess.run(cmd, cwd=os.path.realpath(self.target_dir), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, check=False)
                 rc = res.returncode
                 compact_out = ((res.stdout or "") + "\n" + (res.stderr or "")).strip()
-            clean_out: str = re.sub(r"^\[PRESSE-PAPIERS\].*$", "", compact_out, flags=re.MULTILINE).strip()
-            return rc, clean_out
+                uncovered_out = ""
+            clean_lines: List[str] = [ln for ln in compact_out.splitlines() if not ln.startswith("[PRESSE-PAPIERS]")]
+            return rc, "\n".join(clean_lines).strip(), uncovered_out
 
     def do_POST(self) -> None:
         if not self._is_authorized():
@@ -496,8 +489,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/run-tests":
             body = self._read_json_body()
-            custom_runner: str = str(body.get("test_runner", "")).strip()
-            test_script: Optional[str] = self._resolve_test_runner_path(custom_runner)
+            test_script: Optional[str] = self._resolve_test_runner_path(str(body.get("test_runner", "")).strip())
             if test_script is None:
                 self._send_json(403, {"ok": False, "error": "Chemin du lanceur de tests non autorisé."})
                 return
@@ -505,9 +497,9 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"ok": False, "error": f"Lanceur introuvable : {test_script}"})
                 return
             try:
-                rc, clean_out = self._execute_tests_streaming(test_script)
+                rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
                 has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-                self._send_json(200, {"ok": True, "passed": rc == 0 and not has_warnings, "returncode": rc, "output": clean_out})
+                self._send_json(200, {"ok": True, "passed": rc == 0 and not has_warnings, "returncode": rc, "output": clean_out, "uncovered": uncovered_out})
             except subprocess.TimeoutExpired:
                 self._send_json(504, {"ok": False, "error": "Délai dépassé (180s) pendant les tests."})
             except Exception as exc:
@@ -530,10 +522,7 @@ class StatusServer:
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> bool:
-        handler_cls = type("_BoundStatusHandler", (_StatusRequestHandler,), {
-            "target_dir": self.target_dir, "default_test_runner": self.test_runner_path,
-            "api_token": self.api_token, "allowed_origin": self.allowed_origin, "assembler_ref": self.assembler,
-        })
+        handler_cls = type("_BoundStatusHandler", (_StatusRequestHandler,), {"target_dir": self.target_dir, "default_test_runner": self.test_runner_path, "api_token": self.api_token, "allowed_origin": self.allowed_origin, "assembler_ref": self.assembler})
         try:
             self._httpd = _QuietThreadingHTTPServer((self.host, self.port), handler_cls)
         except OSError as exc:
