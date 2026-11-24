@@ -201,6 +201,13 @@
 .gmc-break-banner[data-gmc-break-type="dinner"] .gmc-break-btn-reset { background: #ea580c; color: #ffffff; }
 .gmc-break-banner.gmc-break-night .gmc-break-btn-reset { background: #e11d48; color: #ffffff; }
 
+.gmc-break-btn-reset:focus-visible,
+.gmc-break-btn-timer:focus-visible,
+.gmc-lunch-pill-done-btn:focus-visible {
+  outline: 3px solid #fef08a;
+  outline-offset: 3px;
+}
+
 .gmc-break-lunch-pill {
   position: fixed;
   bottom: 24px;

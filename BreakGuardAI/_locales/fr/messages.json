@@ -1,7 +1,7 @@
 {
-  "extName": { "message": "Break Guard — Alertes Santé, Yeux & Sommeil" },
+  "extName": { "message": "CareBreak — Alertes Yeux, Posture, Repas & Sommeil" },
   "extDescription": { "message": "Rappels bien-être configurables : règle visuelle 20-20-20, posture, mouvement, hydratation, repas, fin de journée et coucher." },
-  "actionTitle": { "message": "Configurer Break Guard" },
+  "actionTitle": { "message": "Configurer CareBreak" },
   "alertNightLate": { "message": "🌙 Il est $HOUR$h passées : Va te coucher maintenant !", "placeholders": { "hour": { "content": "$1" } } },
   "alertNightEarly": { "message": "🌙 Il est tard : Va te coucher !" },
   "alertLunch": { "message": "🍽️ Il est l'heure de déjeuner : pense à aller manger !" },

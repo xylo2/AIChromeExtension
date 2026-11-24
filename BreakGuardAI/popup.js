@@ -32,6 +32,26 @@ const DEFAULT_SETTINGS = {
 
 const BOOL_IDS = ["enableMove", "enableDrink", "enableEyes", "enablePosture", "enableLunch", "enableDinner", "enableWindDown", "enableNight"];
 const NUM_IDS = Object.keys(DEFAULT_SETTINGS).filter((k) => !BOOL_IDS.includes(k));
+const TOGGLE_FIELDS = {
+  enableMove: ["moveMinutes"],
+  enableDrink: ["drinkMinutes"],
+  enableEyes: ["eyesMinutes"],
+  enablePosture: ["postureMinutes"],
+  enableLunch: ["lunchStartHour", "lunchEndHour", "lunchRepeatMinutes"],
+  enableDinner: ["dinnerStartHour", "dinnerEndHour", "dinnerRepeatMinutes"],
+  enableWindDown: ["windDownHour", "windDownMinute"],
+  enableNight: ["nightStartHour", "nightEndHour", "nightEndMinute", "nightRepeat0h", "nightRepeat1h", "nightRepeat2h"]
+};
+
+function syncFieldStates() {
+  for (const [toggleId, fieldIds] of Object.entries(TOGGLE_FIELDS)) {
+    const enabled = Boolean(document.getElementById(toggleId)?.checked);
+    for (const fid of fieldIds) {
+      const inp = document.getElementById(fid);
+      if (inp) inp.disabled = !enabled;
+    }
+  }
+}
 
 function t(key, subs = null, fallback = "") {
   if (typeof chrome !== "undefined" && chrome.i18n?.getMessage) {
@@ -42,6 +62,9 @@ function t(key, subs = null, fallback = "") {
 }
 
 function applyI18n() {
+  if (typeof chrome !== "undefined" && chrome.i18n?.getUILanguage) {
+    document.documentElement.lang = chrome.i18n.getUILanguage().split("-").at(0) || "en";
+  }
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     const translated = t(key, null, el.textContent);
@@ -59,8 +82,8 @@ function fillForm(cfg) {
     const el = document.getElementById(id);
     if (el) el.value = String(merged[id]);
   }
+  syncFieldStates();
 }
-
 function readForm() {
   const out = {};
   for (const id of BOOL_IDS) {
@@ -74,6 +97,7 @@ function readForm() {
   }
   return out;
 }
+
 function renderDnd(state) {
   const statusEl = document.getElementById("dndStatus");
   const offBtn = document.getElementById("dndOffBtn");
@@ -100,9 +124,12 @@ function showStatus(text) {
 
 document.addEventListener("DOMContentLoaded", () => {
   applyI18n();
-  chrome.storage.local.get(["breakGuardSettings", "breakGuardState"], (res) => {
-    fillForm(res?.breakGuardSettings);
-    renderDnd(res?.breakGuardState);
+  for (const id of BOOL_IDS) {
+    document.getElementById(id)?.addEventListener("change", syncFieldStates);
+  }
+  chrome.storage.local.get(["careBreakSettings", "careBreakState"], (res) => {
+    fillForm(res?.careBreakSettings);
+    renderDnd(res?.careBreakState);
   });
 
   document.getElementById("dnd1hBtn").addEventListener("click", () => {
@@ -123,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("resetPosBtn").addEventListener("click", () => {
-    chrome.storage.local.remove(["breakGuardLunchPos", "breakGuardStackPos"], () => {
+    chrome.storage.local.remove(["careBreakLunchPos", "careBreakStackPos"], () => {
       showStatus(t("statusPosReset", null, "📍 Positions reset"));
     });
   });

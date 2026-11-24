@@ -1,8 +1,8 @@
-# Fiche Chrome Web Store — Break Guard
+# Fiche Chrome Web Store — CareBreak
 
 ## Informations générales
 - **Catégorie recommandée** : Productivité (Productivity) ou Bien-être / Santé
-- **Langues** : Français (défaut), Anglais, Allemand, Espagnol
+- **Langues** : Français, Anglais (défaut), Allemand, Espagnol
 - **Modèle économique** : Gratuit & Open Source (GNU GPL v3)
 - **URL de politique de confidentialité** : lien brut GitHub vers `PRIVACY.md`
 
@@ -15,7 +15,7 @@
 ---
 
 ## Description détaillée — Français
-Prenez soin de votre santé devant l'écran sans casser votre concentration. **Break Guard** affiche des rappels visuels discrets et personnalisables par-dessus vos onglets, synchronisés en temps réel et basés sur votre activité réelle.
+Prenez soin de votre santé devant l'écran sans casser votre concentration. **CareBreak** affiche des rappels visuels discrets et personnalisables par-dessus vos onglets, synchronisés en temps réel et basés sur votre activité réelle.
 
 ### Fonctionnalités principales
 - **👀 Pause visuelle (Règle 20-20-20)** : toutes les 20 minutes, un rappel avec minuteur intégré de 20 secondes vous invite à reposer vos yeux en regardant au loin.
@@ -32,7 +32,7 @@ Aucune donnée personnelle collectée, aucun compte requis et zéro requête ré
 ---
 
 ## Detailed Description — English
-Take care of your health while working at your screen without losing focus. **Break Guard** displays clean, customizable visual overlays across your tabs, synchronized in real time and driven by your actual activity.
+Take care of your health while working at your screen without losing focus. **CareBreak** displays clean, customizable visual overlays across your tabs, synchronized in real time and driven by your actual activity.
 
 ### Key Features
 - **👀 20-20-20 Eye Break**: every 20 minutes, a reminder with a built-in 20-second countdown helps prevent digital eye strain.
@@ -54,7 +54,7 @@ No personal data collected, no account required, and zero external network reque
 > Aider l'utilisateur à préserver sa santé visuelle, posturale et son rythme de sommeil grâce à des rappels de pause visuels configurables pendant sa navigation.
 
 ### 2. Justification de `storage`
-> Utilisée uniquement pour enregistrer localement sur l'appareil de l'utilisateur ses préférences d'horaires/délais (`breakGuardSettings`), l'état des compteurs de pause (`breakGuardState`) et la position personnalisée des cartes (`breakGuardStackPos`, `breakGuardLunchPos`).
+> Utilisée uniquement pour enregistrer localement sur l'appareil de l'utilisateur ses préférences d'horaires/délais (`careBreakSettings`), l'état des compteurs de pause (`careBreakState`) et la position personnalisée des cartes (`careBreakStackPos`, `careBreakLunchPos`).
 
 ### 3. Justification de `alarms`
 > Utilisée en arrière-plan pour vérifier toutes les 30 secondes si la période « Ne pas déranger » (mode réunion) a expiré afin de réactiver automatiquement les rappels.

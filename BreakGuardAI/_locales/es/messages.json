@@ -1,7 +1,7 @@
 {
-  "extName": { "message": "Break Guard — Alertas de Salud, Vista y Sueño" },
+  "extName": { "message": "CareBreak — Alertas de Vista, Postura, Comidas y Sueño" },
   "extDescription": { "message": "Recordatorios personalizables: regla visual 20-20-20, postura, movimiento, hidratación, comidas, fin de jornada y hora de dormir." },
-  "actionTitle": { "message": "Configurar Break Guard" },
+  "actionTitle": { "message": "Configurar CareBreak" },
   "alertNightLate": { "message": "🌙 Ya pasaron las $HOUR$:00: ¡Ve a dormir ahora!", "placeholders": { "hour": { "content": "$1" } } },
   "alertNightEarly": { "message": "🌙 Es tarde: ¡Hora de ir a dormir!" },
   "alertLunch": { "message": "🍽️ Hora de almorzar: ¡recuerda hacer una pausa para comer!" },

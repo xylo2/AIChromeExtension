@@ -1,7 +1,7 @@
 {
-  "extName": { "message": "Break Guard — Gesundheits-, Augen- & Schlaferinnerungen" },
+  "extName": { "message": "CareBreak — Augen-, Haltungs-, Essens- & Schlaferinnerungen" },
   "extDescription": { "message": "Anpassbare Wohlfühl-Erinnerungen: 20-20-20-Augenregel, Haltung, Bewegung, Trinken, Mahlzeiten, Feierabend und Schlafenszeit." },
-  "actionTitle": { "message": "Break Guard konfigurieren" },
+  "actionTitle": { "message": "CareBreak konfigurieren" },
   "alertNightLate": { "message": "🌙 Es ist nach $HOUR$ Uhr: Geh jetzt schlafen!", "placeholders": { "hour": { "content": "$1" } } },
   "alertNightEarly": { "message": "🌙 Es ist spät: Zeit schlafen zu gehen!" },
   "alertLunch": { "message": "🍽️ Mittagszeit: Denk daran, eine Pause zu machen und etwas zu essen!" },

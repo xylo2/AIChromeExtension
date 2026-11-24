@@ -2,9 +2,9 @@
 /**
  * Script de contenu global pour les alertes santé/sommeil sur tous les onglets.
  */
-if (!window.__bgBreakInit) {
-  window.__bgBreakInit = true;
-  if (window.__bgBreakTimer) clearInterval(window.__bgBreakTimer);
+if (!window.__cbBreakInit) {
+  window.__cbBreakInit = true;
+  if (window.__cbBreakTimer) clearInterval(window.__cbBreakTimer);
 
   const syncReply = (res) => {
     if (!res) return;
@@ -23,14 +23,16 @@ if (!window.__bgBreakInit) {
     } catch (_e) {}
   };
 
-  const guard = new window.GlobalBreakGuard({
+  const guard = new window.GlobalCareBreak({
     onAcknowledge: (alertType) => sendMsg({ type: "BREAK_ACK", alertType }, syncReply),
     onNightShown: () => sendMsg({ type: "BREAK_NIGHT_SHOWN" }, syncReply)
   });
 
   const mealPill = document.createElement("div");
   mealPill.className = "gmc-break-lunch-pill";
-  mealPill.title = "Glisser pour déplacer";
+  mealPill.setAttribute("role", "status");
+  mealPill.setAttribute("aria-live", "polite");
+  mealPill.title = guard.t("dragPillTitle", null, "Drag to move");
   mealPill.style.display = "none";
   document.body.appendChild(mealPill);
 
@@ -55,13 +57,13 @@ if (!window.__bgBreakInit) {
     mealPill.style.transform = "none";
   };
 
-  chrome.storage?.local?.get(["breakGuardLunchPos", "breakGuardStackPos", "breakGuardSettings"], (res) => {
-    if (res?.breakGuardSettings) guard.applySettings(res.breakGuardSettings);
-    if (res?.breakGuardLunchPos && typeof res.breakGuardLunchPos.x === "number") {
-      customPillPos = res.breakGuardLunchPos;
+  chrome.storage?.local?.get(["careBreakLunchPos", "careBreakStackPos", "careBreakSettings"], (res) => {
+    if (res?.careBreakSettings) guard.applySettings(res.careBreakSettings);
+    if (res?.careBreakLunchPos && typeof res.careBreakLunchPos.x === "number") {
+      customPillPos = res.careBreakLunchPos;
       applyPillPosition();
     }
-    if (res?.breakGuardStackPos) guard.setStackPosition(res.breakGuardStackPos);
+    if (res?.careBreakStackPos) guard.setStackPosition(res.careBreakStackPos);
   });
 
   mealPill.addEventListener("pointerdown", (e) => {
@@ -93,7 +95,7 @@ if (!window.__bgBreakInit) {
         try { mealPill.releasePointerCapture(ev.pointerId); } catch (_err) {}
       }
       if (wasDragged && customPillPos) {
-        chrome.storage?.local?.set({ breakGuardLunchPos: customPillPos });
+        chrome.storage?.local?.set({ careBreakLunchPos: customPillPos });
       }
     };
 
@@ -141,14 +143,19 @@ if (!window.__bgBreakInit) {
       mealPill.innerHTML = "";
       const iconWrap = document.createElement("span");
       iconWrap.className = "gmc-lunch-pill-icon";
+      iconWrap.setAttribute("aria-hidden", "true");
       iconWrap.innerHTML = guard.getAlertSvg(mealType);
       const labelSpan = document.createElement("span");
-      labelSpan.textContent = mealType === "lunch" ? "Pause déjeuner" : "Pause dîner";
+      labelSpan.textContent = mealType === "lunch"
+        ? guard.t("pillLunchLabel", null, "Lunch break")
+        : guard.t("pillDinnerLabel", null, "Dinner break");
       const doneBtn = document.createElement("button");
       doneBtn.type = "button";
       doneBtn.className = "gmc-lunch-pill-done-btn";
-      doneBtn.textContent = "✅ C'est fait";
-      doneBtn.title = mealType === "lunch" ? "Valider la pause déjeuner pour aujourd'hui" : "Valider le dîner pour aujourd'hui";
+      doneBtn.textContent = guard.t("pillDoneBtn", null, "✅ Done");
+      doneBtn.title = mealType === "lunch"
+        ? guard.t("pillLunchDoneTitle", null, "Mark lunch break as done for today")
+        : guard.t("pillDinnerDoneTitle", null, "Mark dinner as done for today");
       doneBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         sendMsg({ type: "BREAK_ACK", alertType: mealType }, syncReply);
@@ -174,20 +181,20 @@ if (!window.__bgBreakInit) {
 
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.breakGuardSettings?.newValue) {
-      guard.applySettings(changes.breakGuardSettings.newValue);
+    if (changes.careBreakSettings?.newValue) {
+      guard.applySettings(changes.careBreakSettings.newValue);
       updateMealPill();
     }
-    if (changes.breakGuardState?.newValue) {
-      guard.setState(changes.breakGuardState.newValue);
+    if (changes.careBreakState?.newValue) {
+      guard.setState(changes.careBreakState.newValue);
       updateMealPill();
     }
-    if ("breakGuardLunchPos" in changes) {
-      customPillPos = changes.breakGuardLunchPos.newValue || null;
+    if ("careBreakLunchPos" in changes) {
+      customPillPos = changes.careBreakLunchPos.newValue || null;
       applyPillPosition();
     }
-    if ("breakGuardStackPos" in changes) {
-      guard.setStackPosition(changes.breakGuardStackPos.newValue || null);
+    if ("careBreakStackPos" in changes) {
+      guard.setStackPosition(changes.careBreakStackPos.newValue || null);
     }
   });
 
@@ -197,7 +204,7 @@ if (!window.__bgBreakInit) {
 
   sendMsg({ type: "BREAK_ACTIVITY" }, syncReply);
 
-  window.__bgBreakTimer = setInterval(() => {
+  window.__cbBreakTimer = setInterval(() => {
     if (!document.hidden) {
       guard.syncDom();
       updateMealPill();

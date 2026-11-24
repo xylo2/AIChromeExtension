@@ -23,6 +23,7 @@ test("manifest.json utilise les permissions minimales et les 4 langues i18n (en,
   for (const lang of ["en", "fr", "de", "es"]) {
     const dict = JSON.parse(fs.readFileSync(path.join(EXT_DIR, "_locales", lang, "messages.json"), "utf-8"));
     assert.deepEqual(Object.keys(dict), expectedKeys, `Clés manquantes ou différentes pour ${lang}`);
+    assert.ok(dict.extName.message.startsWith("CareBreak"), `extName doit commencer par CareBreak (${lang})`);
   }
 });
 
@@ -39,17 +40,21 @@ test("LICENSE contient la licence GNU GPL v3 et chaque fichier JS porte l'en-tê
   }
 });
 
-test("popup et content.js utilisent i18n, interrupteurs par alerte et mode Ne pas déranger", () => {
+test("popup et content.js respectent i18n, accessibilité ARIA et focus clavier", () => {
   const css = fs.readFileSync(path.join(EXT_DIR, "styles.css"), "utf-8");
+  const breakGuardJs = fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8");
   const contentJs = fs.readFileSync(path.join(EXT_DIR, "content.js"), "utf-8");
   const popupHtml = fs.readFileSync(path.join(EXT_DIR, "popup.html"), "utf-8");
   const popupJs = fs.readFileSync(path.join(EXT_DIR, "popup.js"), "utf-8");
   assert.ok(css.includes("background-clip: padding-box;"));
+  assert.ok(css.includes(":focus-visible"));
+  assert.ok(breakGuardJs.includes('aria-hidden="true"'));
   assert.ok(contentJs.includes("guard.isDndActive()"));
   assert.ok(contentJs.includes('guard.t("pillLunchLabel"'));
-  assert.ok(popupHtml.includes('data-i18n="secEyesPosture"'));
+  assert.ok(popupHtml.includes('role="status" aria-live="polite"'));
   assert.ok(popupHtml.includes('id="enableNight"'));
-  assert.ok(popupJs.includes("applyI18n()"));
+  assert.ok(popupJs.includes("syncFieldStates()"));
+  assert.ok(popupJs.includes("getUILanguage"));
 });
 
 test("background.js gère toutes les alertes et le mode Ne pas déranger", async () => {
@@ -83,7 +88,7 @@ test("background.js gère toutes les alertes et le mode Ne pas déranger", async
   const dndRes = await sandbox.handleAction({ type: "BREAK_SET_DND", minutes: 60 });
   assert.ok(dndRes.state.dndUntil > Date.now());
 });
-test("GlobalBreakGuard respecte i18n, le dégradé progressif des repas et le mode DND", () => {
+test("GlobalCareBreak respecte i18n, le dégradé progressif des repas et le mode DND", () => {
   const allNodes = [];
   const makeNode = (tag) => {
     const node = {
@@ -122,7 +127,7 @@ test("GlobalBreakGuard respecte i18n, le dégradé progressif des repas et le mo
   vm.runInContext(fs.readFileSync(path.join(EXT_DIR, "break_guard.js"), "utf-8"), sandbox);
 
   let fakeNow = 1_000_000;
-  const guard = new sandbox.window.GlobalBreakGuard({
+  const guard = new sandbox.window.GlobalCareBreak({
     nowFn: () => fakeNow,
     dateFn: () => new Date(2026, 10, 24, 13, 0, 0)
   });

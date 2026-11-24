@@ -1,7 +1,7 @@
 {
-  "extName": { "message": "Break Guard — Health, Eye Strain & Sleep Reminders" },
+  "extName": { "message": "CareBreak — Eye, Posture, Meal & Sleep Reminders" },
   "extDescription": { "message": "Customizable wellness reminders: 20-20-20 eye rule, posture, movement, hydration, meals, wind-down and bedtime alerts." },
-  "actionTitle": { "message": "Configure Break Guard" },
+  "actionTitle": { "message": "Configure CareBreak" },
   "alertNightLate": { "message": "🌙 It's past $HOUR$:00: Go to bed now!", "placeholders": { "hour": { "content": "$1" } } },
   "alertNightEarly": { "message": "🌙 It's late: Time to go to bed!" },
   "alertLunch": { "message": "🍽️ Lunchtime: remember to take a break and eat!" },

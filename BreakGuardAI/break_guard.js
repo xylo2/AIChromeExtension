@@ -2,7 +2,7 @@
 /**
  * Rendu et évaluation des alertes synchronisées sur l'état global partagé.
  */
-class GlobalBreakGuard {
+class GlobalCareBreak {
   constructor(options = {}) {
     this.nowFn = options.nowFn || (() => Date.now());
     this.dateFn = options.dateFn || (() => new Date());
@@ -188,14 +188,14 @@ class GlobalBreakGuard {
   }
   getAlertSvg(type) {
     const svgs = {
-      night: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#c084fc" stroke-width="2.5"/><path d="M29.5 13.5C23.5 14.2 19 19.3 19 25.5C19 32.1 24.4 37.5 31 37.5C33.4 37.5 35.6 36.8 37.4 35.6C35.4 38.6 32 40.5 28 40.5C21.6 40.5 16.5 35.4 16.5 29C16.5 22.8 21.3 17.8 27.4 17.5C28.2 16 28.9 14.7 29.5 13.5Z" fill="#fde047"/><path d="M34 12L35 14.5L37.5 15.5L35 16.5L34 19L33 16.5L30.5 15.5L33 14.5L34 12Z" fill="#f472b6"/><circle cx="14" cy="16" r="1.8" fill="#fde047"/></svg>',
-      move: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#022c22" stroke="#34d399" stroke-width="2.5"/><circle cx="25" cy="12" r="3.6" fill="#6ee7b7"/><path d="M17 20L24 18L32 15M24 18L22 28L16 37M22 28L29 31L31 38" stroke="#ecfdf5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 39H36" stroke="#10b981" stroke-width="2.5" stroke-linecap="round"/></svg>',
-      drink: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#082f49" stroke="#38bdf8" stroke-width="2.5"/><path d="M16 14H32L29.5 36H18.5L16 14Z" stroke="#e0f2fe" stroke-width="2.5" stroke-linejoin="round"/><path d="M17.3 24C20 22.5 23 25.5 26 24C28 23 29.5 23.5 30.7 24L29.5 35H18.5L17.3 24Z" fill="#0ea5e9"/><path d="M35 12C35 12 38 15.2 38 17C38 18.7 36.7 20 35 20C33.3 20 32 18.7 32 17C32 15.2 35 12 35 12Z" fill="#7dd3fc"/></svg>',
-      lunch: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#290d02" stroke="#fb923c" stroke-width="2.5"/><circle cx="24" cy="25" r="10.5" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/><circle cx="24" cy="25" r="6" stroke="#ea580c" stroke-width="1.8" stroke-dasharray="2.5 2"/><path d="M10.5 13.5V21C10.5 22.8 11.8 24 13.5 24V36.5M13.5 13.5V21M36.5 13.5V36.5M36.5 13.5C38.8 13.5 39.6 16.2 39.6 19.5C39.6 22.2 38.3 23.8 36.5 23.8" stroke="#fef3c7" stroke-width="2.6" stroke-linecap="round"/></svg>',
-      dinner: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#431407" stroke="#f59e0b" stroke-width="2.5"/><path d="M12 24H36C36 30.6 30.6 36 24 36C17.4 36 12 30.6 12 24Z" fill="#fef3c7" stroke="#fbbf24" stroke-width="2"/><path d="M18 19C18 17 19.5 16 19.5 14M24 19C24 17 25.5 16 25.5 14M30 19C30 17 31.5 16 31.5 14" stroke="#fde68a" stroke-width="2.2" stroke-linecap="round"/></svg>',
-      eyes: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#042f2e" stroke="#2dd4bf" stroke-width="2.5"/><path d="M9 24C12.5 17.5 17.8 14.5 24 14.5C30.2 14.5 35.5 17.5 39 24C35.5 30.5 30.2 33.5 24 33.5C17.8 33.5 12.5 30.5 9 24Z" stroke="#ccfbf1" stroke-width="2.6" stroke-linejoin="round"/><circle cx="24" cy="24" r="5.5" fill="#14b8a6" stroke="#f0fdfa" stroke-width="2"/><circle cx="25.8" cy="22.2" r="1.6" fill="#ffffff"/></svg>',
-      posture: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#818cf8" stroke-width="2.5"/><circle cx="24" cy="12" r="3.6" fill="#c7d2fe"/><path d="M24 17V29H32V38M16 22H31M15 38H26" stroke="#eef2ff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-      winddown: '<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#4c0519" stroke="#fb7185" stroke-width="2.5"/><path d="M10 31H38" stroke="#fda4af" stroke-width="2.5" stroke-linecap="round"/><path d="M15 31C15 26 19 22 24 22C29 22 33 26 33 31" fill="#fb923c" stroke="#fde047" stroke-width="2"/><path d="M24 13V17M15 17L17.5 19.5M33 17L30.5 19.5" stroke="#fde047" stroke-width="2.2" stroke-linecap="round"/></svg>'
+      night: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#c084fc" stroke-width="2.5"/><path d="M29.5 13.5C23.5 14.2 19 19.3 19 25.5C19 32.1 24.4 37.5 31 37.5C33.4 37.5 35.6 36.8 37.4 35.6C35.4 38.6 32 40.5 28 40.5C21.6 40.5 16.5 35.4 16.5 29C16.5 22.8 21.3 17.8 27.4 17.5C28.2 16 28.9 14.7 29.5 13.5Z" fill="#fde047"/><path d="M34 12L35 14.5L37.5 15.5L35 16.5L34 19L33 16.5L30.5 15.5L33 14.5L34 12Z" fill="#f472b6"/><circle cx="14" cy="16" r="1.8" fill="#fde047"/></svg>',
+      move: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#022c22" stroke="#34d399" stroke-width="2.5"/><circle cx="25" cy="12" r="3.6" fill="#6ee7b7"/><path d="M17 20L24 18L32 15M24 18L22 28L16 37M22 28L29 31L31 38" stroke="#ecfdf5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 39H36" stroke="#10b981" stroke-width="2.5" stroke-linecap="round"/></svg>',
+      drink: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#082f49" stroke="#38bdf8" stroke-width="2.5"/><path d="M16 14H32L29.5 36H18.5L16 14Z" stroke="#e0f2fe" stroke-width="2.5" stroke-linejoin="round"/><path d="M17.3 24C20 22.5 23 25.5 26 24C28 23 29.5 23.5 30.7 24L29.5 35H18.5L17.3 24Z" fill="#0ea5e9"/><path d="M35 12C35 12 38 15.2 38 17C38 18.7 36.7 20 35 20C33.3 20 32 18.7 32 17C32 15.2 35 12 35 12Z" fill="#7dd3fc"/></svg>',
+      lunch: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#290d02" stroke="#fb923c" stroke-width="2.5"/><circle cx="24" cy="25" r="10.5" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/><circle cx="24" cy="25" r="6" stroke="#ea580c" stroke-width="1.8" stroke-dasharray="2.5 2"/><path d="M10.5 13.5V21C10.5 22.8 11.8 24 13.5 24V36.5M13.5 13.5V21M36.5 13.5V36.5M36.5 13.5C38.8 13.5 39.6 16.2 39.6 19.5C39.6 22.2 38.3 23.8 36.5 23.8" stroke="#fef3c7" stroke-width="2.6" stroke-linecap="round"/></svg>',
+      dinner: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#431407" stroke="#f59e0b" stroke-width="2.5"/><path d="M12 24H36C36 30.6 30.6 36 24 36C17.4 36 12 30.6 12 24Z" fill="#fef3c7" stroke="#fbbf24" stroke-width="2"/><path d="M18 19C18 17 19.5 16 19.5 14M24 19C24 17 25.5 16 25.5 14M30 19C30 17 31.5 16 31.5 14" stroke="#fde68a" stroke-width="2.2" stroke-linecap="round"/></svg>',
+      eyes: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#042f2e" stroke="#2dd4bf" stroke-width="2.5"/><path d="M9 24C12.5 17.5 17.8 14.5 24 14.5C30.2 14.5 35.5 17.5 39 24C35.5 30.5 30.2 33.5 24 33.5C17.8 33.5 12.5 30.5 9 24Z" stroke="#ccfbf1" stroke-width="2.6" stroke-linejoin="round"/><circle cx="24" cy="24" r="5.5" fill="#14b8a6" stroke="#f0fdfa" stroke-width="2"/><circle cx="25.8" cy="22.2" r="1.6" fill="#ffffff"/></svg>',
+      posture: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#1e1b4b" stroke="#818cf8" stroke-width="2.5"/><circle cx="24" cy="12" r="3.6" fill="#c7d2fe"/><path d="M24 17V29H32V38M16 22H31M15 38H26" stroke="#eef2ff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      winddown: '<svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="22" fill="#4c0519" stroke="#fb7185" stroke-width="2.5"/><path d="M10 31H38" stroke="#fda4af" stroke-width="2.5" stroke-linecap="round"/><path d="M15 31C15 26 19 22 24 22C29 22 33 26 33 31" fill="#fb923c" stroke="#fde047" stroke-width="2"/><path d="M24 13V17M15 17L17.5 19.5M33 17L30.5 19.5" stroke="#fde047" stroke-width="2.2" stroke-linecap="round"/></svg>'
     };
     return svgs[type] || svgs.lunch;
   }
@@ -243,7 +243,7 @@ class GlobalBreakGuard {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         if (this.customStackPos && typeof chrome !== "undefined" && chrome.storage?.local) {
-          chrome.storage.local.set({ breakGuardStackPos: this.customStackPos });
+          chrome.storage.local.set({ careBreakStackPos: this.customStackPos });
         }
       };
       window.addEventListener("pointermove", onMove);
@@ -257,6 +257,7 @@ class GlobalBreakGuard {
     if (!stack) {
       stack = document.createElement("div");
       stack.className = "gmc-break-stack";
+      stack.setAttribute?.("aria-live", "polite");
       document.body.appendChild(stack);
     }
     this.makeStackDraggable(stack);
@@ -289,7 +290,11 @@ class GlobalBreakGuard {
     msg.style.fontSize = `${Math.round(17 + p * 20)}px`;
     resetBtn.style.fontSize = `${Math.round(15 + p * 6)}px`;
     resetBtn.style.padding = `${Math.round(10 + p * 6)}px ${Math.round(18 + p * 12)}px`;
-    if (p >= 1) banner.classList.add("gmc-break-fullscreen");
+    if (p >= 1) {
+      banner.classList.add("gmc-break-fullscreen");
+      banner.setAttribute?.("role", "alertdialog");
+      banner.setAttribute?.("aria-modal", "true");
+    }
   }
 
   startEyesCountdown(banner, timerBtn) {
@@ -328,12 +333,15 @@ class GlobalBreakGuard {
     const banner = document.createElement("div");
     banner.className = "gmc-break-banner";
     banner.dataset.gmcBreakType = alertObj.type;
+    banner.setAttribute?.("role", "status");
+    banner.setAttribute?.("aria-live", alertObj.type === "night" ? "assertive" : "polite");
     banner.title = this.t("dragCardTitle", null, "Glisser la carte pour la déplacer");
 
     const bodyRow = document.createElement("div");
     bodyRow.className = "gmc-break-body";
     const iconEl = document.createElement("div");
     iconEl.className = "gmc-break-icon";
+    iconEl.setAttribute?.("aria-hidden", "true");
     iconEl.innerHTML = this.getAlertSvg(alertObj.type);
     const msg = document.createElement("div");
     msg.className = "gmc-break-msg";
@@ -398,4 +406,4 @@ class GlobalBreakGuard {
     alerts.forEach((a) => this.renderBanner(a));
   }
 }
-window.GlobalBreakGuard = GlobalBreakGuard;
+window.GlobalCareBreak = GlobalCareBreak;

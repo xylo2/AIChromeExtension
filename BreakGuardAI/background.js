@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const STORAGE_KEY = "breakGuardState";
-const SETTINGS_KEY = "breakGuardSettings";
-const ALARM_NAME = "breakGuardTick";
+const STORAGE_KEY = "careBreakState";
+const SETTINGS_KEY = "careBreakSettings";
+const ALARM_NAME = "careBreakTick";
 
 const DEFAULT_SETTINGS = {
   enableMove: true,

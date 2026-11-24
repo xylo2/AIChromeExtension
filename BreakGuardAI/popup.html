@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Break Guard</title>
+  <title>CareBreak</title>
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -49,8 +49,11 @@
       color: #f8fafc;
       padding: 4px 6px;
       font-size: 12px;
+      transition: opacity 0.15s ease;
     }
+    input[type="number"]:disabled { opacity: 0.4; cursor: not-allowed; }
     input[type="number"]:focus { outline: none; border-color: #38bdf8; }
+    button:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
     .actions { display: flex; gap: 8px; margin-top: 8px; }
     button { flex: 1; border: none; border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
     .btn-save { background: #16a34a; color: #ffffff; }
@@ -62,10 +65,9 @@
 </head>
 <body>
   <div class="header">
-    <span class="title">Break Guard</span>
+    <span class="title">CareBreak</span>
     <span class="badge" data-i18n="popupBadge">Alerts &amp; Schedules</span>
   </div>
-
   <div class="card">
     <div class="dnd-bar">
       <span id="dndStatus" class="dnd-status" data-i18n="dndInactive">🔔 Alerts active</span>
@@ -203,7 +205,7 @@
     <button id="resetPosBtn" class="btn-reset" type="button" data-i18n="btnPositions">Positions</button>
     <button id="resetBtn" class="btn-reset" type="button" data-i18n="btnDefault">Defaults</button>
   </div>
-  <div id="statusMsg" class="status-msg"></div>
+  <div id="statusMsg" class="status-msg" role="status" aria-live="polite"></div>
 
   <script src="popup.js"></script>
 </body>
