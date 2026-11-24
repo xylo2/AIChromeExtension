@@ -9,6 +9,16 @@ class GitPanelManager {
     this.lastValidatedFiles = [];
   }
 
+  buildVerifyPrompt(selectedFiles, diffFilename) {
+    const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
+    return [
+      `Analyse le diff complet joint dans \x60${diffFilename}\x60 pour les fichiers sélectionnés ci-dessous :`,
+      fileList,
+      "",
+      "**Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie (sans générer de message de commit)."
+    ].join("\n");
+  }
+
   buildCommitPrompt(selectedFiles, diffFilename) {
     const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
     return [
@@ -32,6 +42,30 @@ class GitPanelManager {
   toggle(entries) {
     if (this.panelEl) { this.close(); return; }
     this.open(entries);
+  }
+
+  submitSelection(checkboxes, triggerBtn, actionBtns, mode) {
+    const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path);
+    if (selected.length === 0) return;
+    this.lastValidatedFiles = [...selected];
+    if (chrome.storage?.local) chrome.storage.local.set({ savedGitSelectedFiles: this.lastValidatedFiles });
+    const origLabels = actionBtns.map((b) => b.textContent);
+    actionBtns.forEach((b) => { b.disabled = true; });
+    triggerBtn.textContent = "⏳ Diff en cours...";
+    chrome.runtime.sendMessage({ type: "GIT_DIFF_SELECTED", files: selected }, (res) => {
+      if (!res?.ok) {
+        actionBtns.forEach((b, i) => { b.disabled = false; b.textContent = origLabels.at(i); });
+        triggerBtn.textContent = "❌ Erreur diff";
+        return;
+      }
+      const diffName = res.filename || "git_changes.diff.txt";
+      if (res.content) this.chat.dropFile(diffName, res.content, false);
+      const prompt = mode === "verify"
+        ? this.buildVerifyPrompt(selected, diffName)
+        : this.buildCommitPrompt(selected, diffName);
+      this.chat.insertPrompt(prompt, { minDelayMs: 1100, maxWaitMs: 5000 });
+      this.close();
+    });
   }
 
   open(entries) {
@@ -71,27 +105,21 @@ class GitPanelManager {
     closeBtn.textContent = "Fermer";
     closeBtn.addEventListener("click", () => this.close());
 
-    const validateBtn = document.createElement("button");
-    validateBtn.type = "button";
-    validateBtn.className = "gmc-git-btn-validate";
-    validateBtn.textContent = "Valider la sélection (→ IA)";
-    validateBtn.addEventListener("click", () => {
-      const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path);
-      if (selected.length === 0) return;
-      this.lastValidatedFiles = [...selected];
-      if (chrome.storage?.local) chrome.storage.local.set({ savedGitSelectedFiles: this.lastValidatedFiles });
-      validateBtn.disabled = true;
-      validateBtn.textContent = "⏳ Diff en cours...";
-      chrome.runtime.sendMessage({ type: "GIT_DIFF_SELECTED", files: selected }, (res) => {
-        if (!res?.ok) { validateBtn.disabled = false; validateBtn.textContent = "❌ Erreur diff"; return; }
-        const diffName = res.filename || "git_changes.diff.txt";
-        if (res.content) this.chat.dropFile(diffName, res.content, false);
-        this.chat.insertPrompt(this.buildCommitPrompt(selected, diffName), { minDelayMs: 1100, maxWaitMs: 5000 });
-        this.close();
-      });
-    });
+    const verifyBtn = document.createElement("button");
+    verifyBtn.type = "button";
+    verifyBtn.className = "gmc-git-btn-verify";
+    verifyBtn.textContent = "Soumettre pour vérification";
 
-    actions.append(closeBtn, validateBtn);
+    const commitBtn = document.createElement("button");
+    commitBtn.type = "button";
+    commitBtn.className = "gmc-git-btn-validate";
+    commitBtn.textContent = "Soumettre pour commit";
+
+    const actionBtns = [verifyBtn, commitBtn];
+    verifyBtn.addEventListener("click", () => this.submitSelection(checkboxes, verifyBtn, actionBtns, "verify"));
+    commitBtn.addEventListener("click", () => this.submitSelection(checkboxes, commitBtn, actionBtns, "commit"));
+
+    actions.append(closeBtn, verifyBtn, commitBtn);
     panel.append(header, listEl, actions);
     document.body.appendChild(panel);
     this.panelEl = panel;

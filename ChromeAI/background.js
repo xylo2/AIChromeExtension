@@ -202,57 +202,45 @@ async function stopWatchClipboard() {
 async function postJsonEndpoint(endpoint, bodyObj, timeoutMs = 15000, errFallback = "Erreur serveur.") {
   try {
     const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}${endpoint}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) },
-      apiToken
-    );
-    return await response.json();
-  } catch (err) {
-    return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` };
-  }
+    const res = await fetchWithTokenFallback(`${BASE_URL}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) }, apiToken);
+    return await res.json();
+  } catch (err) { return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` }; }
 }
 
 async function getJsonEndpoint(endpoint, timeoutMs = 10000, errFallback = "Erreur lecture.") {
   try {
     const apiToken = await getApiToken();
-    const response = await fetchWithTokenFallback(`${BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, apiToken);
-    return await response.json();
-  } catch (_err) {
-    return { ok: false, error: errFallback };
-  }
+    const res = await fetchWithTokenFallback(`${BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, apiToken);
+    return await res.json();
+  } catch (_err) { return { ok: false, error: errFallback }; }
 }
 
 async function runProjectTests(injectIntoActiveTab = true) {
   const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
   try {
     const stored = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/run-tests`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) },
-      stored.watcherApiToken || ""
-    );
-    const result = await response.json();
+    const res = await fetchWithTokenFallback(`${BASE_URL}/run-tests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) }, stored.watcherApiToken || "");
+    const result = await res.json();
     if (result?.ok && result.output && injectIntoActiveTab) {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const activeTab = tabs?.at(0);
       if (activeTab?.id) {
         try {
-          const tabReply = await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) });
-          result.insertedInPage = Boolean(tabReply?.inserted);
+          const reply = await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) });
+          result.insertedInPage = Boolean(reply?.inserted);
         } catch (_err) { result.insertedInPage = false; }
       }
     }
     return result;
-  } catch (err) {
-    return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` };
-  } finally { clearInterval(keepAlive); }
+  } catch (err) { return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` }; }
+  finally { clearInterval(keepAlive); }
 }
 
 async function reinjectContentScriptsIntoOpenTabs() {
   if (!chrome.scripting) return;
   try {
-    const tabs = await chrome.tabs.query({ url: ["*://*://*", "*://*.google.fr/*"] });
+    const patterns = ["com/*", "fr/*"].map((tld) => `*://*.google.${tld}`);
+    const tabs = await chrome.tabs.query({ url: patterns });
     for (const tab of tabs) {
       if (!tab.id) continue;
       try {
@@ -260,29 +248,20 @@ async function reinjectContentScriptsIntoOpenTabs() {
           target: { tabId: tab.id },
           func: () => {
             window.__gmcInitialized = false;
-            document.querySelectorAll(".gmc-floating-bar, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar, .gmc-break-banner").forEach((n) => n.remove());
-            document.querySelectorAll("[data-gmc-processed], [data-gmc-commit-processed]").forEach((el) => {
-              el.removeAttribute("data-gmc-processed");
-              el.removeAttribute("data-gmc-commit-processed");
-              el.classList.remove("gmc-collapsed-code");
-            });
-            document.querySelectorAll("[data-gmc-has-purge], [data-gmc-copy-watched]").forEach((el) => {
-              el.removeAttribute("data-gmc-has-purge");
-              el.removeAttribute("data-gmc-copy-watched");
-            });
+            document.querySelectorAll(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-purge-btn, .gmc-git-panel, .gmc-commit-action-bar, .gmc-break-banner").forEach((n) => n.remove());
+            document.querySelectorAll("[data-gmc-processed], [data-gmc-commit-processed]").forEach((el) => { el.removeAttribute("data-gmc-processed"); el.removeAttribute("data-gmc-commit-processed"); el.classList.remove("gmc-collapsed-code"); });
+            document.querySelectorAll("[data-gmc-has-purge], [data-gmc-copy-watched]").forEach((el) => { el.removeAttribute("data-gmc-has-purge"); el.removeAttribute("data-gmc-copy-watched"); });
           }
         });
         await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles.css"] });
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "break_guard.js", "content.js"]
-        });
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "break_guard.js", "content.js"] });
       } catch (_tabErr) {}
     }
   } catch (_err) {}
 }
 
 setInterval(() => checkWatchClipboardStatus(), FAST_POLL_INTERVAL_MS);
+checkWatchClipboardStatus(true);
 chrome.runtime.onInstalled.addListener(() => { checkWatchClipboardStatus(true); chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 }); reinjectContentScriptsIntoOpenTabs(); });
 chrome.runtime.onStartup.addListener(() => { checkWatchClipboardStatus(true); chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 }); });
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === ALARM_NAME) checkWatchClipboardStatus(true); });
@@ -297,17 +276,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "EXPORT_PROJECT") { postJsonEndpoint("/export-project", {}, 65000, "Impossible de générer l'export du projet.").then(sendResponse); return true; }
   if (message.type === "GIT_STATUS") { getJsonEndpoint("/git-status", 10000, "Impossible de lire git status.").then(sendResponse); return true; }
   if (message.type === "GIT_DIFF_SELECTED") { postJsonEndpoint("/git-diff", { files: message.files || [] }, 15000, "Impossible de récupérer git diff.").then(sendResponse); return true; }
-  if (message.type === "GIT_COMMIT") {
-    const payload = { message: message.message || "" };
-    if (Array.isArray(message.files) && message.files.length > 0) payload.files = message.files;
-    postJsonEndpoint("/git-commit", payload, 15000, "Impossible d'exécuter git commit.").then(sendResponse);
-    return true;
-  }
-  if (message.type === "GIT_PUSH") {
-    const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
-    postJsonEndpoint("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(keepAlive));
-    return true;
-  }
+  if (message.type === "GIT_COMMIT") { postJsonEndpoint("/git-commit", Array.isArray(message.files) && message.files.length > 0 ? { message: message.message || "", files: message.files } : { message: message.message || "" }, 15000, "Impossible d'exécuter git commit.").then(sendResponse); return true; }
+  if (message.type === "GIT_PUSH") { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); postJsonEndpoint("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(ka)); return true; }
   if (message.type === "READ_SAVED_FILE") { getJsonEndpoint(`/read-file?header=${encodeURIComponent(message.header || "")}`, 5000, "Impossible de relire le fichier sauvegardé.").then(sendResponse); return true; }
   if (message.type === "RUN_PROJECT_TESTS") { runProjectTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
 });

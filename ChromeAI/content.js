@@ -35,9 +35,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     document.body.appendChild(floatingBar);
   }
 
-  const makeBtn = (cls, text, title = "", hidden = false) => {
+  const makeBtn = (cls, text, title = "", hidden = false, parent = floatingBar) => {
     const firstClass = cls.split(" ").at(0);
-    let el = floatingBar.querySelector(`.${firstClass}`);
+    let el = document.querySelector(`.${firstClass}`);
     if (!el) {
       el = document.createElement("button");
       el.type = "button";
@@ -45,21 +45,53 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       el.textContent = text;
       if (title) el.title = title;
       if (hidden) el.style.display = "none";
-      floatingBar.appendChild(el);
+      parent.appendChild(el);
     }
     return el;
   };
 
+  const quickReplyGroup = document.createElement("div");
+  quickReplyGroup.className = "gmc-composer-quick-group";
+
   const statusPill = makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF");
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true);
   const lunchBtn = makeBtn("gmc-quick-lunch-btn", "🍽️ Pause déjeuner", "Prendre sa pause déjeuner (12h-14h)", !breakGuard.isLunchTime());
-  const yesBtn = makeBtn("gmc-quick-yes-btn", "Oui", "Envoyer « Oui » à l'IA");
-  const nextBtn = makeBtn("gmc-quick-next-btn", "Suite", "Envoyer « Suite » à l'IA");
-  const excuseBtn = makeBtn("gmc-quick-excuse-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat");
+  const yesBtn = makeBtn("gmc-quick-yes-btn gmc-composer-btn", "Oui", "Envoyer « Oui » à l'IA", false, quickReplyGroup);
+  const nextBtn = makeBtn("gmc-quick-next-btn gmc-composer-btn", "Suite", "Envoyer « Suite » à l'IA", false, quickReplyGroup);
+  const excuseBtn = makeBtn("gmc-quick-excuse-btn gmc-composer-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat", false, quickReplyGroup);
   const gitBtn = makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true);
   const exportBtn = makeBtn("gmc-global-export-btn", "📦 Exporter projet", "Exporter le projet et l'envoyer dans le chat", true);
   const testsBtn = makeBtn("gmc-global-tests-btn", "🧪 Lancer les tests", "Exécuter les tests et envoyer les échecs", true);
   const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page");
+
+  const mountQuickButtonsNearPlus = () => {
+    const inputEl = chatInjector.findChatInputElement();
+    if (!inputEl) {
+      if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
+      return;
+    }
+    let box = inputEl.parentElement;
+    for (let depth = 0; depth < 7 && box; depth++) {
+      const plusBtn = Array.from(box.querySelectorAll("button, [role='button']")).find((btn) => {
+        if (btn.closest(".gmc-composer-quick-group") || String(btn.className || "").includes("gmc-")) return false;
+        const meta = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.textContent || ""}`.toLowerCase();
+        return meta.includes("ajouter") || meta.includes("importer") || meta.includes("plus") || meta.includes("upload") || btn.textContent.trim() === "+";
+      });
+      if (plusBtn?.parentElement) {
+        let anchor = plusBtn;
+        while (anchor.parentElement && anchor.parentElement !== box && anchor.parentElement.children.length <= 2) {
+          anchor = anchor.parentElement;
+        }
+        const rowContainer = anchor.parentElement;
+        if (rowContainer && (quickReplyGroup.parentElement !== rowContainer || anchor.nextSibling !== quickReplyGroup)) {
+          rowContainer.insertBefore(quickReplyGroup, anchor.nextSibling);
+        }
+        return;
+      }
+      box = box.parentElement;
+    }
+    if (!quickReplyGroup.isConnected) floatingBar.insertBefore(quickReplyGroup, gitBtn);
+  };
   const setBtnState = (btn, state, label) => {
     btn.classList.remove("state-running", "state-pass", "state-fail");
     if (state) btn.classList.add(`state-${state}`);
@@ -184,7 +216,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (msg?.type === "INSERT_TEST_RESULT" && msg.output) sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) });
   });
 
-  const scanAll = (preExisting = false) => { gitManager.scanCommitBlocks(); blockManager.scan(preExisting); };
+  const scanAll = (preExisting = false) => { mountQuickButtonsNearPlus(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); };
   window.__gmcObserver = new MutationObserver(() => { clearTimeout(scanTimer); scanTimer = setTimeout(() => scanAll(false), 300); });
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
   scanAll(true);

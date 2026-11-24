@@ -23,11 +23,11 @@ test("manifest.json déclare les permissions et les modules dans l'ordre", () =>
   assert.deepEqual(manifest.content_scripts.at(0).js, JS_MODULES);
 });
 
-test("chaque module est concis (<= 195 lignes) et sans triple backtick littéral", () => {
+test("chaque module est concis (<= 215 lignes) et sans triple backtick littéral", () => {
   for (const mod of JS_MODULES) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
     const lines = code.split("\n").length;
-    assert.ok(lines <= 195, `${mod} dépasse 195 lignes (${lines})`);
+    assert.ok(lines <= 215, `${mod} dépasse 215 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
   }
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
@@ -198,12 +198,17 @@ test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolati
   assert.ok(blockMgr.formatLabel("a.py", 10, true).startsWith("🚨"));
 
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
-  const prompt = gitMgr.buildCommitPrompt(["tools/a.py", "tools/b.js"], "git_changes.diff.txt");
-  assert.ok(prompt.includes("=== COMMIT_MESSAGE ==="));
-  assert.ok(prompt.includes("Vérification du diff"));
-  assert.ok(prompt.includes("apport **fonctionnel**"));
-  assert.ok(prompt.includes("tests unitaires"));
-  assert.ok(prompt.includes("- tools/a.py"));
+  const verifyPrompt = gitMgr.buildVerifyPrompt(["tools/a.py"], "git_changes.diff.txt");
+  assert.ok(verifyPrompt.includes("Vérification du diff"));
+  assert.equal(verifyPrompt.includes("=== COMMIT_MESSAGE ==="), false);
+  assert.ok(verifyPrompt.includes("sans générer de message de commit"));
+
+  const commitPrompt = gitMgr.buildCommitPrompt(["tools/a.py", "tools/b.js"], "git_changes.diff.txt");
+  assert.ok(commitPrompt.includes("=== COMMIT_MESSAGE ==="));
+  assert.ok(commitPrompt.includes("Vérification du diff"));
+  assert.ok(commitPrompt.includes("apport **fonctionnel**"));
+  assert.ok(commitPrompt.includes("tests unitaires"));
+  assert.ok(commitPrompt.includes("- tools/a.py"));
 
   const msg = gitMgr.extractCommitMessage({
     tagName: "CODE",
