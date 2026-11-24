@@ -77,7 +77,7 @@ def _draw_break_guard(x: int, y: int, size: int) -> RGBA:
 def generate_all_icons(tools_dir: str) -> None:
     targets = [
         (os.path.join(tools_dir, "ChromeAI", "icons"), _draw_chrome_ai),
-        (os.path.join(tools_dir, "BreakGuardAI", "icons"), _draw_break_guard),
+        (os.path.join(tools_dir, "CareBreakAI", "icons"), _draw_break_guard),
     ]
     for folder, fn in targets:
         os.makedirs(folder, exist_ok=True)

@@ -145,7 +145,6 @@ class ClipboardTestRunner:
                     pct: int = int(round(100 * (len(exec_lines) - len(missed)) / len(exec_lines)))
                     reports.append(f"- {rel_p} ({pct}%) : lignes {self._format_line_ranges(missed)}")
         return reports
-
     def _parse_v8_coverage(self, cov_dir: str, ext_dir: str) -> List[str]:
         ext_real: str = os.path.normcase(os.path.realpath(ext_dir))
         uncovered_by_file: Dict[str, Set[int]] = {}
@@ -166,7 +165,7 @@ class ClipboardTestRunner:
                     continue
                 with open(local_p, "r", encoding="utf-8", errors="replace") as f_js:
                     text: str = f_js.read()
-                line_starts: List[int] = [0] + [m.end() for m in re.finditer(r"\n", text)]
+                line_starts: List[int] = list((0,)) + [m.end() for m in re.finditer(r"\n", text)]
                 missed_lines: Set[int] = set()
                 for fn_cov in script.get("functions", []):
                     for rng in fn_cov.get("ranges", []):
@@ -185,6 +184,7 @@ class ClipboardTestRunner:
             rel_p: str = os.path.relpath(norm_p, self.workspace_root).replace("\\", "/")
             out.append(f"- {rel_p} : lignes {self._format_line_ranges(sorted(missed_set))}")
         return out
+
     def compact_error_report(self, raw_output: str, top_dir: str) -> str:
         lines: List[str] = raw_output.splitlines()
         start_idx: Optional[int] = next(
@@ -250,7 +250,6 @@ class ClipboardTestRunner:
         if summary_footer:
             compact_lines.extend(["", " | ".join(summary_footer)])
         return "\n".join(compact_lines).strip()
-
     def _stream_subprocess(self, cmd: List[str], cwd: str, env: dict) -> Tuple[int, str]:
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         lines_out: List[str] = []
@@ -296,7 +295,7 @@ class ClipboardTestRunner:
             return results
         targets = [
             ("ChromeAI", os.path.join(self.workspace_root, "ChromeAI"), os.path.join("tests", "extension_logic.test.js")),
-            ("BreakGuardAI", os.path.join(self.workspace_root, "BreakGuardAI"), os.path.join("tests", "break_guard.test.js")),
+            ("CareBreakAI", os.path.join(self.workspace_root, "CareBreakAI"), os.path.join("tests", "break_guard.test.js")),
         ]
         for label, ext_dir, rel_test in targets:
             js_test_file: str = os.path.join(ext_dir, rel_test)
