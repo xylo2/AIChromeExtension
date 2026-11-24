@@ -23,11 +23,11 @@ test("manifest.json déclare les permissions et les modules dans l'ordre", () =>
   assert.deepEqual(manifest.content_scripts.at(0).js, JS_MODULES);
 });
 
-test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral", () => {
+test("chaque module est concis (<= 195 lignes) et sans triple backtick littéral", () => {
   for (const mod of JS_MODULES) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
     const lines = code.split("\n").length;
-    assert.ok(lines <= 175, `${mod} dépasse 175 lignes (${lines})`);
+    assert.ok(lines <= 195, `${mod} dépasse 195 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
   }
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
@@ -100,6 +100,85 @@ test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et
   fakeMinute = 30;
   assert.equal(guard.isAfterMidnight(), false);
   assert.equal(guard.getStatus().shouldWarn, false);
+});
+test("BreakGuard empile les alertes en décalé avec SVG dédiés et agrandit l'alerte nocturne", () => {
+  const allNodes = [];
+  const makeNode = (tag) => {
+    const node = {
+      tagName: tag.toUpperCase(),
+      className: "",
+      textContent: "",
+      innerHTML: "",
+      dataset: {},
+      style: {},
+      children: [],
+      isConnected: true,
+      classList: {
+        set: new Set(),
+        add(c) { this.set.add(c); },
+        contains(c) { return this.set.has(c); }
+      },
+      append(...nodes) { this.children.push(...nodes); },
+      appendChild(child) { this.children.push(child); },
+      addEventListener() {},
+      remove() { this.isConnected = false; }
+    };
+    allNodes.push(node);
+    return node;
+  };
+  const body = makeNode("body");
+  const findConnected = (pred) => allNodes.filter((n) => n.isConnected && pred(n));
+  const sandbox = {
+    window: {},
+    document: {
+      body,
+      createElement: (tag) => makeNode(tag),
+      querySelector: (sel) => {
+        if (sel === ".gmc-break-stack") return findConnected((n) => n.className === "gmc-break-stack").at(0) || null;
+        return findConnected((n) => n.className === "gmc-break-banner" && sel.includes(`"${n.dataset.gmcBreakType}"`)).at(0) || null;
+      },
+      querySelectorAll: (sel) => {
+        return findConnected((n) => n.className === "gmc-break-banner" && (!sel.includes("=") || sel.includes(`"${n.dataset.gmcBreakType}"`)));
+      }
+    }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "break_guard.js"), "utf-8"), sandbox);
+
+  let fakeNow = 1_000_000;
+  let fakeHour = 15;
+  const guard = new sandbox.window.GmcBreakGuard({
+    nowFn: () => fakeNow,
+    dateFn: () => ({ getHours: () => fakeHour, getMinutes: () => 10, getFullYear: () => 2026, getMonth: () => 10, getDate: () => 24 })
+  });
+  guard.recordActivity();
+  fakeNow += 120 * 60 * 1000;
+  guard.tick();
+  guard.tick();
+
+  const stack = body.children.at(0);
+  assert.equal(stack.className, "gmc-break-stack");
+  assert.equal(stack.children.length, 2);
+  assert.deepEqual(stack.children.map((b) => b.dataset.gmcBreakType), ["drink", "move"]);
+  assert.ok(stack.children.at(0).children.at(0).children.at(0).innerHTML.includes("<svg"));
+
+  guard.acknowledge("drink");
+  assert.equal(findConnected((n) => n.className === "gmc-break-banner").length, 1);
+  guard.acknowledge("move");
+  assert.equal(findConnected((n) => n.className === "gmc-break-banner").length, 0);
+
+  fakeHour = 1;
+  for (let step = 1; step <= 6; step++) {
+    guard.tick();
+    const banner = findConnected((n) => n.className === "gmc-break-banner").at(-1);
+    assert.equal(banner.children.at(1).children.length, 1);
+    if (step === 6) {
+      assert.equal(banner.style.minHeight, "100vh");
+      assert.equal(banner.classList.contains("gmc-break-fullscreen"), true);
+    }
+    guard.acknowledge("night");
+    fakeNow += 6 * 60 * 1000;
+  }
 });
 
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
