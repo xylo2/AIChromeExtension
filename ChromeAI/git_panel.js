@@ -12,10 +12,13 @@ class GitPanelManager {
   buildCommitPrompt(selectedFiles, diffFilename) {
     const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
     return [
-      `Rédige un message de commit Git clair et concis en français (Conventional Commits) pour toutes les modifications apportées depuis le dernier commit sur les fichiers sélectionnés ci-dessous (diff complet joint dans \x60${diffFilename}\x60) :`,
+      `Analyse le diff complet joint dans \x60${diffFilename}\x60 pour les fichiers sélectionnés ci-dessous :`,
       fileList,
       "",
-      "Réponds **uniquement** avec un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne (sans balise `=== FILE ===`), suivi directement du message de commit prêt à être exécuté."
+      "1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie.",
+      "2. **Message de commit** : propose ensuite un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne (sans balise `=== FILE ===`), suivi directement du message de commit prêt à être exécuté structuré ainsi :",
+      "   - **Titre** : format Conventional Commits en français, concis, expliquant **fonctionnellement** ce qui a été fait.",
+      "   - **Corps (en dessous, après une ligne vide)** : si pertinent, 2 ou 3 lignes supplémentaires décrivant l'apport **fonctionnel**, suivies de quelques puces concises avec les détails **techniques** (composants modifiés, impacts Git, mention des tests unitaires)."
     ].join("\n");
   }
 

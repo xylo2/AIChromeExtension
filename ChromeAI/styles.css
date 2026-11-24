@@ -148,6 +148,18 @@ code.gmc-collapsed-code,
   transform: translateY(-1px);
 }
 
+.gmc-quick-yes-btn {
+  background-color: #ecfdf5 !important;
+  color: #065f46 !important;
+  border-color: #6ee7b7 !important;
+}
+
+.gmc-quick-next-btn {
+  background-color: #eef2ff !important;
+  color: #3730a3 !important;
+  border-color: #a5b4fc !important;
+}
+
 .gmc-global-event-pill {
   max-width: 240px;
   overflow: hidden;

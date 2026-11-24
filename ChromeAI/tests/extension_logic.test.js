@@ -34,6 +34,8 @@ test("chaque module est concis (<= 175 lignes) et sans triple backtick littéral
     contentJs.indexOf("let floatingBar") < contentJs.indexOf("const makeBtn"),
     "floatingBar doit être déclaré avant makeBtn dans content.js"
   );
+  assert.ok(contentJs.includes('insertPrompt("Oui", true)'), "Bouton Oui manquant dans content.js");
+  assert.ok(contentJs.includes('insertPrompt("Suite", true)'), "Bouton Suite manquant dans content.js");
 });
 
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
@@ -55,6 +57,9 @@ test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolati
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
   const prompt = gitMgr.buildCommitPrompt(["tools/a.py", "tools/b.js"], "git_changes.diff.txt");
   assert.ok(prompt.includes("=== COMMIT_MESSAGE ==="));
+  assert.ok(prompt.includes("Vérification du diff"));
+  assert.ok(prompt.includes("apport **fonctionnel**"));
+  assert.ok(prompt.includes("tests unitaires"));
   assert.ok(prompt.includes("- tools/a.py"));
 
   const msg = gitMgr.extractCommitMessage({

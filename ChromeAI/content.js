@@ -39,6 +39,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const statusPill = makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF");
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true);
+  const yesBtn = makeBtn("gmc-quick-yes-btn", "Oui", "Envoyer « Oui » à l'IA");
+  const nextBtn = makeBtn("gmc-quick-next-btn", "Suite", "Envoyer « Suite » à l'IA");
   const gitBtn = makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true);
   const exportBtn = makeBtn("gmc-global-export-btn", "📦 Exporter projet", "Exporter le projet et l'envoyer dans le chat", true);
   const testsBtn = makeBtn("gmc-global-tests-btn", "🧪 Lancer les tests", "Exécuter les tests et envoyer les échecs", true);
@@ -66,6 +68,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) eventPill.textContent = String(watcherState.lastEvent);
   };
+
   const refreshState = () => {
     if (!chrome.runtime?.id) return;
     chrome.storage?.local?.get("watchClipboardState", (res) => {
@@ -106,6 +109,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     });
   });
   eventPill.addEventListener("click", () => chatInjector.insertPrompt(eventPill.textContent, true));
+  yesBtn.addEventListener("click", () => chatInjector.insertPrompt("Oui", true));
+  nextBtn.addEventListener("click", () => chatInjector.insertPrompt("Suite", true));
   gitBtn.addEventListener("click", () => {
     if (gitManager.panelEl) { gitManager.close(); return; }
     setBtnState(gitBtn, "running", "⏳ Git...");

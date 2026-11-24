@@ -1,22 +1,19 @@
 # Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
 
 """
-Point d'entrée de watch_clipboard (synchronisation automatique presse-papiers -> fichiers).
+Point d'entrée de watch_clipboard (synchronisation presse-papiers -> fichiers).
 
-RÈGLES DE GÉNÉRATION POUR LES ASSISTANTS IA (blocs exploitables par ChromeAI & watch_clipboard) :
-1. Balise OBLIGATOIRE en 1re ligne À L'INTÉRIEUR du bloc de code Markdown :
-   - Fichier complet : `=== FILE: tools/chemin/relatif/fichier.ext ===`
-   - Fichier découpé : `=== FILE_PART: tools/chemin/relatif/fichier.ext | 1/N ===`
-2. Limite de longueur : ne jamais dépasser ~120 lignes par bloc de code (sinon l'interface web
-   tronque le bloc). Découper systématiquement les fichiers longs en N parties `FILE_PART`.
-3. Contenu intégral : toujours fournir le code complet de chaque fichier ou partie, sans ellipses
-   (`...` ou `# code inchangé`), car chaque bloc écrit ou réassemble intégralement la cible.
-4. Chemins relatifs uniquement : pas de `/` initial ni de traversée `..` (rejetés par sécurité).
-5. Pièges d'affichage web :
-   - Éviter les triples backticks littéraux dans le code (utiliser `"\x60" * 3` en Python,
-     `"\x60\x60\x60"` en JS, ou entourer les blocs Markdown de 4 backticks).
-   - Éviter les URLs brutes réécrites (les concaténer) et les index numériques entre crochets
-     (`[0]`, `[1]`, supprimés comme citations -> utiliser `.at(1)` ou `next(iter(...))`).
+RÈGLES DE GÉNÉRATION (ChromeAI & watch_clipboard) :
+1. Balise en 1re ligne à l'intérieur du bloc Markdown :
+   - Fichier complet : === FILE: tools/chemin/relatif/fichier.ext ===
+   - Fichier découpé : === FILE_PART: tools/chemin/relatif/fichier.ext | 1/N ===
+2. Limites anti-troncature : ne jamais dépasser 110 lignes par bloc (viser 70 à 105)
+   ni 2 à 3 blocs FILE_PART par réponse. Calculer N avant d'écrire la partie 1/N.
+3. Intégrité : code complet sans ellipses (...), zéro note juste sous un bloc,
+   chemins relatifs en tools/ uniquement (pas de / initial ni de ..).
+4. Pièges d'affichage web : construire dynamiquement les séquences de 3 backticks
+   (chr(96) * 3 en Python, String.fromCharCode(96).repeat(3) en JS), concaténer les
+   URLs sensibles et éviter les index numériques entre crochets.
 """
 
 import os
