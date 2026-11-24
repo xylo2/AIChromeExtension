@@ -77,8 +77,8 @@ class GlobalBreakGuard {
 
   getNightRepeatMinutes(d = this.dateFn()) {
     const h = d.getHours();
-    if (h >= 2 && h < 12) return this.settings.nightRepeat2h;
-    if (h >= 1 && h < 12) return this.settings.nightRepeat1h;
+    if (h >= 2 && h <= this.settings.nightEndHour) return this.settings.nightRepeat2h;
+    if (h === 1) return this.settings.nightRepeat1h;
     return this.settings.nightRepeat0h;
   }
 

@@ -74,8 +74,8 @@ function isLunchTime(d = new Date(), cfg = DEFAULT_SETTINGS) {
 function getNightRepeatMs(d = new Date(), cfg = DEFAULT_SETTINGS) {
   const s = sanitizeSettings(cfg);
   const h = d.getHours();
-  if (h >= 2 && h < 12) return s.nightRepeat2h * 60 * 1000;
-  if (h >= 1 && h < 12) return s.nightRepeat1h * 60 * 1000;
+  if (h >= 2 && h <= s.nightEndHour) return s.nightRepeat2h * 60 * 1000;
+  if (h === 1) return s.nightRepeat1h * 60 * 1000;
   return s.nightRepeat0h * 60 * 1000;
 }
 
