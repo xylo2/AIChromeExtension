@@ -36,6 +36,7 @@ test("chaque module est concis (<= 215 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
   assert.ok(contentJs.includes("pickDevExcuse()"));
   assert.ok(contentJs.includes("takeLunchBreak()"));
+  assert.ok(contentJs.includes("gmc-composer-below"));
 });
 
 test("BreakGuard gère déjeuner (12h-14h), mouvement (30m), hydratation (2h) et coucher (10m/5m/2m jusqu'à 6h30)", () => {
@@ -181,6 +182,77 @@ test("BreakGuard empile les alertes en décalé avec SVG dédiés et agrandit l'
   }
 });
 
+test("mountQuickButtonsNearPlus place les boutons sous le compositeur étroit", () => {
+  const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
+  const start = contentJs.indexOf("const mountQuickButtonsNearPlus = () => {");
+  const end = contentJs.indexOf("const setBtnState =");
+  const fnCode = contentJs.slice(start, end);
+
+  const wireParent = (parent, children) => {
+    parent.children = children;
+    children.forEach((c, idx) => {
+      c.parentElement = parent;
+      c.nextElementSibling = children.at(idx + 1) || null;
+      c.nextSibling = children.at(idx + 1) || null;
+    });
+  };
+  const makeEl = (tag) => ({
+    tagName: tag,
+    className: "",
+    textContent: "",
+    children: [],
+    parentElement: null,
+    nextElementSibling: null,
+    nextSibling: null,
+    isConnected: false,
+    classList: {
+      set: new Set(),
+      add(c) { this.set.add(c); },
+      remove(c) { this.set.delete(c); },
+      contains(c) { return this.set.has(c); }
+    },
+    getAttribute() { return ""; },
+    closest() { return null; },
+    querySelectorAll(sel) { return sel.includes("button") ? [plusBtn] : []; },
+    contains(target) {
+      if (target === this) return true;
+      return this.children.some((c) => c.contains && c.contains(target));
+    },
+    insertBefore(node, ref) {
+      node.parentElement = this;
+      node.nextSibling = ref || null;
+      node.isConnected = true;
+      const idx = this.children.indexOf(ref);
+      if (idx >= 0) this.children.splice(idx, 0, node);
+      else this.children.push(node);
+    }
+  });
+
+  const outerWrapper = makeEl("DIV");
+  const composerBox = makeEl("DIV");
+  const plusBtn = makeEl("BUTTON");
+  plusBtn.textContent = "+";
+  const inputWrapper = makeEl("DIV");
+  const inputEl = makeEl("DIV");
+  wireParent(inputWrapper, [inputEl]);
+  wireParent(composerBox, [plusBtn, inputWrapper]);
+  wireParent(outerWrapper, [composerBox]);
+
+  const quickReplyGroup = makeEl("DIV");
+  const floatingBar = makeEl("DIV");
+  const gitBtn = makeEl("BUTTON");
+  const sandbox = {
+    chatInjector: { findChatInputElement: () => inputEl },
+    quickReplyGroup,
+    floatingBar,
+    gitBtn
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${fnCode}\nmountQuickButtonsNearPlus();`, sandbox);
+
+  assert.equal(quickReplyGroup.parentElement, outerWrapper);
+  assert.equal(quickReplyGroup.classList.contains("gmc-composer-below"), true);
+});
 test("SpillDetector, CodeBlockManager et GitPanelManager fonctionnent en isolation", () => {
   const sandbox = { window: {} };
   vm.createContext(sandbox);

@@ -83,7 +83,17 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
           anchor = anchor.parentElement;
         }
         const rowContainer = anchor.parentElement;
+        const siblingInputBox = anchor.nextElementSibling;
+        const isInlineNarrow = siblingInputBox && siblingInputBox.contains(inputEl);
+        if (isInlineNarrow && box.parentElement) {
+          if (quickReplyGroup.parentElement !== box.parentElement || box.nextSibling !== quickReplyGroup) {
+            quickReplyGroup.classList.add("gmc-composer-below");
+            box.parentElement.insertBefore(quickReplyGroup, box.nextSibling);
+          }
+          return;
+        }
         if (rowContainer && (quickReplyGroup.parentElement !== rowContainer || anchor.nextSibling !== quickReplyGroup)) {
+          quickReplyGroup.classList.remove("gmc-composer-below");
           rowContainer.insertBefore(quickReplyGroup, anchor.nextSibling);
         }
         return;

@@ -151,16 +151,27 @@ code.gmc-collapsed-code,
 .gmc-composer-quick-group {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 8px;
   margin-left: 8px;
   vertical-align: middle;
   pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+
+.gmc-composer-quick-group.gmc-composer-below {
+  display: flex;
+  justify-content: flex-start;
+  margin: 10px 0 0 0;
+  width: 100%;
 }
 
 .gmc-composer-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   gap: 6px;
   height: 36px;
   padding: 0 14px;
@@ -211,7 +222,6 @@ code.gmc-collapsed-code,
 .gmc-global-tests-btn.state-pass, .gmc-git-commit-btn.state-pass, .gmc-git-push-btn.state-pass {
   background-color: #e6f4ea; color: #137333; border-color: #81c995;
 }
-
 .gmc-break-stack {
   position: fixed;
   top: 16px;
