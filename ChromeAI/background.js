@@ -14,14 +14,10 @@ function extractWorkspaceRoot(fullPath) {
   if (!fullPath || typeof fullPath !== "string") return null;
   const normalized = fullPath.replace(/[\\/]+$/, "");
   const toolsIdx = normalized.search(/[\\/]tools(?:[\\/]|$)/i);
-  if (toolsIdx > 0) {
-    return normalized.slice(0, toolsIdx);
-  }
+  if (toolsIdx > 0) return normalized.slice(0, toolsIdx);
   const lastSep = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
   if (lastSep <= 0) return null;
-  if (lastSep === 2 && normalized.charAt(1) === ":") {
-    return normalized.slice(0, 3);
-  }
+  if (lastSep === 2 && normalized.charAt(1) === ":") return normalized.slice(0, 3);
   return normalized.slice(0, lastSep);
 }
 
@@ -34,64 +30,47 @@ async function broadcastStateToTabs(state) {
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, {
-          type: "WATCHER_STATE_CHANGED",
-          state
-        }).catch(() => {});
-      }
+      if (tab.id) chrome.tabs.sendMessage(tab.id, { type: "WATCHER_STATE_CHANGED", state }).catch(() => {});
     }
   } catch (_err) {}
 }
 
 async function fetchWithTokenFallback(url, options, apiToken) {
   const baseHeaders = { ...(options.headers || {}) };
-  if (apiToken) {
-    baseHeaders["X-Watcher-Token"] = apiToken;
-  }
+  if (apiToken) baseHeaders["X-Watcher-Token"] = apiToken;
   let response = await fetch(url, { ...options, headers: baseHeaders });
   if (response.status === 401 && apiToken) {
     const retryHeaders = { ...(options.headers || {}) };
     response = await fetch(url, { ...options, headers: retryHeaders });
-    if (response.ok) {
-      await chrome.storage.local.remove("watcherApiToken");
-    }
+    if (response.ok) await chrome.storage.local.remove("watcherApiToken");
   }
   return response;
 }
+
+function updateBadge(isRunning) {
+  chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" });
+  chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" });
+}
+
 async function checkWatchClipboardStatus(forceBroadcast = false) {
   if (isChecking) {
     const stored = await chrome.storage.local.get("watchClipboardState");
     return stored.watchClipboardState || { running: false };
   }
   isChecking = true;
-
   const storedPrefs = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
   const customRunner = (storedPrefs.savedTestRunner || "").trim();
   const apiToken = storedPrefs.watcherApiToken || "";
-
   const state = {
-    running: false,
-    targetDir: null,
-    pid: null,
-    command: null,
-    hasRunTestsClip: false,
-    hasExporter: false,
-    hasGit: false,
-    testRunnerPath: null,
-    lastEvent: null,
+    running: false, targetDir: null, pid: null, command: null,
+    hasRunTestsClip: false, hasExporter: false, hasGit: false,
+    testRunnerPath: null, lastEvent: null,
     configuredTestRunner: customRunner || DEFAULT_TEST_RUNNER,
     checkedAt: new Date().toLocaleTimeString()
   };
-
   try {
     const query = customRunner ? `?test_runner=${encodeURIComponent(customRunner)}` : "";
-    const response = await fetchWithTokenFallback(
-      `${BASE_URL}/status${query}`,
-      { signal: AbortSignal.timeout(4500), cache: "no-store" },
-      apiToken
-    );
-
+    const response = await fetchWithTokenFallback(`${BASE_URL}/status${query}`, { signal: AbortSignal.timeout(4500), cache: "no-store" }, apiToken);
     if (response.ok) {
       const data = await response.json();
       if (data && data.status === "running") {
@@ -104,36 +83,18 @@ async function checkWatchClipboardStatus(forceBroadcast = false) {
         state.hasGit = Boolean(data.has_git);
         state.testRunnerPath = data.test_runner_path || null;
         state.lastEvent = data.last_event || null;
-        if (data.configured_test_runner) {
-          state.configuredTestRunner = data.configured_test_runner;
-        }
+        if (data.configured_test_runner) state.configuredTestRunner = data.configured_test_runner;
         const detectedRoot = extractWorkspaceRoot(state.targetDir);
-        if (detectedRoot) {
-          await chrome.storage.local.set({ savedRootDir: detectedRoot });
-        }
+        if (detectedRoot) await chrome.storage.local.set({ savedRootDir: detectedRoot });
       }
     }
-  } catch (_err) {
-    state.running = false;
-  } finally {
-    isChecking = false;
-  }
+  } catch (_err) { state.running = false; } finally { isChecking = false; }
   const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasGit}|${state.lastEvent}`;
   await chrome.storage.local.set({ watchClipboardState: state });
   updateBadge(state.running);
-
-  if (forceBroadcast || lastKnownSignature !== signature) {
-    lastKnownSignature = signature;
-    await broadcastStateToTabs(state);
-  }
+  if (forceBroadcast || lastKnownSignature !== signature) { lastKnownSignature = signature; await broadcastStateToTabs(state); }
   return state;
 }
-
-function updateBadge(isRunning) {
-  chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" });
-  chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" });
-}
-
 async function waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
   const deadline = Date.now() + maxWaitMs;
   let state = await checkWatchClipboardStatus(true);
@@ -236,7 +197,6 @@ async function runProjectTests(injectIntoActiveTab = true) {
   } catch (err) { return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` }; }
   finally { clearInterval(keepAlive); }
 }
-
 async function reinjectContentScriptsIntoOpenTabs() {
   if (!chrome.scripting) return;
   try {
@@ -255,7 +215,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
           }
         });
         await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["styles.css"] });
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "block_manager.js", "content.js"] });
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["spill_detector.js", "chat_injector.js", "git_panel.js", "test_panel.js", "block_manager.js", "content.js"] });
       } catch (_tabErr) {}
     }
   } catch (_err) {}
@@ -281,4 +241,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "GIT_PUSH") { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); postJsonEndpoint("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(ka)); return true; }
   if (message.type === "READ_SAVED_FILE") { getJsonEndpoint(`/read-file?header=${encodeURIComponent(message.header || "")}`, 5000, "Impossible de relire le fichier sauvegardé.").then(sendResponse); return true; }
   if (message.type === "RUN_PROJECT_TESTS") { runProjectTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
+  if (message.type === "START_PROJECT_TESTS") { chrome.storage.local.get("savedTestRunner", (s) => { postJsonEndpoint("/run-tests-start", { test_runner: (s.savedTestRunner || "").trim() }, 10000, "Impossible de démarrer les tests.").then(sendResponse); }); return true; }
+  if (message.type === "POLL_TEST_STREAM") { getJsonEndpoint(`/test-stream?offset=${Number(message.offset || 0)}`, 5000, "Erreur flux tests.").then(sendResponse); return true; }
 });

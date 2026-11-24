@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google AI Code Collapser & Watch Clipboard",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "Allège les blocs de code Google AI et pilote watch_clipboard en temps réel.",
   "icons": {
     "16": "icons/icon16.png",
@@ -38,6 +38,7 @@
         "spill_detector.js",
         "chat_injector.js",
         "git_panel.js",
+        "test_panel.js",
         "block_manager.js",
         "content.js"
       ],

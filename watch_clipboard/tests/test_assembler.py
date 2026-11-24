@@ -33,6 +33,19 @@ class TestFileAssembler(unittest.TestCase):
         with open(target_file, "r", encoding="utf-8") as f:
             self.assertEqual(f.read(), "print('Bonjour')\n")
 
+    def test_end_file_marker_strips_trailing_notes(self) -> None:
+        payload: str = (
+            "=== FILE: src/clean.py ===\n"
+            "x = 42\n"
+            "=== END_FILE ===\n"
+            "Explication après le code : def fake(): pass\n"
+        )
+        processed: int = self.assembler.process_text(payload)
+        self.assertEqual(processed, 1)
+        target_file: str = os.path.join(self.base_dir, "src", "clean.py")
+        with open(target_file, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "x = 42\n")
+
     def test_strip_redundant_base_prefix_even_if_duplicate_dir_exists(self) -> None:
         tools_base: str = os.path.join(self.base_dir, "tools")
         os.makedirs(os.path.join(tools_base, "tools"), exist_ok=True)

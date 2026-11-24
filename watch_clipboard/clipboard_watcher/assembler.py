@@ -19,6 +19,7 @@ class FileAssembler:
     """
 
     FILE_HEADER_PATTERN: str = r"(?m)^[ \t]*(?:#\s*)?=== FILE(?:_PART)?:\s*(.+?)\s*===[ \t]*"
+    END_FILE_PATTERN: str = r"(?m)^[ \t]*(?:#\s*)?=== END_FILE ===[ \t]*$"
 
     def __init__(self, base_dir: str, config: WatcherConfig) -> None:
         self.base_dir: str = os.path.realpath(base_dir)
@@ -58,7 +59,7 @@ class FileAssembler:
         return candidate
 
     def has_file_tags(self, raw: str) -> bool:
-        clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n")
+        clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         return bool(re.search(self.FILE_HEADER_PATTERN, clean_raw))
 
     def resolve_target_path(self, rel_path: str) -> str:
@@ -71,7 +72,8 @@ class FileAssembler:
         return candidate
 
     def _clean_block_lines(self, raw_block: str) -> str:
-        lines: List[str] = raw_block.strip("\n").splitlines()
+        truncated: str = re.split(self.END_FILE_PATTERN, raw_block, maxsplit=1)[0]
+        lines: List[str] = truncated.strip("\n").splitlines()
         first: str = next(iter(lines), "")
         if first.lstrip().startswith("\x60" * 3) or first.strip() in self.config.strip_lang_tags:
             lines = lines[1:]
@@ -93,7 +95,6 @@ class FileAssembler:
         if part_num < 1 or part_num > self.config.max_parts:
             raise ValueError(f"Numéro de partie hors limites ({part_num}) pour '{rel_path}'")
 
-        # Supprime un éventuel .partN égaré directement dans le dossier projet
         stray_part: str = f"{target_path}.part{part_num}"
         if os.path.isfile(stray_part):
             os.remove(stray_part)
@@ -156,7 +157,7 @@ class FileAssembler:
             print(f"[OK] {target_path} (partie {part_num} assemblée)")
 
     def process_text(self, raw: str) -> int:
-        clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n")
+        clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         parts: List[str] = re.split(self.FILE_HEADER_PATTERN, clean_raw)
         if len(parts) < 3:
             return 0

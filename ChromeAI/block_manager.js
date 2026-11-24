@@ -2,9 +2,10 @@
  * Gestion du repliage, de la purge DOM et de la vérification IA des blocs FILE / FILE_PART.
  */
 class CodeBlockManager {
-  constructor(spillDetector, chatInjector) {
+  constructor(spillDetector, chatInjector, onPurgeCallback = null) {
     this.spill = spillDetector;
     this.chat = chatInjector;
+    this.onPurge = onPurgeCallback;
     this.MAX_SAFE_LINES = 130;
     this.trackedBlocks = [];
     this.PURGE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/><line x1="12" y1="13" x2="19" y2="20"/><line x1="19" y1="13" x2="12" y2="20"/></svg>';
@@ -45,7 +46,11 @@ class CodeBlockManager {
   }
 
   purgeAll() {
-    this.trackedBlocks.forEach((b) => this.purgeDomOnly(b, "Purge manuelle"));
+    let anyPurged = false;
+    this.trackedBlocks.forEach((b) => {
+      if (this.purgeDomOnly(b, "Purge manuelle")) anyPurged = true;
+    });
+    if (anyPurged && typeof this.onPurge === "function") this.onPurge();
   }
 
   async copyOnly(item) {
@@ -56,9 +61,10 @@ class CodeBlockManager {
 
   async copyAndPurge(item) {
     await this.copyOnly(item);
-    this.purgeDomOnly(item);
+    if (this.purgeDomOnly(item) && typeof this.onPurge === "function") {
+      this.onPurge();
+    }
   }
-
   buildFallbackAttachmentName(headerName) {
     const parts = (headerName || "bloc.txt").split("|");
     const baseName = parts.at(0).trim().split(/[\\/]/).filter(Boolean).pop() || "bloc.txt";
@@ -83,6 +89,7 @@ class CodeBlockManager {
       attempt();
     });
   }
+
   async verifyWithAi(item) {
     if (!item || !item.headerName || item.isVerifyingSpill) return;
     item.isVerifyingSpill = true;
@@ -132,9 +139,19 @@ class CodeBlockManager {
   }
 
   attachHeaderControls(pre, item) {
-    if (item.headerPurgeAttached) return;
     const wrapper = this.spill.findCodeBlockWrapper(pre);
-    if (!wrapper || wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
+    if (!wrapper) return;
+    const controlsStillMounted = item.headerPurgeAttached && item.verifyBtn?.isConnected && item.headerPurgeBtn?.isConnected;
+    if (controlsStillMounted) return;
+    if (item.headerPurgeAttached && !controlsStillMounted) {
+      item.headerPurgeAttached = false;
+      wrapper.removeAttribute("data-gmc-has-purge");
+      if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "inline-flex";
+      if (item.placeholderRow && item.verifyBtn && !item.verifyBtn.isConnected) {
+        item.placeholderRow.insertBefore(item.verifyBtn, item.placeholderPurgeBtn);
+      }
+    }
+    if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
     const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => {
       if (b.closest(".gmc-placeholder") || b.className.includes("gmc-")) return false;
       const meta = `${b.getAttribute("aria-label") || ""} ${b.getAttribute("title") || ""} ${b.textContent || ""}`.toLowerCase();
@@ -143,21 +160,26 @@ class CodeBlockManager {
     if (nativeCopy?.parentElement) {
       wrapper.setAttribute("data-gmc-has-purge", "true");
       item.headerPurgeAttached = true;
-      const headerPurge = this.createPurgeBtn(item);
+      if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item);
       nativeCopy.parentElement.insertBefore(item.verifyBtn, nativeCopy.nextSibling);
-      nativeCopy.parentElement.insertBefore(headerPurge, item.verifyBtn.nextSibling);
+      nativeCopy.parentElement.insertBefore(item.headerPurgeBtn, item.verifyBtn.nextSibling);
       if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
-      nativeCopy.addEventListener("click", () => {
-        const fullText = this.extractCombinedCode(item);
-        setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80);
-      });
+      if (nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") {
+        nativeCopy.setAttribute("data-gmc-copy-watched", "true");
+        nativeCopy.addEventListener("click", () => {
+          const fullText = this.extractCombinedCode(item);
+          setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80);
+        });
+      }
     }
   }
 
   scan(preExisting = false) {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-processed") === "true") continue;
-      const match = this.spill.findFirstNonEmptyLine(this.spill.extractRawCode(pre)).match(this.spill.FILE_TAG_REGEX);
+      const rawCode = this.spill.extractRawCode(pre);
+      if (!rawCode.includes("\n") && !preExisting) continue;
+      const match = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX);
       if (!match) continue;
       pre.setAttribute("data-gmc-processed", "true");
       pre.classList.add("gmc-collapsed-code");
@@ -175,7 +197,7 @@ class CodeBlockManager {
       verifyBtn.className = "gmc-verify-btn";
       verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)";
       verifyBtn.innerHTML = this.VERIFY_SVG;
-      const item = { el: pre, placeholderEl: placeholder, headerName: match.at(1), labelEl, verifyBtn, purgeButtons: [], placeholderPurgeBtn: null, headerPurgeAttached: false, spilledNodes: [], cachedCombinedCode: "", preExisting };
+      const item = { el: pre, placeholderEl: placeholder, placeholderRow: row, headerName: match.at(1), labelEl, verifyBtn, purgeButtons: [], placeholderPurgeBtn: null, headerPurgeBtn: null, headerPurgeAttached: false, spilledNodes: [], cachedCombinedCode: "", preExisting };
       verifyBtn.addEventListener("click", (e) => { e.stopPropagation(); this.verifyWithAi(item); });
       const purgeBtn = this.createPurgeBtn(item);
       item.placeholderPurgeBtn = purgeBtn;

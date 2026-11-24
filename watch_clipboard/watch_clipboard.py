@@ -16,9 +16,10 @@ RÈGLES DE GÉNÉRATION (ChromeAI & watch_clipboard) :
    URLs sensibles et éviter les index numériques entre crochets.
 """
 
+import argparse
 import os
 import sys
-from typing import Optional
+from typing import List, Optional
 from clipboard_watcher.assembler import FileAssembler
 from clipboard_watcher.config import WatcherConfig
 from clipboard_watcher.status_server import StatusServer
@@ -30,9 +31,24 @@ class ApplicationRunner:
     Orchestre l'initialisation des composants, le serveur de statut et la surveillance.
     """
 
-    def __init__(self, target_dir: str, config_file: str = "config_watch_clipboard.ini") -> None:
+    def __init__(
+        self,
+        target_dir: str,
+        config_file: str = "config_watch_clipboard.ini",
+        poll_interval: Optional[float] = None,
+        port: Optional[int] = None,
+        clear_on_startup: Optional[bool] = None,
+        api_token: Optional[str] = None,
+        allowed_origin: Optional[str] = None,
+    ) -> None:
         self.target_dir: str = target_dir
         self.config: WatcherConfig = WatcherConfig(config_path=config_file)
+        if poll_interval is not None:
+            self.config.poll_interval = poll_interval
+        if port is not None:
+            self.config.server_port = port
+        if clear_on_startup is not None:
+            self.config.clear_on_startup = clear_on_startup
         self.assembler: FileAssembler = FileAssembler(
             base_dir=self.target_dir,
             config=self.config,
@@ -44,15 +60,15 @@ class ApplicationRunner:
         )
         self.status_server: Optional[StatusServer] = None
         if self.config.server_enabled:
-            api_token: str = os.environ.get("WATCH_CLIPBOARD_TOKEN", "").strip()
-            allowed_origin: str = os.environ.get("WATCH_CLIPBOARD_ORIGIN", "").strip()
+            tok: str = (api_token if api_token is not None else os.environ.get("WATCH_CLIPBOARD_TOKEN", "")).strip()
+            orig: str = (allowed_origin if allowed_origin is not None else os.environ.get("WATCH_CLIPBOARD_ORIGIN", "")).strip()
             self.status_server = StatusServer(
                 host=self.config.server_host,
                 port=self.config.server_port,
                 target_dir=self.target_dir,
                 test_runner_path=self.config.test_runner_path,
-                api_token=api_token,
-                allowed_origin=allowed_origin,
+                api_token=tok,
+                allowed_origin=orig,
                 assembler=self.assembler,
             )
 
@@ -64,17 +80,35 @@ class ApplicationRunner:
         finally:
             if self.status_server is not None:
                 self.status_server.stop()
+def _parse_cli_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Surveille le presse-papiers et assemble les fichiers.")
+    parser.add_argument("positional_dir", nargs="?", default=None, help="Dossier cible")
+    parser.add_argument("--dir", dest="opt_dir", default=None, help="Dossier cible explicite")
+    parser.add_argument("--interval", type=float, default=None, help="Intervalle de scrutation en secondes")
+    parser.add_argument("--port", type=int, default=None, help="Port HTTP du serveur de statut")
+    parser.add_argument("--no-clear", action="store_true", help="Ne pas vider le presse-papiers au démarrage")
+    parser.add_argument("--api-token", default=None, help="Jeton d'authentification HTTP")
+    parser.add_argument("--allowed-origin", default=None, help="Origine CORS autorisée")
+    args, _ = parser.parse_known_args(argv)
+    return args
 
 
 def main() -> None:
-    args_iter = iter(sys.argv)
-    next(args_iter, None)
-    destination: str = next(args_iter, ".")
+    parsed = _parse_cli_args(sys.argv[1:])
+    destination: str = parsed.opt_dir or parsed.positional_dir or "."
 
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
     config_path: str = os.path.join(script_dir, "config_watch_clipboard.ini")
 
-    app: ApplicationRunner = ApplicationRunner(target_dir=destination, config_file=config_path)
+    app: ApplicationRunner = ApplicationRunner(
+        target_dir=destination,
+        config_file=config_path,
+        poll_interval=parsed.interval,
+        port=parsed.port,
+        clear_on_startup=False if parsed.no_clear else None,
+        api_token=parsed.api_token,
+        allowed_origin=parsed.allowed_origin,
+    )
     app.run()
 
 

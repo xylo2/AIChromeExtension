@@ -16,7 +16,7 @@ from clipboard_watcher.assembler import FileAssembler
 from clipboard_watcher.config import WatcherConfig
 from clipboard_watcher.native_host import NativeMessagingHost
 import clipboard_watcher.native_host as native_host_mod
-from clipboard_watcher.status_server import StatusServer, _StatusRequestHandler
+from clipboard_watcher.status_server import StatusServer, _QuietThreadingHTTPServer, _StatusRequestHandler
 from clipboard_watcher.watcher import ClipboardWatcher
 from install_native_host import NativeHostInstaller
 import tools.fix_urls as fix_urls_mod

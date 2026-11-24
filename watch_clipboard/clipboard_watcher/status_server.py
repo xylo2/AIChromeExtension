@@ -35,6 +35,15 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
     api_token: str = ""
     allowed_origin: str = ""
     assembler_ref: Any = None
+    _test_lock: threading.Lock = threading.Lock()
+    _live_test_state: Dict[str, Any] = {
+        "running": False,
+        "lines": [],
+        "passed": None,
+        "output": "",
+        "uncovered": "",
+        "error": "",
+    }
 
     def _is_authorized(self) -> bool:
         if not self.api_token:
@@ -178,10 +187,14 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         if st_proc.stdout.strip():
             chunks.append("=== GIT STATUS ===\n" + st_proc.stdout.strip())
         has_head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=git_root, capture_output=True, check=False).returncode == 0
-        diff_cmd: List[str] = ["git", "diff", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "--", *clean_files]
+        diff_cmd: List[str] = ["git", "diff", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "--cached", "--", *clean_files]
         diff_proc = subprocess.run(diff_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
         if diff_proc.stdout.strip():
             chunks.append("=== GIT DIFF ===\n" + diff_proc.stdout.strip())
+        if not has_head:
+            wt_proc = subprocess.run(["git", "diff", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+            if wt_proc.stdout.strip():
+                chunks.append("=== GIT DIFF (WORKING TREE) ===\n" + wt_proc.stdout.strip())
         for rel in clean_files:
             full_p: str = os.path.join(git_root, rel)
             ut_proc = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "--", rel], cwd=git_root, capture_output=True, text=True, check=False)
@@ -248,7 +261,14 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         parent_real: str = os.path.dirname(base_real)
         watcher_dir: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         watcher_parent: str = os.path.dirname(watcher_dir)
-        for cand in (os.path.join(base_real, "export"), os.path.join(base_real, "tools", "export"), os.path.join(parent_real, "export"), os.path.join(parent_real, "tools", "export"), os.path.join(watcher_parent, "export")):
+        candidates = (
+            os.path.join(base_real, "export"),
+            os.path.join(base_real, "tools", "export"),
+            os.path.join(parent_real, "export"),
+            os.path.join(parent_real, "tools", "export"),
+            os.path.join(watcher_parent, "export"),
+        )
+        for cand in candidates:
             if os.path.isdir(os.path.join(cand, "project_exporter")):
                 return cand
         return None
@@ -260,7 +280,9 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if len(parts) >= 2 and ".." not in parts:
                 return "/".join(parts)
         exp_parent: str = os.path.dirname(os.path.realpath(exporter_root))
-        workspace_root: str = os.path.dirname(exp_parent) if os.path.basename(exp_parent).lower() == "tools" else exp_parent
+        workspace_root: str = (
+            os.path.dirname(exp_parent) if os.path.basename(exp_parent).lower() == "tools" else exp_parent
+        )
         try:
             if os.path.commonpath([workspace_root, target_real]) == workspace_root and target_real != workspace_root:
                 rel_label: str = os.path.relpath(target_real, workspace_root).replace("\\", "/")
@@ -277,9 +299,23 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         target_real: str = os.path.realpath(self.target_dir)
         project_label: str = self._compute_export_project_label(target_real, exporter_root)
         with tempfile.TemporaryDirectory(prefix="watch_clip_export_") as tmp_dir:
-            code: str = "import logging, sys; from pathlib import Path; from project_exporter.config import ExporterConfig; from project_exporter.exporter import ProjectExporter; logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler()); _, exp_s, target_s, out_s, proj_label = sys.argv; exp_root, target, out_dir = Path(exp_s), Path(target_s), Path(out_s); cfg = ExporterConfig(exp_root / 'config.ini', logger); fname = cfg.build_output_filename(proj_label); out_file = out_dir / fname; cnt = ProjectExporter(target, cfg, out_file, exp_root / 'export_project.py', logger).export(); print(f'{fname}|{cnt}')"
+            code: str = (
+                "import logging, sys; from pathlib import Path; "
+                "from project_exporter.config import ExporterConfig; "
+                "from project_exporter.exporter import ProjectExporter; "
+                "logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler()); "
+                "_, exp_s, target_s, out_s, proj_label = sys.argv; "
+                "exp_root, target, out_dir = Path(exp_s), Path(target_s), Path(out_s); "
+                "cfg = ExporterConfig(exp_root / 'config.ini', logger); "
+                "fname = cfg.build_output_filename(proj_label); out_file = out_dir / fname; "
+                "cnt = ProjectExporter(target, cfg, out_file, exp_root / 'export_project.py', logger).export(); "
+                "print(f'{fname}|{cnt}')"
+            )
             env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONPATH": exporter_root}
-            proc = subprocess.run([sys.executable, "-c", code, exporter_root, target_real, tmp_dir, project_label], cwd=target_real, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+            proc = subprocess.run(
+                [sys.executable, "-c", code, exporter_root, target_real, tmp_dir, project_label],
+                cwd=target_real, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
+            )
             if proc.returncode != 0:
                 return False, "", (proc.stderr or proc.stdout or "Erreur export").strip(), 0
             fname_out, cnt_str = (proc.stdout or "").strip().splitlines()[-1].split("|", 1)
@@ -288,7 +324,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 return False, "", "Fichier d'export non généré.", 0
             with open(out_path, "r", encoding="utf-8", errors="replace") as f_out:
                 return True, fname_out, f_out.read(), int(cnt_str)
-
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
@@ -309,14 +344,19 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 if self._is_within_allowed_roots(parent_cand, allowed_roots) and os.path.isfile(parent_cand):
                     return parent_cand
             return None
-        for search_dir in [base_real, os.path.join(base_real, "watch_clipboard")] + ([parent_real] if parent_real and parent_real != base_real else []):
+        search_dirs = [base_real, os.path.join(base_real, "watch_clipboard")]
+        if parent_real and parent_real != base_real:
+            search_dirs.append(parent_real)
+        for search_dir in search_dirs:
             candidate: str = os.path.realpath(os.path.join(search_dir, rel_path))
             if self._is_within_allowed_roots(candidate, allowed_roots) and os.path.isfile(candidate):
                 return candidate
         return None
+
     def _send_cors_headers(self) -> None:
         origin: str = self.headers.get("Origin", "")
-        self.send_header("Access-Control-Allow-Origin", self.allowed_origin or (origin if origin.startswith("chrome-extension://") else "null"))
+        cors_val: str = self.allowed_origin or (origin if origin.startswith("chrome-extension://") else "null")
+        self.send_header("Access-Control-Allow-Origin", cors_val)
         self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Watcher-Token")
@@ -350,11 +390,28 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/read-file":
             ok, filename, content_or_err = self._read_saved_file_from_header(next(iter(params.get("header", [])), ""))
-            self._send_json(200 if ok else 404, {"ok": ok, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err})
+            res_read = {"ok": True, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err}
+            self._send_json(200 if ok else 404, res_read)
             return
         if parsed.path == "/git-status":
             ok_g, entries, err_g = self._git_status_entries()
             self._send_json(200 if ok_g else 400, {"ok": ok_g, "entries": entries, "error": err_g})
+            return
+        if parsed.path == "/test-stream":
+            raw_off: str = next(iter(params.get("offset", ["0"])), "0").strip()
+            offset: int = max(0, int(raw_off)) if raw_off.isdigit() else 0
+            with self._test_lock:
+                lines: List[str] = list(self._live_test_state["lines"])
+                self._send_json(200, {
+                    "ok": True,
+                    "running": self._live_test_state["running"],
+                    "offset": len(lines),
+                    "chunk": "".join(lines[offset:]),
+                    "passed": self._live_test_state["passed"],
+                    "output": self._live_test_state["output"],
+                    "uncovered": self._live_test_state["uncovered"],
+                    "error": self._live_test_state["error"],
+                })
             return
         if parsed.path not in ("/status", "/health", "/"):
             self._send_json(404, {"error": "not_found"})
@@ -362,8 +419,19 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         custom_runner: str = next(iter(params.get("test_runner", [])), "")
         test_script: Optional[str] = self._resolve_test_runner_path(custom_runner)
         has_tests: bool = bool(test_script and os.path.isfile(test_script))
-        self._send_json(200, {"status": "running", "service": "watch_clipboard", "pid": os.getpid(), "target_dir": os.path.realpath(self.target_dir), "command": " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv]), "has_run_tests_clip": has_tests, "has_exporter": self._resolve_exporter_package_dir() is not None, "has_git": self._find_git_root() is not None, "configured_test_runner": custom_runner or self.default_test_runner, "test_runner_path": test_script if has_tests else None, "last_event": getattr(self.assembler_ref, "last_event", None)})
-
+        self._send_json(200, {
+            "status": "running",
+            "service": "watch_clipboard",
+            "pid": os.getpid(),
+            "target_dir": os.path.realpath(self.target_dir),
+            "command": " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv]),
+            "has_run_tests_clip": has_tests,
+            "has_exporter": self._resolve_exporter_package_dir() is not None,
+            "has_git": self._find_git_root() is not None,
+            "configured_test_runner": custom_runner or self.default_test_runner,
+            "test_runner_path": test_script if has_tests else None,
+            "last_event": getattr(self.assembler_ref, "last_event", None),
+        })
     def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str, str]:
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
@@ -373,7 +441,10 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             cmd: List[str] = [sys.executable, "-u", test_script]
             if is_clip_runner:
                 cmd.extend(["--no-clipboard", "--report-file", report_path, "--coverage-file", coverage_path])
-            proc = subprocess.Popen(cmd, cwd=os.path.realpath(self.target_dir), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+            proc = subprocess.Popen(
+                cmd, cwd=os.path.realpath(self.target_dir), env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+            )
             timed_out: List[bool] = []
             watchdog = threading.Timer(180.0, lambda: (timed_out.append(True), proc.kill()))
             watchdog.daemon = True
@@ -385,6 +456,8 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                     sys.stdout.write(line)
                     sys.stdout.flush()
                     live_lines.append(line)
+                    with self._test_lock:
+                        self._live_test_state["lines"].append(line)
                 rc: int = proc.wait(timeout=10)
             finally:
                 watchdog.cancel()
@@ -392,10 +465,34 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                     proc.stdout.close()
             if timed_out:
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=180)
-            compact_out: str = open(report_path, "r", encoding="utf-8", errors="replace").read().strip() if (is_clip_runner and os.path.isfile(report_path)) else "".join(live_lines).strip()
-            uncovered_out: str = open(coverage_path, "r", encoding="utf-8", errors="replace").read().strip() if (is_clip_runner and os.path.isfile(coverage_path)) else ""
-            clean_out: str = re.sub(r"^\[PRESSE-PAPIERS\].*$", "", compact_out, flags=re.MULTILINE).strip()
+            compact_out: str = (
+                open(report_path, "r", encoding="utf-8", errors="replace").read().strip()
+                if (is_clip_runner and os.path.isfile(report_path))
+                else "".join(live_lines).strip()
+            )
+            uncovered_out: str = (
+                open(coverage_path, "r", encoding="utf-8", errors="replace").read().strip()
+                if (is_clip_runner and os.path.isfile(coverage_path))
+                else ""
+            )
+            clip_prefix: str = r"^\x5bPRESSE-PAPIERS\x5d.*$"
+            clean_out: str = re.sub(clip_prefix, "", compact_out, flags=re.MULTILINE).strip()
             return rc, clean_out, uncovered_out
+
+    def _run_tests_background(self, test_script: str) -> None:
+        try:
+            rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
+            has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
+            passed: bool = rc == 0 and not has_warnings
+            with self._test_lock:
+                self._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
+        except subprocess.TimeoutExpired:
+            with self._test_lock:
+                self._live_test_state.update({"running": False, "passed": False, "error": "Délai dépassé (180s) pendant les tests."})
+        except Exception as exc:
+            with self._test_lock:
+                self._live_test_state.update({"running": False, "passed": False, "error": str(exc)})
+
     def do_POST(self) -> None:
         if not self._is_authorized():
             self._drain_unread_body()
@@ -431,7 +528,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             ok_p, out_p = self._git_commit_and_push("push", remote=str(body_p.get("remote", "origin")), branch=str(body_p.get("branch", "")))
             self._send_json(200 if ok_p else 400, {"ok": ok_p, "output": out_p} if ok_p else {"ok": False, "error": out_p})
             return
-        if parsed.path == "/run-tests":
+        if parsed.path in ("/run-tests", "/run-tests-start"):
             body_t = self._read_json_body()
             test_script: Optional[str] = self._resolve_test_runner_path(str(body_t.get("test_runner", "")).strip())
             if test_script is None:
@@ -440,13 +537,29 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if not os.path.isfile(test_script):
                 self._send_json(404, {"ok": False, "error": f"Lanceur introuvable : {test_script}"})
                 return
+            with self._test_lock:
+                if self._live_test_state["running"]:
+                    self._send_json(409, {"ok": False, "error": "Une exécution de tests est déjà en cours."})
+                    return
+                self._live_test_state.update({"running": True, "lines": [], "passed": None, "output": "", "uncovered": "", "error": ""})
+            if parsed.path == "/run-tests-start":
+                threading.Thread(target=self._run_tests_background, args=(test_script,), daemon=True).start()
+                self._send_json(200, {"ok": True, "started": True})
+                return
             try:
                 rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
                 has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-                self._send_json(200, {"ok": True, "passed": rc == 0 and not has_warnings, "returncode": rc, "output": clean_out, "uncovered": uncovered_out if (rc == 0 and not has_warnings) else ""})
+                passed: bool = rc == 0 and not has_warnings
+                with self._test_lock:
+                    self._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
+                self._send_json(200, {"ok": True, "passed": passed, "returncode": rc, "output": clean_out, "uncovered": uncovered_out if passed else ""})
             except subprocess.TimeoutExpired:
+                with self._test_lock:
+                    self._live_test_state.update({"running": False, "passed": False, "error": "Délai dépassé (180s) pendant les tests."})
                 self._send_json(504, {"ok": False, "error": "Délai dépassé (180s) pendant les tests."})
             except Exception as exc:
+                with self._test_lock:
+                    self._live_test_state.update({"running": False, "passed": False, "error": str(exc)})
                 self._send_json(500, {"ok": False, "error": str(exc)})
             return
         self._drain_unread_body()

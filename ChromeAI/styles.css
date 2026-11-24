@@ -116,15 +116,23 @@ code.gmc-collapsed-code,
   right: 20px;
   z-index: 2147483646;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   max-width: calc(100vw - 40px);
   pointer-events: none;
 }
 
-.gmc-floating-bar > button {
+.gmc-floating-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.gmc-floating-row > button {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
@@ -144,7 +152,7 @@ code.gmc-collapsed-code,
   transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.gmc-floating-bar > button:hover {
+.gmc-floating-row > button:hover {
   transform: translateY(-1px);
 }
 
@@ -211,6 +219,10 @@ code.gmc-collapsed-code,
   background-color: #fef3c7; color: #92400e; border-color: #f59e0b;
 }
 
+.gmc-global-testlog-btn {
+  background-color: #f1f5f9; color: #334155; border-color: #94a3b8;
+}
+
 .gmc-global-coverage-btn.state-pass {
   cursor: default;
 }
@@ -230,10 +242,19 @@ code.gmc-collapsed-code,
 }
 
 .gmc-git-panel {
-  position: fixed; bottom: 66px; right: 20px; width: 440px; max-width: calc(100vw - 40px); max-height: 360px;
+  position: fixed; bottom: 96px; right: 20px; width: 440px; max-width: calc(100vw - 40px); max-height: 360px;
   z-index: 2147483647; display: flex; flex-direction: column; background: #1e293b; color: #f8fafc;
   border: 1px solid #475569; border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px;
+}
+.gmc-test-output-panel {
+  width: 580px; max-height: 440px;
+}
+.gmc-test-output-pre {
+  margin: 0 0 10px 0; padding: 8px 10px; border-radius: 6px; background: #0f172a;
+  border: 1px solid #334155; color: #e2e8f0; font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  overflow-y: auto; flex: 1; user-select: text;
 }
 .gmc-git-panel-header { font-weight: 600; margin-bottom: 8px; color: #e2e8f0; }
 .gmc-git-panel-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }

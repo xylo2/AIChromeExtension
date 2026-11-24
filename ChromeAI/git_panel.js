@@ -59,15 +59,19 @@ class GitPanelManager {
         return;
       }
       const diffName = res.filename || "git_changes.diff.txt";
-      if (res.content) this.chat.dropFile(diffName, res.content, false);
+      const diffContent = String(res.content || res.diff || "");
+      if (diffContent) this.chat.dropFile(diffName, diffContent, false);
       const prompt = mode === "verify"
         ? this.buildVerifyPrompt(selected, diffName)
         : this.buildCommitPrompt(selected, diffName);
-      this.chat.insertPrompt(prompt, { minDelayMs: 1100, maxWaitMs: 5000 });
+      this.chat.insertPrompt(prompt, {
+        minDelayMs: 1800,
+        maxWaitMs: 7500,
+        waitForFile: diffContent ? diffName : ""
+      });
       this.close();
     });
   }
-
   open(entries) {
     this.close();
     const panel = document.createElement("div");
@@ -124,6 +128,7 @@ class GitPanelManager {
     document.body.appendChild(panel);
     this.panelEl = panel;
   }
+
   extractCommitMessage(preEl) {
     const raw = this.spill.extractRawCode(preEl);
     const lines = raw.split("\n");
@@ -274,6 +279,8 @@ class GitPanelManager {
         }
         this.sendRuntimeSafe({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
           if (res?.ok) {
+            this.lastValidatedFiles = [];
+            if (chrome.storage?.local) chrome.storage.local.remove("savedGitSelectedFiles").catch?.(() => {});
             commitBtn.textContent = "✅ Commit effectué & copié";
             commitBtn.classList.add("state-pass");
             const oldErr = bar.querySelector(".gmc-git-error-box");

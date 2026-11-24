@@ -4,6 +4,7 @@
 class SpillDetector {
   constructor() {
     this.FILE_TAG_REGEX = /^(?:#\s*)?=== FILE(?:_PART)?:\s*(.+?)\s*===\s*$/;
+    this.END_FILE_REGEX = /^(?:#\s*)?=== END_FILE ===\s*$/;
     this.COMMIT_TAG_REGEX = /^(?:#\s*)?=== COMMIT_MESSAGE ===\s*$/;
     this.TRIPLE_BACKTICK = "\x60\x60\x60";
   }
@@ -34,6 +35,11 @@ class SpillDetector {
       curr = parent;
     }
     return curr;
+  }
+
+  isBoundaryTag(text) {
+    const first = this.findFirstNonEmptyLine(text);
+    return this.FILE_TAG_REGEX.test(first) || this.END_FILE_REGEX.test(first) || this.COMMIT_TAG_REGEX.test(first);
   }
 
   isFollowUpArtifact(text) {
@@ -69,7 +75,7 @@ class SpillDetector {
   looksLikeSpilledCode(text) {
     const trimmed = (text || "").trim();
     if (!trimmed || this.isFollowUpArtifact(trimmed) || this.isUiOrLangNoise(trimmed)) return false;
-    if (this.FILE_TAG_REGEX.test(trimmed) || this.COMMIT_TAG_REGEX.test(trimmed)) return false;
+    if (this.isBoundaryTag(trimmed)) return false;
     const prose = trimmed.replace(/^[\s*•\-–—(]+/, "").replace(/\)+[\s.*]*$/, "").trim();
     if (/^[A-ZÀ-ÿ][a-zà-ÿ']+(?:\s+[a-zà-ÿA-ZÀ-ÿ0-9'/]+){2,}/.test(prose) && !/[{};=]|=>/.test(prose)) return false;
     if (trimmed.startsWith(this.TRIPLE_BACKTICK) || trimmed.endsWith(this.TRIPLE_BACKTICK) || trimmed.includes("\n" + this.TRIPLE_BACKTICK)) return true;
@@ -78,7 +84,6 @@ class SpillDetector {
     if (/(?:def |class |function |const |let |var |import |from |return |if __name__|test\(|\{"seq":|\{"id":)/.test(trimmed)) return true;
     return trimmed.includes("\n") && /[{}();=]/.test(trimmed);
   }
-
   findEdgeSibling(el, direction) {
     let curr = this.findCodeBlockWrapper(el);
     const prop = direction === "prev" ? "previousSibling" : "nextSibling";
@@ -109,7 +114,7 @@ class SpillDetector {
           if (innerPre.getAttribute("data-gmc-processed") === "true" || innerPre.getAttribute("data-gmc-purged") === "true") break;
           const preRaw = this.extractRawCode(innerPre);
           const firstLine = this.findFirstNonEmptyLine(preRaw);
-          if (this.FILE_TAG_REGEX.test(firstLine)) break;
+          if (this.isBoundaryTag(firstLine)) break;
           if (firstLine.startsWith(this.TRIPLE_BACKTICK) || preRaw === this.TRIPLE_BACKTICK) { nodes.push(sib); break; }
           nodes.push(sib);
           chunks.push(this.TRIPLE_BACKTICK + "\n" + preRaw + "\n" + this.TRIPLE_BACKTICK);
@@ -120,7 +125,7 @@ class SpillDetector {
         const rawFmt = this.extractFormattedText(sib);
         const trimmed = rawFmt.trim();
         if (!trimmed) { sib = sib[prop]; continue; }
-        if (this.isFollowUpArtifact(trimmed) || this.FILE_TAG_REGEX.test(this.findFirstNonEmptyLine(trimmed))) break;
+        if (this.isFollowUpArtifact(trimmed) || this.isBoundaryTag(trimmed)) break;
         if (this.isUiOrLangNoise(trimmed)) { if (direction === "prev") { nodes.push(sib); break; } sib = sib[prop]; continue; }
         if (fenceRe.test(trimmed)) { nodes.push(sib); break; }
         if (trimmed.endsWith(this.TRIPLE_BACKTICK)) {
@@ -135,7 +140,7 @@ class SpillDetector {
       } else if (sib.nodeType === Node.TEXT_NODE) {
         const txt = this.normalizeText(sib.textContent).trim();
         if (txt) {
-          if (this.isFollowUpArtifact(txt) || this.FILE_TAG_REGEX.test(this.findFirstNonEmptyLine(txt))) break;
+          if (this.isFollowUpArtifact(txt) || this.isBoundaryTag(txt)) break;
           if (this.isUiOrLangNoise(txt)) { if (direction === "prev") break; sib = sib[prop]; continue; }
           if (txt.includes(this.TRIPLE_BACKTICK)) { const c = txt.split(this.TRIPLE_BACKTICK).join("").trim(); if (c) chunks.push(c); break; }
           if (!this.looksLikeSpilledCode(txt)) break;

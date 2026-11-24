@@ -4,6 +4,8 @@
 class ChatInjector {
   constructor() {
     this.TRIPLE_BACKTICK = "\x60\x60\x60";
+    this.pendingAttachmentName = "";
+    this.baselineAttachmentCount = 0;
   }
 
   isElementVisible(el) {
@@ -73,6 +75,36 @@ class ChatInjector {
     return null;
   }
 
+  findComposerContainer(inputEl) {
+    let container = inputEl ? inputEl.parentElement : document.body;
+    for (let depth = 0; depth < 7 && container?.parentElement; depth++) {
+      if (container.querySelector("button, [role='button']")) return container.parentElement;
+      container = container.parentElement;
+    }
+    return container || document.body;
+  }
+
+  countAttachmentChips(container) {
+    if (!container) return 0;
+    const sel = '[data-file-name], [data-testid*="file"], [data-testid*="attachment"], button[aria-label*="supprimer" i], button[aria-label*="retirer" i], button[aria-label*="remove" i]';
+    return this.queryDeepAll(sel, container).filter((n) => !String(n.className || "").includes("gmc-")).length;
+  }
+
+  isAttachmentReady(inputEl, filename) {
+    if (!filename) return true;
+    const container = this.findComposerContainer(inputEl);
+    if (container.querySelector('[role="progressbar"], [aria-busy="true"], .loading, .spinner')) return false;
+    const stem = filename.replace(/\.[^.]+$/, "").toLowerCase();
+    const lowerName = filename.toLowerCase();
+    const nodes = this.queryDeepAll("*", container);
+    const hasMetaMatch = nodes.some((n) => {
+      if (String(n.className || "").includes("gmc-")) return false;
+      const blob = `${n.getAttribute?.("data-file-name") || ""} ${n.getAttribute?.("aria-label") || ""} ${n.getAttribute?.("title") || ""} ${n.textContent || ""}`.toLowerCase();
+      return blob.includes(lowerName) || (stem.length >= 4 && blob.includes(stem));
+    });
+    if (hasMetaMatch) return true;
+    return this.countAttachmentChips(container) > this.baselineAttachmentCount;
+  }
   submitChatBox(inputEl) {
     const targetInput = inputEl || this.findChatInputElement();
     if (!targetInput) return false;
@@ -86,14 +118,21 @@ class ChatInjector {
     return true;
   }
 
-  waitAndSubmit(inputEl, minDelayMs = 600, maxWaitMs = 4000) {
+  waitAndSubmit(inputEl, minDelayMs = 600, maxWaitMs = 4000, waitForFile = "") {
     const startedAt = Date.now();
+    const expectedFile = waitForFile || this.pendingAttachmentName;
     const trySubmit = () => {
       const targetInput = (inputEl && inputEl.isConnected) ? inputEl : this.findChatInputElement();
       const elapsed = Date.now() - startedAt;
       const readyBtn = this.findSubmitButton(targetInput);
-      if (readyBtn && elapsed >= minDelayMs) { readyBtn.click(); return; }
-      if (elapsed < maxWaitMs) { setTimeout(trySubmit, 180); return; }
+      const fileOk = !expectedFile || this.isAttachmentReady(targetInput, expectedFile);
+      if (readyBtn && elapsed >= minDelayMs && fileOk) {
+        this.pendingAttachmentName = "";
+        readyBtn.click();
+        return;
+      }
+      if (elapsed < maxWaitMs) { setTimeout(trySubmit, 220); return; }
+      this.pendingAttachmentName = "";
       this.submitChatBox(targetInput);
     };
     setTimeout(trySubmit, Math.min(minDelayMs, 250));
@@ -104,25 +143,32 @@ class ChatInjector {
     const dt = new DataTransfer();
     dt.items.add(file);
     const inputEl = this.findChatInputElement();
-    let dropHandled = false;
-    for (const target of [inputEl, inputEl?.parentElement, document.body].filter(Boolean)) {
-      for (const evtName of ["dragenter", "dragover", "drop"]) {
-        const evt = new DragEvent(evtName, { bubbles: true, cancelable: true, dataTransfer: dt });
-        if (evtName === "drop" && !target.dispatchEvent(evt)) dropHandled = true;
-      }
-      if (dropHandled) break;
+    this.pendingAttachmentName = filename || "";
+    this.baselineAttachmentCount = this.countAttachmentChips(this.findComposerContainer(inputEl));
+    const fileInputs = this.queryDeepAll('input[type="file"]');
+    let inputAttached = false;
+    if (fileInputs.length > 0) {
+      const fileInput = fileInputs.at(fileInputs.length - 1);
+      try {
+        fileInput.files = dt.files;
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        inputAttached = true;
+      } catch (_err) {}
     }
-    if (!dropHandled) {
-      const fileInputs = this.queryDeepAll('input[type="file"]');
-      if (fileInputs.length > 0) {
-        const targetInput = fileInputs.at(fileInputs.length - 1);
-        try { targetInput.files = dt.files; targetInput.dispatchEvent(new Event("change", { bubbles: true })); } catch (_err) {}
+    if (!inputAttached) {
+      for (const target of [inputEl, inputEl?.parentElement, document.body].filter(Boolean)) {
+        let dropHandled = false;
+        for (const evtName of ["dragenter", "dragover", "drop"]) {
+          const evt = new DragEvent(evtName, { bubbles: true, cancelable: true, dataTransfer: dt });
+          if (evtName === "drop" && !target.dispatchEvent(evt)) dropHandled = true;
+        }
+        if (dropHandled) break;
       }
     }
     if (autoSubmit) {
       const existing = inputEl ? (inputEl.tagName === "TEXTAREA" ? inputEl.value.trim() : inputEl.textContent.trim()) : "";
       if (!existing) this.insertPrompt(`Export du projet (\x60${filename}\x60) :`, false);
-      this.waitAndSubmit(inputEl, 1100, 5000);
+      this.waitAndSubmit(inputEl, 1800, 8000, filename);
     }
     return true;
   }
@@ -146,7 +192,8 @@ class ChatInjector {
     if (autoSubmit) {
       const minDelay = typeof autoSubmit === "object" ? (autoSubmit.minDelayMs ?? 400) : 400;
       const maxWait = typeof autoSubmit === "object" ? (autoSubmit.maxWaitMs ?? 3500) : 3500;
-      this.waitAndSubmit(inputEl, minDelay, maxWait);
+      const waitFile = typeof autoSubmit === "object" ? (autoSubmit.waitForFile ?? "") : "";
+      this.waitAndSubmit(inputEl, minDelay, maxWait, waitFile);
     }
     return true;
   }
