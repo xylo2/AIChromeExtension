@@ -3,18 +3,15 @@
 import hmac
 import json
 import os
-import re
-import shlex
-import signal
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
 from clipboard_watcher.export_api import ProjectExportRunner
 from clipboard_watcher.file_reader_api import SavedFileReader
 from clipboard_watcher.git_api import GitOperations
+from clipboard_watcher.status_server_http import StatusHttpMixin
 from clipboard_watcher.test_runner_api import LiveTestManager
 
 
@@ -30,7 +27,7 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-class _StatusRequestHandler(BaseHTTPRequestHandler):
+class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
     """Gestionnaire HTTP local pour statut, relecture, tests, export et opérations Git."""
 
     target_dir: str = "."
@@ -43,9 +40,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
     _live_test_state: Dict[str, Any] = _test_mgr._state
 
     def _is_authorized(self) -> bool:
-        if not self.api_token:
-            return True
-        return hmac.compare_digest(self.headers.get("X-Watcher-Token", ""), self.api_token)
+        return True if not self.api_token else hmac.compare_digest(self.headers.get("X-Watcher-Token", ""), self.api_token)
 
     def _drain_unread_body(self, max_bytes: int = 65536) -> None:
         try:
@@ -65,6 +60,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
         return {}
+
     def _is_within_allowed_roots(self, candidate: str, roots: List[str]) -> bool:
         cand_norm: str = os.path.normcase(os.path.realpath(candidate))
         for root in roots:
@@ -115,6 +111,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
 
     def _run_project_export(self) -> Tuple[bool, str, str, int]:
         return self._exporter().run_export()
+
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
@@ -135,178 +132,11 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 if self._is_within_allowed_roots(parent_cand, allowed_roots) and os.path.isfile(parent_cand):
                     return parent_cand
             return None
-        search_dirs = [base_real, os.path.join(base_real, "watch_clipboard")]
-        if parent_real and parent_real != base_real:
-            search_dirs.append(parent_real)
-        for search_dir in search_dirs:
+        for search_dir in [base_real, os.path.join(base_real, "watch_clipboard")] + ([parent_real] if parent_real and parent_real != base_real else []):
             candidate: str = os.path.realpath(os.path.join(search_dir, rel_path))
             if self._is_within_allowed_roots(candidate, allowed_roots) and os.path.isfile(candidate):
                 return candidate
         return None
-    def _send_cors_headers(self) -> None:
-        origin: str = self.headers.get("Origin", "")
-        cors_val: str = self.allowed_origin or (origin if origin.startswith("chrome-extension://") else "null")
-        self.send_header("Access-Control-Allow-Origin", cors_val)
-        self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Watcher-Token")
-        self.send_header("Access-Control-Allow-Private-Network", "true")
-
-    def _send_json(self, status_code: int, data: dict) -> None:
-        payload: bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        try:
-            self.send_response(status_code)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self._send_cors_headers()
-            self.end_headers()
-            self.wfile.write(payload)
-        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
-            return
-
-    def do_OPTIONS(self) -> None:
-        try:
-            self.send_response(204)
-            self._send_cors_headers()
-            self.end_headers()
-        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
-            return
-
-    def do_GET(self) -> None:
-        if not self._is_authorized():
-            self._send_json(401, {"error": "unauthorized"})
-            return
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
-        if parsed.path == "/read-file":
-            ok, filename, content_or_err = self._read_saved_file_from_header(next(iter(params.get("header", [])), ""))
-            self._send_json(200 if ok else 404, {"ok": True, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err})
-            return
-        if parsed.path == "/git-status":
-            ok_g, entries, err_g = self._git_status_entries()
-            self._send_json(200 if ok_g else 400, {"ok": ok_g, "entries": entries, "error": err_g})
-            return
-        if parsed.path == "/test-stream":
-            raw_off: str = next(iter(params.get("offset", ["0"])), "0").strip()
-            self._send_json(200, self._test_mgr.get_stream_snapshot(max(0, int(raw_off)) if raw_off.isdigit() else 0))
-            return
-        if parsed.path not in ("/status", "/health", "/"):
-            self._send_json(404, {"error": "not_found"})
-            return
-        custom_runner: str = next(iter(params.get("test_runner", [])), "")
-        test_script: Optional[str] = self._resolve_test_runner_path(custom_runner)
-        has_tests: bool = bool(test_script and os.path.isfile(test_script))
-        self._send_json(200, {
-            "status": "running", "service": "watch_clipboard", "pid": os.getpid(),
-            "target_dir": os.path.realpath(self.target_dir),
-            "command": " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv]),
-            "has_run_tests_clip": has_tests, "has_exporter": self._resolve_exporter_package_dir() is not None,
-            "has_git": self._find_git_root() is not None,
-            "configured_test_runner": custom_runner or self.default_test_runner,
-            "test_runner_path": test_script if has_tests else None,
-            "last_event": getattr(self.assembler_ref, "last_event", None),
-        })
-
-    def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str, str]:
-        return self._test_mgr.execute_streaming(test_script, self.target_dir)
-
-    def _run_tests_background(self, test_script: str) -> None:
-        try:
-            rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
-            with self._test_lock:
-                was_stopped: bool = bool(self._live_test_state.get("stopped"))
-            if was_stopped:
-                with self._test_lock:
-                    self._live_test_state.update({"running": False, "passed": False, "output": clean_out, "uncovered": "", "error": ""})
-                return
-            has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-            passed: bool = rc == 0 and not has_warnings
-            with self._test_lock:
-                self._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
-        except subprocess.TimeoutExpired:
-            with self._test_lock:
-                self._live_test_state.update({"running": False, "passed": False, "error": "Délai dépassé (180s) pendant les tests."})
-        except Exception as exc:
-            with self._test_lock:
-                was_stopped_exc: bool = bool(self._live_test_state.get("stopped"))
-                self._live_test_state.update({"running": False, "passed": False, "error": "" if was_stopped_exc else str(exc)})
-    def do_POST(self) -> None:
-        if not self._is_authorized():
-            self._drain_unread_body()
-            self._send_json(401, {"ok": False, "error": "unauthorized"})
-            return
-        parsed = urlparse(self.path)
-        if parsed.path == "/shutdown":
-            self._drain_unread_body()
-            self._send_json(200, {"status": "stopping", "pid": os.getpid()})
-            threading.Timer(0.15, lambda: os.kill(os.getpid(), signal.SIGINT)).start()
-            return
-        if parsed.path == "/export-project":
-            self._drain_unread_body()
-            ok, filename, payload_or_err, count = self._run_project_export()
-            self._send_json(200 if ok else 500, {"ok": ok, "filename": filename, "content": payload_or_err, "file_count": count} if ok else {"ok": False, "error": payload_or_err})
-            return
-        if parsed.path == "/git-diff":
-            body_g = self._read_json_body()
-            raw_files = body_g.get("files")
-            selected_files: List[str] = [str(x) for x in raw_files] if isinstance(raw_files, list) else []
-            ok_d, diff_txt, err_d = self._git_diff_selected(selected_files)
-            self._send_json(200 if ok_d else 400, {"ok": True, "filename": "git_changes.diff.txt", "content": diff_txt, "diff": diff_txt, "file_count": len(selected_files)} if ok_d else {"ok": False, "error": err_d})
-            return
-        if parsed.path == "/git-commit":
-            body_c = self._read_json_body()
-            raw_fc = body_c.get("files")
-            files_c: List[str] = [str(x) for x in raw_fc] if isinstance(raw_fc, list) else []
-            ok_c, out_c = self._git_commit_and_push(str(body_c.get("action", "commit")).strip(), str(body_c.get("message", "")), files_c)
-            self._send_json(200 if ok_c else 400, {"ok": ok_c, "output": out_c} if ok_c else {"ok": False, "error": out_c})
-            return
-        if parsed.path == "/git-push":
-            body_p = self._read_json_body()
-            ok_p, out_p = self._git_commit_and_push("push", remote=str(body_p.get("remote", "origin")), branch=str(body_p.get("branch", "")))
-            self._send_json(200 if ok_p else 400, {"ok": ok_p, "output": out_p} if ok_p else {"ok": False, "error": out_p})
-            return
-        if parsed.path == "/run-tests-stop":
-            self._drain_unread_body()
-            ok_st, msg_st = self._test_mgr.stop()
-            self._send_json(200 if ok_st else 409, {"ok": ok_st, "stopped": ok_st, "message": msg_st} if ok_st else {"ok": False, "error": msg_st})
-            return
-        if parsed.path in ("/run-tests", "/run-tests-start"):
-            body_t = self._read_json_body()
-            test_script: Optional[str] = self._resolve_test_runner_path(str(body_t.get("test_runner", "")).strip())
-            if test_script is None:
-                self._send_json(403, {"ok": False, "error": "Chemin du lanceur de tests non autorisé."})
-                return
-            if not os.path.isfile(test_script):
-                self._send_json(404, {"ok": False, "error": f"Lanceur introuvable : {test_script}"})
-                return
-            if not self._test_mgr.try_begin():
-                self._send_json(409, {"ok": False, "error": "Une exécution de tests est déjà en cours."})
-                return
-            if parsed.path == "/run-tests-start":
-                threading.Thread(target=self._run_tests_background, args=(test_script,), daemon=True).start()
-                self._send_json(200, {"ok": True, "started": True})
-                return
-            try:
-                rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
-                has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-                passed: bool = rc == 0 and not has_warnings
-                with self._test_lock:
-                    self._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
-                self._send_json(200, {"ok": True, "passed": passed, "returncode": rc, "output": clean_out, "uncovered": uncovered_out if passed else ""})
-            except subprocess.TimeoutExpired:
-                with self._test_lock:
-                    self._live_test_state.update({"running": False, "passed": False, "error": "Délai dépassé (180s) pendant les tests."})
-                self._send_json(504, {"ok": False, "error": "Délai dépassé (180s) pendant les tests."})
-            except Exception as exc:
-                with self._test_lock:
-                    self._live_test_state.update({"running": False, "passed": False, "error": str(exc)})
-                self._send_json(500, {"ok": False, "error": str(exc)})
-            return
-        self._drain_unread_body()
-        self._send_json(404, {"error": "not_found"})
-
-    def log_message(self, format: str, *args: object) -> None:
-        return
 
 
 class StatusServer:

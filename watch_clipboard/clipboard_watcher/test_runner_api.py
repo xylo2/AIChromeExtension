@@ -1,13 +1,12 @@
 # Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
 
 import os
-import re
-import signal
 import subprocess
 import sys
 import tempfile
 import threading
 from typing import Any, Dict, List, Tuple
+from clipboard_watcher.test_process_utils import read_runner_reports, terminate_process_tree
 
 
 class LiveTestManager:
@@ -43,24 +42,7 @@ class LiveTestManager:
 
     @staticmethod
     def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
-        pid: int = getattr(proc, "pid", 0) or 0
-        if os.name == "nt" and pid > 0:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    capture_output=True, timeout=5, check=False,
-                )
-            except Exception:
-                pass
-        elif pid > 0 and hasattr(os, "killpg"):
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except Exception:
-                pass
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        terminate_process_tree(proc)
 
     def stop(self) -> Tuple[bool, str]:
         with self._lock:
@@ -71,19 +53,14 @@ class LiveTestManager:
         if proc is not None:
             self._terminate_process_tree(proc)
         return True, "Arrêt complet de l'arbre de processus demandé."
+
     def try_begin(self) -> bool:
         with self._lock:
             if self._state["running"]:
                 return False
             self._state.update({
-                "running": True,
-                "lines": [],
-                "passed": None,
-                "output": "",
-                "uncovered": "",
-                "error": "",
-                "proc": None,
-                "stopped": False,
+                "running": True, "lines": [], "passed": None,
+                "output": "", "uncovered": "", "error": "", "proc": None, "stopped": False,
             })
             return True
 
@@ -97,13 +74,9 @@ class LiveTestManager:
             if is_clip_runner:
                 cmd.extend(["--no-clipboard", "--report-file", report_path, "--coverage-file", coverage_path])
             popen_kwargs: Dict[str, Any] = {
-                "cwd": os.path.realpath(target_dir),
-                "env": env,
-                "stdout": subprocess.PIPE,
-                "stderr": subprocess.STDOUT,
-                "text": True,
-                "encoding": "utf-8",
-                "errors": "replace",
+                "cwd": os.path.realpath(target_dir), "env": env,
+                "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+                "text": True, "encoding": "utf-8", "errors": "replace",
             }
             if os.name == "nt":
                 popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -135,13 +108,5 @@ class LiveTestManager:
                     proc.stdout.close()
             if timed_out:
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=180)
-            compact_out: str = "".join(live_lines).strip()
-            if is_clip_runner and os.path.isfile(report_path):
-                with open(report_path, "r", encoding="utf-8", errors="replace") as f_rep:
-                    compact_out = f_rep.read().strip()
-            uncovered_out: str = ""
-            if is_clip_runner and os.path.isfile(coverage_path):
-                with open(coverage_path, "r", encoding="utf-8", errors="replace") as f_cov:
-                    uncovered_out = f_cov.read().strip()
-            clean_out: str = re.sub(r"^\x5bPRESSE-PAPIERS\x5d.*$", "", compact_out, flags=re.MULTILINE).strip()
+            clean_out, uncovered_out = read_runner_reports(is_clip_runner, live_lines, report_path, coverage_path)
             return rc, clean_out, uncovered_out

@@ -2,7 +2,6 @@
 
 import io
 import json
-import os
 from pathlib import Path
 import tempfile
 import time
@@ -25,8 +24,8 @@ class TestStatusServerStreamAndStop(unittest.TestCase):
             def kill(self) -> None:
                 killed.append(True)
 
-        with patch("clipboard_watcher.test_runner_api.os.name", "nt"), patch(
-            "clipboard_watcher.test_runner_api.subprocess.run"
+        with patch("clipboard_watcher.test_process_utils.os.name", "nt"), patch(
+            "clipboard_watcher.test_process_utils.subprocess.run"
         ) as run_mock:
             LiveTestManager._terminate_process_tree(DummyProc())  # type: ignore[arg-type]
             run_mock.assert_called_once()

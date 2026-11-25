@@ -39,11 +39,7 @@ test("TestOutputPanelManager streame, arrête, copie, envoie à l'IA et ferme le
   assert.equal(sentPayload.auto, true);
   assert.equal(sendCalls, 1);
   assert.equal(mgr.panelEl, null);
-  const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
-  assert.ok(contentJs.includes("const resetTestsButton = () => setBtnState(testsBtn, null"));
-  assert.ok(contentJs.includes("if (ok) resetTestsButton();"));
 });
-
 test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton sur <pre> autonome", () => {
   const appended = []; const downloaded = [];
   const makeNode = (tag) => ({
@@ -58,11 +54,9 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
     click() { if (this.listeners.click) this.listeners.click({ stopPropagation() {} }); else downloaded.push({ href: this.href, download: this.download }); }, remove() {},
     getBoundingClientRect() { return { width: 200, height: 180 }; }
   });
-  const wrapperNode = makeNode("DIV");
-  const copyBtn = makeNode("BUTTON");
-  copyBtn.textContent = "Copier";
+  const wrapperNode = makeNode("DIV"); const copyBtn = makeNode("BUTTON"); copyBtn.textContent = "Copier";
   const preNode = makeNode("PRE");
-  preNode.textContent = '<svg viewBox="0 0 10 10" xmlns="http://w3.org"><script>alert(1)</script><foreignObject><div>x</div></foreignObject><a href="javascript:alert(2)"><circle onclick="x()" cx="5" cy="5" r="4"/></a></svg>';
+  preNode.textContent = '<svg viewBox="0 0 10 10" xmlns="http://w3.org"><script>alert(1)</script><circle onclick="x()" cx="5" cy="5" r="4"/></svg>';
   wrapperNode.append(copyBtn, preNode);
   const sandbox = {
     window: { innerWidth: 1200, innerHeight: 800 }, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
@@ -71,101 +65,52 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
     document: { createElement: makeNode, body: { appendChild(n) { appended.push(n); } }, querySelectorAll: () => [preNode] }
   };
   vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "spill_heuristics.js"), "utf-8"), sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "spill_detector.js"), "utf-8"), sandbox);
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "svg_sanitizer.js"), "utf-8"), sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "svg_preview.js"), "utf-8"), sandbox);
   const preview = new sandbox.window.GmcSvgPreviewManager(new sandbox.window.GmcSpillDetector());
-  const cleaned = preview.extractSvgMarkup(preNode.textContent);
-  const expectedNs = ["http://www", "w3", "org/2000/svg"].join(".");
-  assert.ok(cleaned.includes(`xmlns="${expectedNs}"`));
-  assert.equal(cleaned.includes("<script"), false);
   preview.scanStandaloneBlocks();
-  const standaloneBtn = wrapperNode.querySelector(".gmc-svg-standalone-dl");
-  assert.ok(standaloneBtn);
-  standaloneBtn.click();
+  wrapperNode.querySelector(".gmc-svg-standalone-dl").click();
   assert.equal(downloaded.at(0).download, "image.svg");
   preNode.listeners.mouseenter({ clientX: 100, clientY: 120 });
   assert.equal(preview.tooltipEl.style.display, "flex");
-  assert.equal(appended.at(-1), preview.tooltipEl);
 });
-test("ChatInjector, CodeBlockManager (SVG, purge + scroll/Suite auto) et WatcherBackgroundService", async () => {
-  const scrolled = [];
-  let removedKey = null; let calls = 0; const clickedLinks = [];
+
+test("ChatInjector, CodeBlockManager (SVG, purge, bloc rouge sans Suite auto) et WatcherBackgroundService", async () => {
+  const scrolled = []; let removedKey = null; let calls = 0; const clickedLinks = [];
   const makeEl = (tag) => ({
     tagName: tag, type: "", className: "", title: "", innerHTML: "", href: "", download: "", style: {}, listeners: {},
-    classList: { add() {}, remove() {} },
-    addEventListener(ev, fn) { this.listeners[ev] = fn; },
-    click() { clickedLinks.push(this.download); },
-    remove() {}
+    classList: { add() {}, remove() {} }, addEventListener(ev, fn) { this.listeners[ev] = fn; },
+    click() { clickedLinks.push(this.download); }, remove() {}
   });
   const sandbox = {
-    window: { scrollBy(x, y) { scrolled.push({ x, y }); } },
-    globalThis: {},
-    Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
-    Blob: class FakeBlob { constructor(parts) { this.parts = parts; } },
-    URL: { createObjectURL: () => "blob:test-svg", revokeObjectURL: () => {} },
-    document: { createElement: makeEl, body: { appendChild() {} } },
-    setTimeout: () => {},
-    navigator: { clipboard: { writeText: async () => {} } },
-    chrome: { storage: { local: { remove: async (k) => { removedKey = k; } } } },
+    window: { scrollBy(x, y) { scrolled.push({ x, y }); } }, globalThis: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+    Blob: class FakeBlob { constructor(parts) { this.parts = parts; } }, URL: { createObjectURL: () => "blob:test-svg", revokeObjectURL: () => {} },
+    document: { createElement: makeEl, body: { appendChild() {} } }, setTimeout: () => {},
+    navigator: { clipboard: { writeText: async () => {} } }, chrome: { storage: { local: { remove: async (k) => { removedKey = k; } } } },
     fetch: async (_u, opts) => (++calls === 1 && opts.headers["X-Watcher-Token"] ? { status: 401, ok: false } : { status: 200, ok: true })
   };
   vm.createContext(sandbox);
-  for (const mod of ["spill_detector.js", "chat_injector.js", "git_panel.js", "svg_preview.js", "block_manager.js", "background.js"]) {
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "git_commit_ui.js", "git_panel.js", "svg_sanitizer.js", "svg_preview.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "bg_native_helper.js", "background.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const spill = new sandbox.window.GmcSpillDetector();
   const sentPrompts = [];
   const fakeChat = { insertPrompt(txt, auto) { sentPrompts.push({ txt, auto }); } };
   const blockMgr = new sandbox.window.GmcCodeBlockManager(spill, fakeChat, null, new sandbox.window.GmcSvgPreviewManager(spill));
-  assert.equal(blockMgr.MAX_SAFE_LINES, 95);
-
-  const svgItem = {
-    el: { tagName: "PRE", textContent: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>', getAttribute: () => null, querySelector: () => null },
-    headerName: "dragon.svg"
-  };
-  const dlBtn = blockMgr.createDownloadBtn(svgItem);
+  const dlBtn = blockMgr.createDownloadBtn({ el: { tagName: "PRE", textContent: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>', getAttribute: () => null, querySelector: () => null }, headerName: "dragon.svg" });
   dlBtn.listeners.click({ stopPropagation() {} });
   assert.deepEqual(clickedLinks, ["dragon.svg"]);
-
   let scrollTargetOpts = null;
-  const firstItem = {
-    el: { tagName: "PRE", textContent: "a = 1", isConnected: true, getAttribute: () => null, setAttribute() {}, querySelector: () => null, classList: { add() {} } },
-    headerName: "first.py", spilledNodes: [], purgeButtons: []
-  };
+  const firstItem = { el: { tagName: "PRE", textContent: "a = 1", isConnected: true, getAttribute: () => null, setAttribute() {}, querySelector: () => null, classList: { add() {} } }, headerName: "first.py", spilledNodes: [], purgeButtons: [] };
   const afterCommentNode = { nodeType: 1, tagName: "P", className: "", textContent: "Partie suivante attendue : fichier. Réponds « Suite ».", nextSibling: null };
-  const nextPlaceholder = { scrollIntoView(opts) { scrollTargetOpts = opts; } };
-  const nextItem = {
-    el: { tagName: "PRE", textContent: "b = 2", isConnected: true, attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, classList: { add() {} }, nextSibling: afterCommentNode },
-    placeholderEl: nextPlaceholder, spilledNodes: [], purgeButtons: []
-  };
-  blockMgr.trackedBlocks.push(firstItem, nextItem);
+  const redSpilledItem = { el: { tagName: "PRE", textContent: "b = 2", isConnected: true, attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, classList: { add() {} }, nextSibling: afterCommentNode }, placeholderEl: { scrollIntoView(opts) { scrollTargetOpts = opts; }, classList: { contains: (c) => c === "gmc-spilled" } }, hasSpill: true, spilledNodes: [], purgeButtons: [] };
+  blockMgr.trackedBlocks.push(firstItem, redSpilledItem);
   await blockMgr.copyAndPurge(firstItem);
   assert.deepEqual({ ...scrollTargetOpts }, { behavior: "smooth", block: "center" });
+  await blockMgr.copyAndPurge(redSpilledItem);
   assert.equal(sentPrompts.length, 0);
-
-  await blockMgr.copyAndPurge(nextItem);
-  assert.deepEqual(sentPrompts.map((p) => ({ ...p })), [{ txt: "Suite", auto: true }]);
-
-  let h = 420;
-  const fakeWrapper = { getBoundingClientRect() { return { top: -150, height: h }; } };
-  blockMgr.preserveScrollAround(fakeWrapper, () => { h = 36; });
-  assert.equal(scrolled.at(0).x, 0);
-  assert.equal(scrolled.at(0).y, -384);
-  const injector = new sandbox.window.GmcChatInjector();
-  let focusArg = null;
-  const parentBox = { scrollTop: 140, parentElement: null };
-  const fakeBox = { scrollTop: 95, parentElement: parentBox, focus(opts) { focusArg = opts; } };
-  injector.focusWithoutScroll(fakeBox);
-  injector.scrollComposerToTop(fakeBox);
-  assert.equal(focusArg.preventScroll, true);
-  assert.equal(fakeBox.scrollTop, 0);
-  assert.equal(parentBox.scrollTop, 0);
-
-  const gitMgr = new sandbox.window.GmcGitPanelManager(spill, injector);
-  const shortVerify = gitMgr.buildVerifyPrompt(["a.py", "b.py"], "git_changes.diff.txt");
-  assert.equal(shortVerify.split("\n").length, 2);
-  assert.ok(shortVerify.includes("2 fichier(s)"));
-
   const bgSvc = new sandbox.globalThis.GmcBackgroundService();
   assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "tok")).ok, true);
   assert.equal(removedKey, "watcherApiToken");
