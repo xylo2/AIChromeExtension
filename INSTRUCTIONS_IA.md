@@ -1,16 +1,21 @@
-# Instructions de génération de code (ChromeAI & `watch_clipboard`)
+# Instructions de génération de code pour le projet `tools`
 
-Lorsque tu génères ou modifies des fichiers dans `tools` (`ChromeAI`, `watch_clipboard`, `export`), applique **impérativement** ces règles pour garantir un assemblage sans troncature ni erreur de parseur.
+Ces règles garantissent une récupération fiable par le presse-papiers (`watch_clipboard`), l'extension `ChromeAI` et l'interface web Google AI (sans débordement hors des blocs `<pre>` ni perte d'indentation).
 
-## 1. Règles critiques d'intégrité (Priorité maximale)
+## 1. Format obligatoire des blocs de code
+- Utilise **uniquement** des blocs de code clôturés par des triples backticks (` ```langage ... ``` `).
+- La **première ligne à l'intérieur** de chaque bloc doit impérativement être l'une de ces balises :
+  - Fichier complet : `=== FILE: chemin/relatif/fichier.ext ===`
+  - Fichier découpé : `=== FILE_PART: chemin/relatif/fichier.ext | N/TOTAL ===`
+- Clôture chaque livraison de fichiers par la ligne `=== END_FILE ===` hors bloc de code.
+- **Interdiction absolue** d'utiliser des ellipses (`...`, `// reste inchangé`, `# etc.`) : chaque bloc `FILE` ou `FILE_PART` doit contenir le code complet et exécutable de sa section.
 
-* **Format des blocs** : place la balise en toute première ligne **à l'intérieur** du bloc de code, uniquement avec des chemins relatifs commençant par `tools/` (sans `/` initial ni `..`).
-  * Fichier complet (`<= 90` lignes) : `=== FILE: tools/chemin/relatif/fichier.py ===`
-  * Fichier long (`> 90` lignes) : `=== FILE_PART: tools/chemin/relatif/fichier.py | 1/N ===`
-* **Stabilité de `N` & découpage** : calcule `N` avant d'écrire `1/N` et ne le modifie jamais en cours de livraison. Vise 70 à 90 lignes par bloc (`<= 95` caractères par ligne) en coupant proprement entre deux fonctions ou méthodes. Maximum **2 à 3 blocs `FILE_PART`** par réponse.
-* **Code 100 % complet (Zéro ellipse)** : écris toujours l'intégralité du bloc. Sont strictement interdits : `# ... reste du code inchangé ...`, `// TODO`, `...`, ou de simples *diffs*.
-* **Séparateur obligatoire après le code & signalement de suite** : si tu ajoutes une explication ou une action manuelle après les blocs de code, place **impérativement** la balise `=== END_FILE ===` sur une ligne seule avant ton texte afin de délimiter la fin du code. Si d'autres parties restent à livrer, annonce-le en une ligne avant le premier bloc (`Livraison en cours : tape « Suite » pour recevoir les blocs restants.`).
+## 2. Prévention stricte des débordements (taille et volume)
+- **Limite stricte de 75 lignes par bloc** : ne dépasse jamais **75 lignes** dans un seul bloc de code (vise 60–70 lignes pour garder une marge de sécurité face au seuil de rupture de l'interface web).
+- **Maximum 2 blocs de code par réponse** : si une tâche nécessite plus de 2 blocs, livre les 2 premiers puis indique **uniquement en fin de réponse** la partie suivante attendue avant d'attendre que l'utilisateur réponde « Suite » (sans répéter cette annonce deux fois).
+- **Fichiers courts et modulaires** : privilégie des fichiers sources et des fichiers de tests de **moins de 100 lignes** afin d'éviter le recours à `FILE_PART`.
 
-### Exemple de sortie attendue
-Livraison en cours : tape « Suite » pour recevoir les blocs restants.
-~~~python
+## 3. Contraintes techniques du dépôt
+- **Dépendances externes interdites** : bibliothèque standard Python et JavaScript natif (Manifest V3) uniquement.
+- **Qualité des tests** : toute nouvelle fonctionnalité ou correction doit être accompagnée de ses tests unitaires (`unittest` côté Python, `node:test` côté `ChromeAI`) sans aucun avertissement (`ResourceWarning`, `DeprecationWarning`, etc.).
+- **Sécurité** : n'écris jamais de triples backticks littéraux dans une chaîne JavaScript (utilise `\x60\x60\x60`) ni d'URL complètes susceptibles d'être tronquées par le rendu web.

@@ -8,11 +8,14 @@ import shlex
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
+from clipboard_watcher.export_api import ProjectExportRunner
+from clipboard_watcher.file_reader_api import SavedFileReader
+from clipboard_watcher.git_api import GitOperations
+from clipboard_watcher.test_runner_api import LiveTestManager
 
 
 class _QuietThreadingHTTPServer(ThreadingHTTPServer):
@@ -21,8 +24,8 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads: bool = True
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        exc = sys.exc_info()
-        if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+        exc_val = sys.exc_info()[1]
+        if isinstance(exc_val, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
             return
         super().handle_error(request, client_address)
 
@@ -35,21 +38,14 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
     api_token: str = ""
     allowed_origin: str = ""
     assembler_ref: Any = None
-    _test_lock: threading.Lock = threading.Lock()
-    _live_test_state: Dict[str, Any] = {
-        "running": False,
-        "lines": [],
-        "passed": None,
-        "output": "",
-        "uncovered": "",
-        "error": "",
-    }
+    _test_mgr: LiveTestManager = LiveTestManager()
+    _test_lock: threading.Lock = _test_mgr._lock
+    _live_test_state: Dict[str, Any] = _test_mgr._state
 
     def _is_authorized(self) -> bool:
         if not self.api_token:
             return True
-        provided: str = self.headers.get("X-Watcher-Token", "")
-        return hmac.compare_digest(provided, self.api_token)
+        return hmac.compare_digest(self.headers.get("X-Watcher-Token", ""), self.api_token)
 
     def _drain_unread_body(self, max_bytes: int = 65536) -> None:
         try:
@@ -69,7 +65,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
         return {}
-
     def _is_within_allowed_roots(self, candidate: str, roots: List[str]) -> bool:
         cand_norm: str = os.path.normcase(os.path.realpath(candidate))
         for root in roots:
@@ -81,249 +76,45 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 continue
         return False
 
+    def _file_reader(self) -> SavedFileReader:
+        return SavedFileReader(self.target_dir, self.assembler_ref, self._is_within_allowed_roots)
+
     def _normalize_header_rel_path(self, raw_rel: str, base_real: str) -> str:
-        rel_norm: str = raw_rel.replace("\\", "/")
-        if self.assembler_ref is not None and hasattr(self.assembler_ref, "_strip_redundant_base_prefix"):
-            return str(self.assembler_ref._strip_redundant_base_prefix(rel_norm))
-        base_name: str = os.path.basename(base_real)
-        prefix: str = f"{base_name}/"
-        if base_name and rel_norm.lower().startswith(prefix.lower()):
-            stripped: str = rel_norm[len(prefix):]
-            if stripped:
-                return stripped
-        return rel_norm
+        return self._file_reader().normalize_rel_path(raw_rel, base_real)
+
     def _read_saved_file_from_header(self, header: str) -> Tuple[bool, str, str]:
-        clean_header: str = header.strip()
-        if not clean_header:
-            return False, "", "En-tête de fichier vide."
-        base_real: str = os.path.realpath(self.target_dir)
-        temp_dir_name: str = ".watch_clipboard"
-        encoding: str = "utf-8"
-        if self.assembler_ref is not None:
-            base_real = os.path.realpath(getattr(self.assembler_ref, "base_dir", base_real))
-            cfg = getattr(self.assembler_ref, "config", None)
-            if cfg is not None:
-                temp_dir_name = getattr(cfg, "temp_dir_name", temp_dir_name)
-                encoding = getattr(cfg, "encoding", encoding)
-        temp_real: str = os.path.realpath(os.path.join(base_real, temp_dir_name))
-        if "|" in clean_header:
-            rel_part, part_spec = [x.strip() for x in clean_header.split("|", 1)]
-            rel_norm: str = self._normalize_header_rel_path(rel_part, base_real)
-            if not rel_norm or rel_norm.startswith("/") or os.path.isabs(rel_norm):
-                return False, "", "Chemin relatif non autorisé."
-            num_str: str = next(iter(part_spec.split("/", 1)), "").strip()
-            if not num_str.isdigit() or int(num_str) < 1:
-                return False, "", "Numéro de partie invalide."
-            part_num: int = int(num_str)
-            candidate: str = os.path.realpath(os.path.join(temp_real, f"{rel_norm}.part{part_num}"))
-            if not self._is_within_allowed_roots(candidate, [temp_real]):
-                return False, "", "Chemin cache hors périmètre autorisé."
-            attach_name: str = f"{os.path.basename(rel_norm)}.part{part_num}.txt"
-        else:
-            rel_norm = self._normalize_header_rel_path(clean_header, base_real)
-            if not rel_norm or rel_norm.startswith("/") or os.path.isabs(rel_norm):
-                return False, "", "Chemin relatif non autorisé."
-            candidate = os.path.realpath(os.path.join(base_real, rel_norm))
-            if not self._is_within_allowed_roots(candidate, [base_real]):
-                return False, "", "Chemin cible hors périmètre autorisé."
-            attach_name = os.path.basename(rel_norm)
-        if not os.path.isfile(candidate):
-            return False, "", f"Fichier introuvable sur disque : {candidate}"
-        with open(candidate, "r", encoding=encoding, errors="replace") as f_in:
-            return True, attach_name, f_in.read()
+        return self._file_reader().read_from_header(header)
+
+    def _git_ops(self) -> GitOperations:
+        return GitOperations(self.target_dir, self._is_within_allowed_roots, self._find_git_root, subprocess.run)
 
     def _find_git_root(self) -> Optional[str]:
-        base_real: str = os.path.realpath(self.target_dir)
-        try:
-            proc = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
-                cwd=base_real, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
-            )
-            if proc.returncode == 0 and proc.stdout.strip():
-                return os.path.realpath(proc.stdout.strip())
-        except Exception:
-            pass
-        return None
+        return GitOperations(self.target_dir, self._is_within_allowed_roots, None, subprocess.run).find_git_root()
 
     def _git_status_entries(self) -> Tuple[bool, List[Dict[str, str]], str]:
-        git_root: Optional[str] = self._find_git_root()
-        if not git_root:
-            return False, [], "Aucun dépôt Git détecté."
-        base_real: str = os.path.realpath(self.target_dir)
-        cmd: List[str] = ["git", "-c", "core.quotePath=false", "status", "--porcelain", "-uall"]
-        if base_real != git_root and self._is_within_allowed_roots(base_real, [git_root]):
-            rel_scope: str = os.path.relpath(base_real, git_root).replace("\\", "/")
-            cmd.extend(["--", rel_scope])
-        proc = subprocess.run(cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
-        if proc.returncode != 0:
-            return False, [], (proc.stderr or proc.stdout or "Erreur git status").strip()
-        entries: List[Dict[str, str]] = []
-        for raw_line in proc.stdout.splitlines():
-            if len(raw_line) < 4:
-                continue
-            code: str = raw_line[:2].strip() or "M"
-            rel_path: str = raw_line[3:].strip().strip('"')
-            if " -> " in rel_path:
-                _, rel_path = rel_path.split(" -> ", 1)
-            if rel_path:
-                entries.append({"status": code, "path": rel_path.replace("\\", "/")})
-        return True, entries, ""
+        return self._git_ops().status_entries()
+
     def _git_diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
-        git_root: Optional[str] = self._find_git_root()
-        if not git_root:
-            return False, "", "Aucun dépôt Git détecté."
-        clean_files: List[str] = []
-        for item in files:
-            rel: str = str(item).strip().replace("\\", "/")
-            if not rel or rel.startswith("/") or os.path.isabs(rel):
-                continue
-            cand: str = os.path.realpath(os.path.join(git_root, rel))
-            if self._is_within_allowed_roots(cand, [git_root]):
-                clean_files.append(rel)
-        if not clean_files:
-            return False, "", "Aucun fichier valide sélectionné."
-        chunks: List[str] = []
-        st_proc = subprocess.run(["git", "status", "--short", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
-        if st_proc.stdout.strip():
-            chunks.append("=== GIT STATUS ===\n" + st_proc.stdout.strip())
-        has_head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=git_root, capture_output=True, check=False).returncode == 0
-        diff_cmd: List[str] = ["git", "diff", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "--cached", "--", *clean_files]
-        diff_proc = subprocess.run(diff_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-        if diff_proc.stdout.strip():
-            chunks.append("=== GIT DIFF ===\n" + diff_proc.stdout.strip())
-        if not has_head:
-            wt_proc = subprocess.run(["git", "diff", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-            if wt_proc.stdout.strip():
-                chunks.append("=== GIT DIFF (WORKING TREE) ===\n" + wt_proc.stdout.strip())
-        for rel in clean_files:
-            full_p: str = os.path.join(git_root, rel)
-            ut_proc = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "--", rel], cwd=git_root, capture_output=True, text=True, check=False)
-            if ut_proc.stdout.strip() and os.path.isfile(full_p):
-                with open(full_p, "r", encoding="utf-8", errors="replace") as f_ut:
-                    chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + f_ut.read()[:12000])
-        combined: str = "\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."
-        return True, combined, ""
+        return self._git_ops().diff_selected(files)
 
     @staticmethod
     def _format_git_push_error(raw_output: str) -> str:
-        lines: List[str] = [ln.strip() for ln in raw_output.splitlines() if ln.strip()]
-        if not lines:
-            return "Échec de git push (sortie vide)."
-        priority_prefixes: Tuple[str, ...] = ("fatal:", "error:", "! [", "remote: error", "permission denied")
-        important: List[str] = [ln for ln in lines if any(ln.lower().startswith(pref) for pref in priority_prefixes)]
-        summary: str = " | ".join(important[:2]) if important else lines[-1]
-        low_all: str = raw_output.lower()
-        if "terminal prompts disabled" in low_all or "could not read username" in low_all:
-            summary += "\nConseil : exécutez `git config --global credential.helper manager` dans un terminal."
-        return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}" if len(lines) > 1 else summary
+        return GitOperations.format_push_error(raw_output)
 
     def _git_commit_and_push(self, action: str, message: str = "", files: Optional[List[str]] = None, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
-        git_root: Optional[str] = self._find_git_root()
-        if not git_root:
-            return False, "Aucun dépôt Git détecté."
-        env: Dict[str, str] = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        if action == "commit":
-            clean_msg: str = message.strip()
-            if not clean_msg:
-                return False, "Message de commit vide."
-            safe_files: List[str] = [
-                str(item).strip().replace("\\", "/")
-                for item in (files or [])
-                if str(item).strip() and not os.path.isabs(str(item).strip())
-                and self._is_within_allowed_roots(os.path.realpath(os.path.join(git_root, str(item).strip())), [git_root])
-            ]
-            if safe_files:
-                subprocess.run(["git", "reset", "-q"], cwd=git_root, env=env, capture_output=True, timeout=15, check=False)
-                add_cmd: List[str] = ["git", "add", "-A", "--", *safe_files]
-            else:
-                add_cmd = ["git", "add", "-A"]
-            add_proc = subprocess.run(add_cmd, cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-            if add_proc.returncode != 0:
-                return False, (add_proc.stderr or add_proc.stdout or "Échec de git add.").strip()
-            proc = subprocess.run(["git", "commit", "-m", clean_msg], cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25, check=False)
-            out: str = (proc.stdout or proc.stderr or "").strip()
-            return (True, out) if proc.returncode == 0 else (False, out or "Échec de git commit.")
-        if action == "push":
-            clean_remote: str = (remote or "origin").strip() or "origin"
-            clean_branch: str = (branch or "").strip()
-            ref_re = re.compile(r"^[A-Za-z0-9._/-]+$")
-            if not ref_re.match(clean_remote) or clean_remote.startswith("-") or (clean_branch and (not ref_re.match(clean_branch) or clean_branch.startswith("-"))):
-                return False, "Paramètres remote ou branch invalides."
-            target_ref: str = clean_branch or "HEAD"
-            if os.name == "nt" and not env.get("HOME") and env.get("USERPROFILE"):
-                env["HOME"] = env["USERPROFILE"]
-            p_pu = subprocess.run(["git", "push", "-u", clean_remote, target_ref], cwd=git_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=55, check=False)
-            out_p: str = ((p_pu.stderr or "") + "\n" + (p_pu.stdout or "")).strip()
-            return (True, out_p or f"Push effectué vers {clean_remote}/{target_ref}.") if p_pu.returncode == 0 else (False, self._format_git_push_error(out_p))
-        return False, "Action Git inconnue."
+        return self._git_ops().commit_and_push(action, message, files, remote, branch)
+
+    def _exporter(self) -> ProjectExportRunner:
+        return ProjectExportRunner(self.target_dir, subprocess.run)
+
     def _resolve_exporter_package_dir(self) -> Optional[str]:
-        base_real: str = os.path.realpath(self.target_dir)
-        parent_real: str = os.path.dirname(base_real)
-        watcher_dir: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        watcher_parent: str = os.path.dirname(watcher_dir)
-        candidates = (
-            os.path.join(base_real, "export"),
-            os.path.join(base_real, "tools", "export"),
-            os.path.join(parent_real, "export"),
-            os.path.join(parent_real, "tools", "export"),
-            os.path.join(watcher_parent, "export"),
-        )
-        for cand in candidates:
-            if os.path.isdir(os.path.join(cand, "project_exporter")):
-                return cand
-        return None
+        return self._exporter().resolve_exporter_dir()
 
     def _compute_export_project_label(self, target_real: str, exporter_root: str) -> str:
-        raw_norm: str = self.target_dir.strip().replace("\\", "/").strip("/")
-        if raw_norm and raw_norm != "." and not os.path.isabs(raw_norm):
-            parts: List[str] = [p for p in raw_norm.split("/") if p and p != "."]
-            if len(parts) >= 2 and ".." not in parts:
-                return "/".join(parts)
-        exp_parent: str = os.path.dirname(os.path.realpath(exporter_root))
-        workspace_root: str = (
-            os.path.dirname(exp_parent) if os.path.basename(exp_parent).lower() == "tools" else exp_parent
-        )
-        try:
-            if os.path.commonpath([workspace_root, target_real]) == workspace_root and target_real != workspace_root:
-                rel_label: str = os.path.relpath(target_real, workspace_root).replace("\\", "/")
-                if rel_label and not rel_label.startswith(".."):
-                    return rel_label
-        except ValueError:
-            pass
-        return os.path.basename(target_real) or "project"
+        return self._exporter().compute_project_label(target_real, exporter_root)
 
     def _run_project_export(self) -> Tuple[bool, str, str, int]:
-        exporter_root: Optional[str] = self._resolve_exporter_package_dir()
-        if not exporter_root:
-            return False, "", "Package project_exporter introuvable dans le workspace.", 0
-        target_real: str = os.path.realpath(self.target_dir)
-        project_label: str = self._compute_export_project_label(target_real, exporter_root)
-        with tempfile.TemporaryDirectory(prefix="watch_clip_export_") as tmp_dir:
-            code: str = (
-                "import logging, sys; from pathlib import Path; "
-                "from project_exporter.config import ExporterConfig; "
-                "from project_exporter.exporter import ProjectExporter; "
-                "logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler()); "
-                "_, exp_s, target_s, out_s, proj_label = sys.argv; "
-                "exp_root, target, out_dir = Path(exp_s), Path(target_s), Path(out_s); "
-                "cfg = ExporterConfig(exp_root / 'config.ini', logger); "
-                "fname = cfg.build_output_filename(proj_label); out_file = out_dir / fname; "
-                "cnt = ProjectExporter(target, cfg, out_file, exp_root / 'export_project.py', logger).export(); "
-                "print(f'{fname}|{cnt}')"
-            )
-            env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONPATH": exporter_root}
-            proc = subprocess.run(
-                [sys.executable, "-c", code, exporter_root, target_real, tmp_dir, project_label],
-                cwd=target_real, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
-            )
-            if proc.returncode != 0:
-                return False, "", (proc.stderr or proc.stdout or "Erreur export").strip(), 0
-            fname_out, cnt_str = (proc.stdout or "").strip().splitlines()[-1].split("|", 1)
-            out_path: str = os.path.join(tmp_dir, fname_out)
-            if not os.path.isfile(out_path):
-                return False, "", "Fichier d'export non généré.", 0
-            with open(out_path, "r", encoding="utf-8", errors="replace") as f_out:
-                return True, fname_out, f_out.read(), int(cnt_str)
+        return self._exporter().run_export()
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
@@ -352,7 +143,6 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if self._is_within_allowed_roots(candidate, allowed_roots) and os.path.isfile(candidate):
                 return candidate
         return None
-
     def _send_cors_headers(self) -> None:
         origin: str = self.headers.get("Origin", "")
         cors_val: str = self.allowed_origin or (origin if origin.startswith("chrome-extension://") else "null")
@@ -390,8 +180,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/read-file":
             ok, filename, content_or_err = self._read_saved_file_from_header(next(iter(params.get("header", [])), ""))
-            res_read = {"ok": True, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err}
-            self._send_json(200 if ok else 404, res_read)
+            self._send_json(200 if ok else 404, {"ok": True, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err})
             return
         if parsed.path == "/git-status":
             ok_g, entries, err_g = self._git_status_entries()
@@ -399,19 +188,7 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/test-stream":
             raw_off: str = next(iter(params.get("offset", ["0"])), "0").strip()
-            offset: int = max(0, int(raw_off)) if raw_off.isdigit() else 0
-            with self._test_lock:
-                lines: List[str] = list(self._live_test_state["lines"])
-                self._send_json(200, {
-                    "ok": True,
-                    "running": self._live_test_state["running"],
-                    "offset": len(lines),
-                    "chunk": "".join(lines[offset:]),
-                    "passed": self._live_test_state["passed"],
-                    "output": self._live_test_state["output"],
-                    "uncovered": self._live_test_state["uncovered"],
-                    "error": self._live_test_state["error"],
-                })
+            self._send_json(200, self._test_mgr.get_stream_snapshot(max(0, int(raw_off)) if raw_off.isdigit() else 0))
             return
         if parsed.path not in ("/status", "/health", "/"):
             self._send_json(404, {"error": "not_found"})
@@ -420,68 +197,28 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
         test_script: Optional[str] = self._resolve_test_runner_path(custom_runner)
         has_tests: bool = bool(test_script and os.path.isfile(test_script))
         self._send_json(200, {
-            "status": "running",
-            "service": "watch_clipboard",
-            "pid": os.getpid(),
+            "status": "running", "service": "watch_clipboard", "pid": os.getpid(),
             "target_dir": os.path.realpath(self.target_dir),
             "command": " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv]),
-            "has_run_tests_clip": has_tests,
-            "has_exporter": self._resolve_exporter_package_dir() is not None,
+            "has_run_tests_clip": has_tests, "has_exporter": self._resolve_exporter_package_dir() is not None,
             "has_git": self._find_git_root() is not None,
             "configured_test_runner": custom_runner or self.default_test_runner,
             "test_runner_path": test_script if has_tests else None,
             "last_event": getattr(self.assembler_ref, "last_event", None),
         })
+
     def _execute_tests_streaming(self, test_script: str) -> Tuple[int, str, str]:
-        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
-        is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
-        with tempfile.TemporaryDirectory(prefix="watch_clip_tests_") as tmp_dir:
-            report_path: str = os.path.join(tmp_dir, "compact_report.txt")
-            coverage_path: str = os.path.join(tmp_dir, "coverage_report.txt")
-            cmd: List[str] = [sys.executable, "-u", test_script]
-            if is_clip_runner:
-                cmd.extend(["--no-clipboard", "--report-file", report_path, "--coverage-file", coverage_path])
-            proc = subprocess.Popen(
-                cmd, cwd=os.path.realpath(self.target_dir), env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-            )
-            timed_out: List[bool] = []
-            watchdog = threading.Timer(180.0, lambda: (timed_out.append(True), proc.kill()))
-            watchdog.daemon = True
-            watchdog.start()
-            live_lines: List[str] = []
-            try:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    live_lines.append(line)
-                    with self._test_lock:
-                        self._live_test_state["lines"].append(line)
-                rc: int = proc.wait(timeout=10)
-            finally:
-                watchdog.cancel()
-                if proc.stdout is not None:
-                    proc.stdout.close()
-            if timed_out:
-                raise subprocess.TimeoutExpired(cmd=cmd, timeout=180)
-            compact_out: str = (
-                open(report_path, "r", encoding="utf-8", errors="replace").read().strip()
-                if (is_clip_runner and os.path.isfile(report_path))
-                else "".join(live_lines).strip()
-            )
-            uncovered_out: str = (
-                open(coverage_path, "r", encoding="utf-8", errors="replace").read().strip()
-                if (is_clip_runner and os.path.isfile(coverage_path))
-                else ""
-            )
-            clip_prefix: str = r"^\x5bPRESSE-PAPIERS\x5d.*$"
-            clean_out: str = re.sub(clip_prefix, "", compact_out, flags=re.MULTILINE).strip()
-            return rc, clean_out, uncovered_out
+        return self._test_mgr.execute_streaming(test_script, self.target_dir)
 
     def _run_tests_background(self, test_script: str) -> None:
         try:
             rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
+            with self._test_lock:
+                was_stopped: bool = bool(self._live_test_state.get("stopped"))
+            if was_stopped:
+                with self._test_lock:
+                    self._live_test_state.update({"running": False, "passed": False, "output": clean_out, "uncovered": "", "error": ""})
+                return
             has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
             passed: bool = rc == 0 and not has_warnings
             with self._test_lock:
@@ -491,8 +228,8 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
                 self._live_test_state.update({"running": False, "passed": False, "error": "Délai dépassé (180s) pendant les tests."})
         except Exception as exc:
             with self._test_lock:
-                self._live_test_state.update({"running": False, "passed": False, "error": str(exc)})
-
+                was_stopped_exc: bool = bool(self._live_test_state.get("stopped"))
+                self._live_test_state.update({"running": False, "passed": False, "error": "" if was_stopped_exc else str(exc)})
     def do_POST(self) -> None:
         if not self._is_authorized():
             self._drain_unread_body()
@@ -528,6 +265,11 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             ok_p, out_p = self._git_commit_and_push("push", remote=str(body_p.get("remote", "origin")), branch=str(body_p.get("branch", "")))
             self._send_json(200 if ok_p else 400, {"ok": ok_p, "output": out_p} if ok_p else {"ok": False, "error": out_p})
             return
+        if parsed.path == "/run-tests-stop":
+            self._drain_unread_body()
+            ok_st, msg_st = self._test_mgr.stop()
+            self._send_json(200 if ok_st else 409, {"ok": ok_st, "stopped": ok_st, "message": msg_st} if ok_st else {"ok": False, "error": msg_st})
+            return
         if parsed.path in ("/run-tests", "/run-tests-start"):
             body_t = self._read_json_body()
             test_script: Optional[str] = self._resolve_test_runner_path(str(body_t.get("test_runner", "")).strip())
@@ -537,11 +279,9 @@ class _StatusRequestHandler(BaseHTTPRequestHandler):
             if not os.path.isfile(test_script):
                 self._send_json(404, {"ok": False, "error": f"Lanceur introuvable : {test_script}"})
                 return
-            with self._test_lock:
-                if self._live_test_state["running"]:
-                    self._send_json(409, {"ok": False, "error": "Une exécution de tests est déjà en cours."})
-                    return
-                self._live_test_state.update({"running": True, "lines": [], "passed": None, "output": "", "uncovered": "", "error": ""})
+            if not self._test_mgr.try_begin():
+                self._send_json(409, {"ok": False, "error": "Une exécution de tests est déjà en cours."})
+                return
             if parsed.path == "/run-tests-start":
                 threading.Thread(target=self._run_tests_background, args=(test_script,), daemon=True).start()
                 self._send_json(200, {"ok": True, "started": True})

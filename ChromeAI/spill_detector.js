@@ -55,7 +55,7 @@ class SpillDetector {
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
     if (node.tagName === "BR") return "\n";
     let inner = "";
-    for (const child of node.childNodes) inner += this.extractFormattedText(child);
+    for (const child of node.childNodes || []) inner += this.extractFormattedText(child);
     return /^(DIV|P|LI|PRE|BLOCKQUOTE|TR)$/.test(node.tagName) ? `${inner}\n` : inner;
   }
 
@@ -107,9 +107,9 @@ class SpillDetector {
 
     while (sib && nodes.length < 120) {
       if (sib.nodeType === Node.ELEMENT_NODE) {
-        if (sib.classList.contains("gmc-floating-bar")) { sib = sib[prop]; continue; }
-        if (sib.classList.contains("gmc-placeholder") || sib.querySelector(".gmc-placeholder")) break;
-        const innerPre = sib.tagName === "PRE" ? sib : sib.querySelector("pre");
+        if (sib.classList?.contains("gmc-floating-bar")) { sib = sib[prop]; continue; }
+        if (sib.classList?.contains("gmc-placeholder") || sib.querySelector?.(".gmc-placeholder")) break;
+        const innerPre = sib.tagName === "PRE" ? sib : sib.querySelector?.("pre");
         if (innerPre) {
           if (innerPre.getAttribute("data-gmc-processed") === "true" || innerPre.getAttribute("data-gmc-purged") === "true") break;
           const preRaw = this.extractRawCode(innerPre);

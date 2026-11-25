@@ -1,91 +1,90 @@
 # Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover tests)
 
+import io
 import json
 import os
-import subprocess
+from pathlib import Path
 import tempfile
 import time
 import unittest
 from unittest.mock import patch
-import urllib.error
-import urllib.request
-from clipboard_watcher.status_server import StatusServer, _StatusRequestHandler
+
+from clipboard_watcher.status_server import _StatusRequestHandler
+from clipboard_watcher.test_runner_api import LiveTestManager
 
 
-class TestStatusServerTestStream(unittest.TestCase):
-    """Vérifie l'exécution asynchrone des tests, les erreurs stream et le flux /test-stream."""
+class TestStatusServerStreamAndStop(unittest.TestCase):
+    """Vérifie le streaming en direct et l'arrêt complet de l'arbre de processus des tests."""
 
-    def setUp(self) -> None:
-        self.tmp_dir: tempfile.TemporaryDirectory[str] = tempfile.TemporaryDirectory()
-        self.base_dir: str = self.tmp_dir.name
-        self.runner_path: str = os.path.join(self.base_dir, "slow_runner.py")
-        with open(self.runner_path, "w", encoding="utf-8") as f:
-            f.write(
-                "import sys, time\n"
-                "print('ETAPE_1', flush=True)\n"
-                "time.sleep(0.15)\n"
-                "print('ETAPE_2', flush=True)\n"
-            )
-        self.server: StatusServer = StatusServer(
-            host="127.0.0.1",
-            port=0,
-            target_dir=self.base_dir,
-            test_runner_path="slow_runner.py",
-            api_token="secret-stream-token",
-        )
-        self.assertTrue(self.server.start())
-        assert self.server._httpd is not None
-        _, bound_port = self.server._httpd.server_address
-        self.port: int = int(bound_port)
+    def test_terminate_process_tree_calls_taskkill_on_windows(self) -> None:
+        killed: list[bool] = []
 
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.tmp_dir.cleanup()
+        class DummyProc:
+            pid = 43210
 
-    def _req(self, path: str, data: bytes | None = None) -> dict:
-        url: str = f"http://127.0.0.1:{self.port}{path}"
-        headers = {"X-Watcher-Token": "secret-stream-token", "Content-Type": "application/json"}
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            def kill(self) -> None:
+                killed.append(True)
 
-    def test_async_test_stream_delivers_chunks_until_completion(self) -> None:
-        started = self._req("/run-tests-start", data=b"{}")
-        self.assertTrue(started.get("ok"))
-        self.assertTrue(started.get("started"))
+        with patch("clipboard_watcher.test_runner_api.os.name", "nt"), patch(
+            "clipboard_watcher.test_runner_api.subprocess.run"
+        ) as run_mock:
+            LiveTestManager._terminate_process_tree(DummyProc())  # type: ignore[arg-type]
+            run_mock.assert_called_once()
+            cmd_arg = run_mock.call_args.args[0]
+            self.assertEqual(cmd_arg, ["taskkill", "/F", "/T", "/PID", "43210"])
+            self.assertEqual(killed, [True])
 
-        with self.assertRaises(urllib.error.HTTPError) as conflict_err:
-            self._req("/run-tests-start", data=b"{}")
-        self.assertEqual(conflict_err.exception.code, 409)
+    def test_stop_endpoint_and_live_test_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            runner = root / "slow_runner.py"
+            runner.write_text("import time; print('START', flush=True); time.sleep(5)\n", encoding="utf-8")
 
-        offset: int = 0
-        collected: str = ""
-        final_state: dict = {}
-        for _ in range(40):
-            st = self._req(f"/test-stream?offset={offset}")
-            self.assertTrue(st.get("ok"))
-            collected += st.get("chunk", "")
-            offset = int(st.get("offset", offset))
-            final_state = st
-            if not st.get("running"):
-                break
-            time.sleep(0.08)
+            handler = object.__new__(_StatusRequestHandler)
+            handler.target_dir = tmp_dir
+            handler.default_test_runner = "slow_runner.py"
+            handler.api_token = ""
+            handler.allowed_origin = ""
+            handler.assembler_ref = None
+            handler.headers = {"Origin": "chrome-extension://abc"}  # type: ignore[assignment]
+            handler.send_response = lambda *_a, **_kw: None  # type: ignore[method-assign]
+            handler.send_header = lambda *_a, **_kw: None  # type: ignore[method-assign]
+            handler.end_headers = lambda: None  # type: ignore[method-assign]
 
-        self.assertFalse(final_state.get("running"))
-        self.assertTrue(final_state.get("passed"))
-        self.assertIn("ETAPE_1", collected)
-        self.assertIn("ETAPE_2", collected)
-        self.assertIn("ETAPE_2", final_state.get("output", ""))
+            handler.path = "/run-tests-stop"
+            handler.wfile = io.BytesIO()
+            handler.do_POST()
+            self.assertFalse(json.loads(handler.wfile.getvalue().decode("utf-8"))["ok"])
 
-    def test_background_test_stream_timeout_and_exception_branches(self) -> None:
-        handler = object.__new__(_StatusRequestHandler)
-        with patch.object(handler, "_execute_tests_streaming", side_effect=subprocess.TimeoutExpired("c", 180)):
-            handler._run_tests_background("dummy.py")
-        self.assertIn("180s", _StatusRequestHandler._live_test_state["error"])
+            body = json.dumps({"test_runner": "slow_runner.py"}).encode("utf-8")
+            handler.path = "/run-tests-start"
+            handler.headers = {"Content-Length": str(len(body)), "Origin": "chrome-extension://abc"}  # type: ignore[assignment]
+            handler.rfile = io.BytesIO(body)
+            handler.wfile = io.BytesIO()
+            handler.do_POST()
+            self.assertTrue(json.loads(handler.wfile.getvalue().decode("utf-8"))["ok"])
 
-        with patch.object(handler, "_execute_tests_streaming", side_effect=ValueError("boom_bg")):
-            handler._run_tests_background("dummy.py")
-        self.assertEqual(_StatusRequestHandler._live_test_state["error"], "boom_bg")
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                snap = handler._test_mgr.get_stream_snapshot(0)
+                if snap["running"] and "START" in snap["chunk"]:
+                    break
+                time.sleep(0.05)
+
+            handler.path = "/run-tests-stop"
+            handler.headers = {"Content-Length": "0"}  # type: ignore[assignment]
+            handler.wfile = io.BytesIO()
+            handler.do_POST()
+            stop_res = json.loads(handler.wfile.getvalue().decode("utf-8"))
+            self.assertTrue(stop_res["ok"])
+            self.assertTrue(stop_res["stopped"])
+
+            end_deadline = time.time() + 3.0
+            while time.time() < end_deadline and handler._test_mgr.get_stream_snapshot(0)["running"]:
+                time.sleep(0.05)
+            final_snap = handler._test_mgr.get_stream_snapshot(0)
+            self.assertFalse(final_snap["running"])
+            self.assertTrue(final_snap["stopped"])
 
 
 if __name__ == "__main__":

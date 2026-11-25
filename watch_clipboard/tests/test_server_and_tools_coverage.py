@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from clipboard_watcher.assembler import FileAssembler
 from clipboard_watcher.config import WatcherConfig
+from clipboard_watcher.export_api import ProjectExportRunner
 from clipboard_watcher.native_host import NativeMessagingHost
 from clipboard_watcher.status_server import _StatusRequestHandler
 from clipboard_watcher.watcher import ClipboardWatcher
@@ -63,8 +64,6 @@ class _FakeHandler(_StatusRequestHandler):
     def response_json(self) -> dict:
         raw = self.wfile.getvalue().decode("utf-8")
         return json.loads(raw) if raw else {}
-
-
 class TestServerAndToolsCoverage(unittest.TestCase):
     """Couvre les branches HTTP de _StatusRequestHandler, fix_urls, generate_icons et watcher."""
 
@@ -109,7 +108,7 @@ class TestServerAndToolsCoverage(unittest.TestCase):
             self.assertEqual(h_nogit.status_code, 400)
 
             h_noexp = _FakeHandler("POST", "/export-project", target_dir=tmp_dir)
-            with patch.object(_FakeHandler, "_resolve_exporter_package_dir", return_value=None):
+            with patch.object(ProjectExportRunner, "resolve_exporter_dir", return_value=None):
                 h_noexp.do_POST()
             self.assertEqual(h_noexp.status_code, 500)
 

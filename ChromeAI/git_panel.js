@@ -10,21 +10,17 @@ class GitPanelManager {
   }
 
   buildVerifyPrompt(selectedFiles, diffFilename) {
-    const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
+    const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
     return [
-      `Analyse le diff complet joint dans \x60${diffFilename}\x60 pour les fichiers sélectionnés ci-dessous :`,
-      fileList,
-      "",
+      `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).`,
       "**Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie (sans générer de message de commit)."
     ].join("\n");
   }
 
   buildCommitPrompt(selectedFiles, diffFilename) {
-    const fileList = selectedFiles.map((f) => `- ${f}`).join("\n");
+    const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
     return [
-      `Analyse le diff complet joint dans \x60${diffFilename}\x60 pour les fichiers sélectionnés ci-dessous :`,
-      fileList,
-      "",
+      `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).`,
       "1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie.",
       "2. **Message de commit** : propose ensuite un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne (sans balise `=== FILE ===`), suivi directement du message de commit prêt à être exécuté structuré ainsi :",
       "   - **Titre** : format Conventional Commits en français, concis, expliquant **fonctionnellement** ce qui a été fait.",
@@ -43,7 +39,6 @@ class GitPanelManager {
     if (this.panelEl) { this.close(); return; }
     this.open(entries);
   }
-
   submitSelection(checkboxes, triggerBtn, actionBtns, mode) {
     const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path);
     if (selected.length === 0) return;
@@ -72,6 +67,7 @@ class GitPanelManager {
       this.close();
     });
   }
+
   open(entries) {
     this.close();
     const panel = document.createElement("div");
@@ -108,7 +104,6 @@ class GitPanelManager {
     closeBtn.className = "gmc-git-btn-close";
     closeBtn.textContent = "Fermer";
     closeBtn.addEventListener("click", () => this.close());
-
     const verifyBtn = document.createElement("button");
     verifyBtn.type = "button";
     verifyBtn.className = "gmc-git-btn-verify";
@@ -167,7 +162,6 @@ class GitPanelManager {
       copyBtn.textContent = "✅ Copié !";
       setTimeout(() => { copyBtn.textContent = "📋 Copier l'erreur"; }, 1400);
     });
-
     const askAiBtn = document.createElement("button");
     askAiBtn.type = "button";
     askAiBtn.className = "gmc-git-error-btn";

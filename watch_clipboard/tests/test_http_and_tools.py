@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from clipboard_watcher.assembler import FileAssembler
 from clipboard_watcher.config import WatcherConfig
+from clipboard_watcher.export_api import ProjectExportRunner
 from clipboard_watcher.status_server import _StatusRequestHandler
 import tools.fix_urls as fix_urls_mod
 import tools.generate_icons as gen_icons_mod
@@ -85,7 +86,7 @@ class TestHttpAndTools(unittest.TestCase):
             h_401.do_GET()
             self.assertEqual(h_401.status_code, 401)
 
-            with patch.object(_MemHandler, "_resolve_exporter_package_dir", return_value=None):
+            with patch.object(ProjectExportRunner, "resolve_exporter_dir", return_value=None):
                 he = _MemHandler("POST", "/export-project", target_dir=str(work_d))
                 he.do_POST()
                 self.assertEqual(he.status_code, 500)
@@ -113,3 +114,7 @@ class TestHttpAndTools(unittest.TestCase):
             with patch.dict(sys.modules, {"tkinter": MagicMock()}), patch("shutil.which", return_value="/usr/bin/node"):
                 self.assertEqual(ClipboardTestRunner.find_node_binary(root), "/usr/bin/node")
                 self.assertEqual(runner.run(), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

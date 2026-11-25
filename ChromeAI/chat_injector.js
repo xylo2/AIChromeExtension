@@ -53,10 +53,11 @@ class ChatInjector {
   }
 
   findSubmitButton(inputEl) {
-    const keywords = ["envoyer", "send", "submit", "valider", "ask", "poser"];
+    const keywords = ["envoyer", "send", "submit", "valider", "ask", "poser", "rechercher"];
     const matchesBtn = (btn) => {
       if (!btn || (btn.className && String(btn.className).includes("gmc-"))) return false;
       if (btn.disabled || btn.getAttribute("aria-disabled") === "true" || !this.isElementVisible(btn)) return false;
+      if (btn.getAttribute("type") === "submit") return true;
       const meta = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.getAttribute("data-testid") || ""} ${btn.textContent || ""}`.toLowerCase();
       return keywords.some((kw) => meta.includes(kw));
     };
@@ -74,12 +75,14 @@ class ChatInjector {
     }
     return null;
   }
-
   findComposerContainer(inputEl) {
     let container = inputEl ? inputEl.parentElement : document.body;
-    for (let depth = 0; depth < 7 && container?.parentElement; depth++) {
-      if (container.querySelector("button, [role='button']")) return container.parentElement;
-      container = container.parentElement;
+    for (let depth = 0; depth < 6 && container?.parentElement; depth++) {
+      const parent = container.parentElement;
+      const tag = String(parent.tagName || "").toUpperCase();
+      if (["BODY", "HTML", "MAIN", "ARTICLE"].includes(tag)) break;
+      if (parent.querySelector?.("[data-aim-turn], [data-turn-id]")) break;
+      container = parent;
     }
     return container || document.body;
   }
@@ -105,12 +108,24 @@ class ChatInjector {
     if (hasMetaMatch) return true;
     return this.countAttachmentChips(container) > this.baselineAttachmentCount;
   }
+
+  getInputText(inputEl) {
+    if (!inputEl) return "";
+    return (inputEl.tagName === "TEXTAREA" ? inputEl.value : inputEl.textContent || "").trim();
+  }
+
+  focusWithoutScroll(el) {
+    if (!el || typeof el.focus !== "function") return;
+    try { el.focus({ preventScroll: true }); } catch (_err) { el.focus(); }
+  }
+
   submitChatBox(inputEl) {
     const targetInput = inputEl || this.findChatInputElement();
     if (!targetInput) return false;
     const submitBtn = this.findSubmitButton(targetInput);
     if (submitBtn) { submitBtn.click(); return true; }
-    targetInput.focus();
+    if (this.getInputText(targetInput) === "") return false;
+    this.focusWithoutScroll(targetInput);
     const enterInit = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
     targetInput.dispatchEvent(new KeyboardEvent("keydown", enterInit));
     targetInput.dispatchEvent(new KeyboardEvent("keypress", enterInit));
@@ -121,12 +136,18 @@ class ChatInjector {
   waitAndSubmit(inputEl, minDelayMs = 600, maxWaitMs = 4000, waitForFile = "") {
     const startedAt = Date.now();
     const expectedFile = waitForFile || this.pendingAttachmentName;
+    let clickedOnce = false;
     const trySubmit = () => {
       const targetInput = (inputEl && inputEl.isConnected) ? inputEl : this.findChatInputElement();
       const elapsed = Date.now() - startedAt;
+      if (clickedOnce) {
+        this.pendingAttachmentName = "";
+        return;
+      }
       const readyBtn = this.findSubmitButton(targetInput);
       const fileOk = !expectedFile || this.isAttachmentReady(targetInput, expectedFile);
       if (readyBtn && elapsed >= minDelayMs && fileOk) {
+        clickedOnce = true;
         this.pendingAttachmentName = "";
         readyBtn.click();
         return;
@@ -138,25 +159,35 @@ class ChatInjector {
     setTimeout(trySubmit, Math.min(minDelayMs, 250));
   }
 
-  dropFile(filename, textContent, autoSubmit = false) {
+  selectCompatibleFileInput(fileInputs) {
+    for (let idx = fileInputs.length - 1; idx >= 0; idx--) {
+      const inp = fileInputs.at(idx);
+      const accept = String(inp?.getAttribute?.("accept") || "").toLowerCase();
+      const isImageOnly = accept.includes("image/") && !accept.includes("text/") && !accept.includes(".txt") && !accept.includes("*/*");
+      if (!isImageOnly) return inp;
+    }
+    return null;
+  }
+
+  dropFile(filename, textContent, autoSubmit = true) {
     const file = new File([textContent], filename, { type: "text/plain;charset=utf-8" });
     const dt = new DataTransfer();
     dt.items.add(file);
     const inputEl = this.findChatInputElement();
+    const composerEl = this.findComposerContainer(inputEl);
     this.pendingAttachmentName = filename || "";
-    this.baselineAttachmentCount = this.countAttachmentChips(this.findComposerContainer(inputEl));
-    const fileInputs = this.queryDeepAll('input[type="file"]');
+    this.baselineAttachmentCount = this.countAttachmentChips(composerEl);
+    const compatibleInput = this.selectCompatibleFileInput(this.queryDeepAll('input[type="file"]'));
     let inputAttached = false;
-    if (fileInputs.length > 0) {
-      const fileInput = fileInputs.at(fileInputs.length - 1);
+    if (compatibleInput) {
       try {
-        fileInput.files = dt.files;
-        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        compatibleInput.files = dt.files;
+        compatibleInput.dispatchEvent(new Event("change", { bubbles: true }));
         inputAttached = true;
       } catch (_err) {}
     }
     if (!inputAttached) {
-      for (const target of [inputEl, inputEl?.parentElement, document.body].filter(Boolean)) {
+      for (const target of [inputEl, inputEl?.parentElement, composerEl, document.body].filter(Boolean)) {
         let dropHandled = false;
         for (const evtName of ["dragenter", "dragover", "drop"]) {
           const evt = new DragEvent(evtName, { bubbles: true, cancelable: true, dataTransfer: dt });
@@ -166,29 +197,29 @@ class ChatInjector {
       }
     }
     if (autoSubmit) {
-      const existing = inputEl ? (inputEl.tagName === "TEXTAREA" ? inputEl.value.trim() : inputEl.textContent.trim()) : "";
-      if (!existing) this.insertPrompt(`Export du projet (\x60${filename}\x60) :`, false);
-      this.waitAndSubmit(inputEl, 1800, 8000, filename);
+      const existing = this.getInputText(inputEl);
+      if (!existing) this.insertPrompt(`Fichier joint (\x60${filename}\x60) :`, false);
+      this.waitAndSubmit(inputEl, 1000, 5000, filename);
     }
     return true;
   }
-
   insertPrompt(promptText, autoSubmit = false) {
     const inputEl = this.findChatInputElement();
     if (!inputEl || !promptText) return false;
-    inputEl.focus();
+    this.focusWithoutScroll(inputEl);
     const prefix = inputEl.tagName === "TEXTAREA" ? (inputEl.value.trim() ? "\n\n" : "") : (inputEl.textContent.trim() ? "\n\n" : "");
     const payload = `${prefix}${promptText}`;
     if (inputEl.tagName === "TEXTAREA") {
       const start = inputEl.selectionStart ?? inputEl.value.length;
       const end = inputEl.selectionEnd ?? inputEl.value.length;
       inputEl.value = inputEl.value.slice(0, start) + payload + inputEl.value.slice(end);
-      inputEl.selectionStart = inputEl.selectionEnd = start + payload.length;
+      inputEl.selectionStart = inputEl.selectionEnd = 0;
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
     } else {
       if (!document.execCommand("insertText", false, payload)) inputEl.textContent = (inputEl.textContent || "") + payload;
       inputEl.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: payload }));
     }
+    this.scrollComposerToTop(inputEl);
     if (autoSubmit) {
       const minDelay = typeof autoSubmit === "object" ? (autoSubmit.minDelayMs ?? 400) : 400;
       const maxWait = typeof autoSubmit === "object" ? (autoSubmit.maxWaitMs ?? 3500) : 3500;
@@ -196,6 +227,14 @@ class ChatInjector {
       this.waitAndSubmit(inputEl, minDelay, maxWait, waitFile);
     }
     return true;
+  }
+
+  scrollComposerToTop(inputEl) {
+    let curr = inputEl;
+    for (let i = 0; i < 5 && curr; i++) {
+      if (typeof curr.scrollTop === "number" && curr.scrollTop > 0) curr.scrollTop = 0;
+      curr = curr.parentElement;
+    }
   }
 
   insertTestResults(textToInsert, autoSubmit = false) {

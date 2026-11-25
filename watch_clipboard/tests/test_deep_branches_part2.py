@@ -50,11 +50,16 @@ class TestDeepBranchesPart2(unittest.TestCase):
             q_srv = object.__new__(_QuietThreadingHTTPServer)
             with patch("http.server.ThreadingHTTPServer.handle_error") as m_super_err:
                 try:
+                    raise BrokenPipeError("client disconnect")
+                except BrokenPipeError:
+                    q_srv.handle_error(None, ("127.0.0.1", 9999))
+                m_super_err.assert_not_called()
+
+                try:
                     raise ValueError("other error")
                 except ValueError:
                     q_srv.handle_error(None, ("127.0.0.1", 9999))
                 m_super_err.assert_called_once()
-
     def test_native_host_and_installer_lookup_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
