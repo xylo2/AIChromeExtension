@@ -7,6 +7,7 @@ import sys
 import threading
 from typing import Any, List, Optional
 from urllib.parse import parse_qs, urlparse
+from clipboard_watcher.export_api import ProjectExportRunner
 from clipboard_watcher.http_routes_tests import handle_run_tests_route
 
 
@@ -19,6 +20,10 @@ def handle_get_request(handler: Any) -> None:
     if parsed.path == "/read-file":
         ok, filename, content_or_err = handler._read_saved_file_from_header(next(iter(params.get("header", [])), ""))
         handler._send_json(200 if ok else 404, {"ok": True, "filename": filename, "content": content_or_err} if ok else {"ok": False, "error": content_or_err})
+        return
+    if parsed.path == "/last-syntax-error":
+        syn_err = getattr(handler.assembler_ref, "last_syntax_error", None)
+        handler._send_json(200, {"ok": bool(syn_err), "syntax_error": syn_err})
         return
     if parsed.path == "/git-status":
         ok_g, entries, err_g = handler._git_status_entries()
@@ -34,6 +39,7 @@ def handle_get_request(handler: Any) -> None:
     custom_runner: str = next(iter(params.get("test_runner", [])), "")
     test_script: Optional[str] = handler._resolve_test_runner_path(custom_runner)
     has_tests: bool = bool(test_script and os.path.isfile(test_script))
+    syn_err = getattr(handler.assembler_ref, "last_syntax_error", None)
     handler._send_json(200, {
         "status": "running", "service": "watch_clipboard", "pid": os.getpid(),
         "target_dir": os.path.realpath(handler.target_dir),
@@ -43,6 +49,7 @@ def handle_get_request(handler: Any) -> None:
         "configured_test_runner": custom_runner or handler.default_test_runner,
         "test_runner_path": test_script if has_tests else None,
         "last_event": getattr(handler.assembler_ref, "last_event", None),
+        "has_syntax_error": bool(syn_err),
     })
 
 
@@ -58,21 +65,21 @@ def handle_post_request(handler: Any) -> None:
         threading.Timer(0.15, lambda: os.kill(os.getpid(), signal.SIGINT)).start()
         return
     if parsed.path == "/export-project":
-        handler._drain_unread_body()
-        ok, filename, payload_or_err, count = handler._run_project_export()
-        handler._send_json(200 if ok else 500, {"ok": ok, "filename": filename, "content": payload_or_err, "file_count": count} if ok else {"ok": False, "error": payload_or_err})
+        body_e = handler._read_json_body()
+        export_mode: str = ProjectExportRunner.normalize_mode(str(body_e.get("mode", "full")))
+        ok, filename, payload_or_err, count = handler._run_project_export(mode=export_mode)
+        est_tokens: int = ProjectExportRunner.estimate_tokens(payload_or_err) if ok else 0
+        handler._send_json(200 if ok else 500, {"ok": ok, "filename": filename, "content": payload_or_err, "file_count": count, "estimated_tokens": est_tokens, "mode": export_mode} if ok else {"ok": False, "error": payload_or_err})
         return
     if parsed.path == "/git-diff":
         body_g = handler._read_json_body()
-        raw_files = body_g.get("files")
-        selected_files: List[str] = [str(x) for x in raw_files] if isinstance(raw_files, list) else []
+        selected_files: List[str] = [str(x) for x in body_g.get("files")] if isinstance(body_g.get("files"), list) else []
         ok_d, diff_txt, err_d = handler._git_diff_selected(selected_files)
-        handler._send_json(200 if ok_d else 400, {"ok": True, "filename": "git_changes.diff.txt", "content": diff_txt, "diff": diff_txt, "file_count": len(selected_files)} if ok_d else {"ok": False, "error": err_d})
+        handler._send_json(200 if ok_d else 400, {"ok": True, "filename": "git_changes.diff.txt", "content": diff_txt, "diff": diff_txt, "file_count": len(selected_files), "estimated_tokens": ProjectExportRunner.estimate_tokens(diff_txt)} if ok_d else {"ok": False, "error": err_d})
         return
     if parsed.path == "/git-commit":
         body_c = handler._read_json_body()
-        raw_fc = body_c.get("files")
-        files_c: List[str] = [str(x) for x in raw_fc] if isinstance(raw_fc, list) else []
+        files_c: List[str] = [str(x) for x in body_c.get("files")] if isinstance(body_c.get("files"), list) else []
         ok_c, out_c = handler._git_commit_and_push(str(body_c.get("action", "commit")).strip(), str(body_c.get("message", "")), files_c)
         handler._send_json(200 if ok_c else 400, {"ok": ok_c, "output": out_c} if ok_c else {"ok": False, "error": out_c})
         return

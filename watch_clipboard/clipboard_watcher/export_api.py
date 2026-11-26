@@ -10,6 +10,8 @@ from typing import Any, Callable, List, Optional, Tuple
 class ProjectExportRunner:
     """Résout et exécute l'export du projet cible via project_exporter."""
 
+    VALID_MODES: Tuple[str, ...] = ("full", "code", "tests")
+
     def __init__(self, target_dir: str, run_fn: Callable[..., Any] = subprocess.run) -> None:
         self.target_dir: str = target_dir
         self._run = run_fn
@@ -49,10 +51,19 @@ class ProjectExportRunner:
             pass
         return os.path.basename(target_real) or "project"
 
-    def run_export(self) -> Tuple[bool, str, str, int]:
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        return max(1, (len(text) + 3) // 4) if text else 0
+
+    @classmethod
+    def normalize_mode(cls, mode: str) -> str:
+        clean: str = (mode or "full").strip().lower()
+        return clean if clean in cls.VALID_MODES else "full"
+    def run_export(self, mode: str = "full") -> Tuple[bool, str, str, int]:
         exporter_root: Optional[str] = self.resolve_exporter_dir()
         if not exporter_root:
             return False, "", "Package project_exporter introuvable dans le workspace.", 0
+        clean_mode: str = self.normalize_mode(mode)
         target_real: str = os.path.realpath(self.target_dir)
         project_label: str = self.compute_project_label(target_real, exporter_root)
         with tempfile.TemporaryDirectory(prefix="watch_clip_export_") as tmp_dir:
@@ -61,16 +72,18 @@ class ProjectExportRunner:
                 "from project_exporter.config import ExporterConfig; "
                 "from project_exporter.exporter import ProjectExporter; "
                 "logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler()); "
-                "_, exp_s, target_s, out_s, proj_label = sys.argv; "
+                "_, exp_s, target_s, out_s, proj_label, exp_mode = sys.argv; "
                 "exp_root, target, out_dir = Path(exp_s), Path(target_s), Path(out_s); "
                 "cfg = ExporterConfig(exp_root / 'config.ini', logger); "
-                "fname = cfg.build_output_filename(proj_label); out_file = out_dir / fname; "
-                "cnt = ProjectExporter(target, cfg, out_file, exp_root / 'export_project.py', logger).export(); "
+                "base_fname = cfg.build_output_filename(proj_label); "
+                "fname = base_fname if exp_mode == 'full' else base_fname.replace('_export.txt', f'_{exp_mode}_export.txt'); "
+                "out_file = out_dir / fname; "
+                "cnt = ProjectExporter(target, cfg, out_file, exp_root / 'export_project.py', logger, export_mode=exp_mode).export(); "
                 "print(f'{fname}|{cnt}')"
             )
             env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONPATH": exporter_root}
             proc = self._run(
-                [sys.executable, "-c", code, exporter_root, target_real, tmp_dir, project_label],
+                [sys.executable, "-c", code, exporter_root, target_real, tmp_dir, project_label, clean_mode],
                 cwd=target_real, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False,
             )
             if proc.returncode != 0:

@@ -13,6 +13,7 @@ const JS_MODULES = [
   "file_attacher.js",
   "chat_injector.js",
   "composer_ui.js",
+  "export_menu.js",
   "git_commit_ui.js",
   "git_panel.js",
   "test_panel.js",
@@ -50,6 +51,7 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(contentJs.includes('insertPrompt("Oui", true)'));
   assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
   assert.ok(contentJs.includes("composerUi.pickExcuse()"));
+  assert.ok(contentJs.includes("exportMenu.toggle"));
   assert.ok(contentJs.includes("checkPendingFreshExport"));
 });
 test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherPopupController fonctionnent", async () => {
@@ -87,22 +89,27 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
 });
 
-test("GitCommitUiHelper.buildFreshChatUrl et createFreshExportButton ouvrent une session vierge", () => {
+test("GitCommitUiHelper et ExportMenuManager gèrent session vierge et choix du type d'export", () => {
   let storedPayload = null;
+  const appended = [];
   const baseUrl = ["https://www", "google", "com"].join(".");
   const searchHref = new URL("/search?udm=50&hl=fr&q=test&gsessionid=abc&lsessionid=def&vsrid=xyz&mstk=123#hash", baseUrl).toString();
   const appHref = new URL("/app/session-12345?hl=fr#top", baseUrl).toString();
   const locObj = { href: searchHref };
+  const makeNode = () => ({
+    type: "", className: "", textContent: "", title: "", disabled: false, children: [], listeners: {}, removed: false,
+    append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
+    addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() { this.removed = true; }
+  });
   const sandbox = {
     URL,
     window: { location: locObj },
-    document: {
-      createElement: () => ({ type: "", className: "", textContent: "", title: "", disabled: false, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } })
-    },
+    document: { createElement: makeNode, body: { appendChild(n) { appended.push(n); } } },
     chrome: { storage: { local: { set(obj, cb) { storedPayload = obj; if (cb) cb(); } } } }
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "git_commit_ui.js"), "utf-8"), sandbox);
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "export_menu.js"), "utf-8"), sandbox);
   const helper = new sandbox.window.GmcGitCommitUiHelper(null);
   assert.equal(helper.buildFreshChatUrl(searchHref), `${baseUrl}/search?udm=50&hl=fr`);
   assert.equal(helper.buildFreshChatUrl(appHref), `${baseUrl}/`);
@@ -111,4 +118,15 @@ test("GitCommitUiHelper.buildFreshChatUrl et createFreshExportButton ouvrent une
   assert.equal(btn.disabled, true);
   assert.ok(typeof storedPayload?.pendingFreshExportAt === "number");
   assert.equal(locObj.href, `${baseUrl}/search?udm=50&hl=fr`);
+
+  const menu = new sandbox.window.GmcExportMenuManager();
+  assert.ok(menu.buildExportPrompt("code", "proj_code_export.txt", 5, 2500).includes("CODE UNIQUEMENT"));
+  assert.ok(menu.buildExportPrompt("tests", "proj_tests_export.txt", 3, 1200).includes("TESTS UNIQUEMENT"));
+  assert.ok(menu.buildExportPrompt("full", "proj_export.txt", 8, 3700).includes("COMPLET"));
+  let chosenMode = "";
+  menu.toggle((m) => { chosenMode = m; });
+  assert.equal(appended.length, 1);
+  appended.at(0).children.at(1).children.at(1).listeners.click({ stopPropagation() {} });
+  assert.equal(chosenMode, "code");
+  assert.equal(menu.menuEl, null);
 });

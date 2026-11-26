@@ -40,6 +40,7 @@
         "file_attacher.js",
         "chat_injector.js",
         "composer_ui.js",
+        "export_menu.js",
         "git_commit_ui.js",
         "git_panel.js",
         "test_panel.js",

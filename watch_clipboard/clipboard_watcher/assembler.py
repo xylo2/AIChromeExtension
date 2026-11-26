@@ -2,9 +2,10 @@
 
 import os
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 from clipboard_watcher.config import WatcherConfig
 from clipboard_watcher.part_assembler import assemble_partial_file, cleanup_excess_parts
+from clipboard_watcher.syntax_checker import SyntaxChecker
 
 
 class UnsafePathError(ValueError):
@@ -25,6 +26,7 @@ class FileAssembler:
             temp_sub = ".watch_clipboard"
         self.temp_dir: str = os.path.realpath(os.path.join(self.base_dir, temp_sub))
         self.last_event: Optional[str] = None
+        self.last_syntax_error: Optional[Dict[str, object]] = None
 
     def _strip_redundant_base_prefix(self, rel_clean: str) -> str:
         base_name: str = os.path.basename(self.base_dir)
@@ -48,7 +50,6 @@ class FileAssembler:
         if common != root_dir or candidate == root_dir:
             raise UnsafePathError(f"Tentative de traversée de répertoire bloquée : '{rel_path}'")
         return candidate
-
     def has_file_tags(self, raw: str) -> bool:
         clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         return bool(re.search(self.FILE_HEADER_PATTERN, clean_raw))
@@ -77,6 +78,20 @@ class FileAssembler:
         suffix: str = f" ({detail})" if detail else ""
         self.last_event = f"[{tag}] {rel_display}{suffix}"
 
+    def _verify_written_syntax(self, target_path: str, ok_tag: str = "OK", ok_detail: str = "") -> None:
+        rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
+        err = SyntaxChecker.check_file(target_path, rel_display, encoding=self.config.encoding)
+        if err is not None:
+            self.last_syntax_error = err
+            self._record_event("SYNTAXE", target_path, f"ligne {err['line']}")
+            print(f"[SYNTAXE] {rel_display}:{err['line']} -> {err['message']}")
+        else:
+            if self.last_syntax_error and self.last_syntax_error.get("file") == rel_display:
+                self.last_syntax_error = None
+            self._record_event(ok_tag, target_path, ok_detail)
+            suffix: str = f" ({ok_detail})" if ok_detail else ""
+            print(f"[{ok_tag}] {target_path}{suffix}")
+
     def process_text(self, raw: str) -> int:
         clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         parts: List[str] = re.split(self.FILE_HEADER_PATTERN, clean_raw)
@@ -95,8 +110,7 @@ class FileAssembler:
                     os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
                     with open(target_path, "w", encoding=self.config.encoding, newline="\n") as f:
                         f.write(clean_code + "\n")
-                    self._record_event("OK", target_path)
-                    print(f"[OK] {target_path}")
+                    self._verify_written_syntax(target_path, ok_tag="OK")
                 updated += 1
             except (UnsafePathError, ValueError) as exc:
                 blocked_event = f"[BLOQUÉ] {exc}"

@@ -16,9 +16,30 @@ class CodeBlockManager {
     this.autoSentSuiteForTurn = null;
     this.consecutiveAutoSuiteCount = 0;
     this.pendingSuiteTimer = null;
+    this.bindUserTypingCancelsAutoSuite();
+  }
+
+  bindUserTypingCancelsAutoSuite() {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    const cancelIfTrusted = (ev) => {
+      if (ev && ev.isTrusted === false) return;
+      if (ev && ev.type === "keydown" && (ev.ctrlKey || ev.metaKey || ev.altKey)) return;
+      if (this.pendingSuiteTimer) this.resetAutoSuiteQuota();
+    };
+    ["keydown", "beforeinput", "input", "paste"].forEach((evtName) => {
+      document.addEventListener(evtName, cancelIfTrusted, true);
+    });
+  }
+
+  isComposerNonEmpty() {
+    if (!this.chat || typeof this.chat.findChatInputElement !== "function" || typeof this.chat.getInputText !== "function") return false;
+    const inputEl = this.chat.findChatInputElement();
+    return Boolean(inputEl && this.chat.getInputText(inputEl) !== "");
   }
 
   isItemPurged(item) { return Boolean(item?.purged || item?.el?.getAttribute?.("data-gmc-purged") === "true"); }
+  getUnpurgedBlocks() { return this.trackedBlocks.filter((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b)); }
+  getUnpurgedCount() { return this.getUnpurgedBlocks().length; }
 
   resetAutoSuiteQuota() {
     this.consecutiveAutoSuiteCount = 0;
@@ -52,7 +73,6 @@ class CodeBlockManager {
     if (combined) item.cachedCombinedCode = combined;
     return combined;
   }
-
   purgeDomOnly(item, customMessage = "Contenu copié et purgé") {
     const { el, labelEl, purgeButtons, verifyBtn, headerName, spilledNodes } = item;
     if (!el || this.isItemPurged(item)) return false;
@@ -71,12 +91,46 @@ class CodeBlockManager {
       return true;
     });
   }
+  isRedOrOversizedItem(item) {
+    return Boolean(
+      item?.hasSpill ||
+      (item?.spilledNodes && item.spilledNodes.length > 0) ||
+      item?.placeholderEl?.classList?.contains?.("gmc-spilled") ||
+      item?.placeholderEl?.classList?.contains?.("gmc-oversized")
+    );
+  }
 
   purgeAll() {
     let anyPurged = false;
     this.trackedBlocks.forEach((b) => { if (this.purgeDomOnly(b, "Purge manuelle")) anyPurged = true; });
     if (anyPurged && typeof this.onPurge === "function") this.onPurge();
   }
+
+  async copyAndPurgeAll() {
+    const targets = this.getUnpurgedBlocks();
+    if (targets.length === 0) return 0;
+    const chunks = [];
+    for (const item of targets) {
+      const code = this.extractCombinedCode(item);
+      if (code) chunks.push(code);
+    }
+    if (chunks.length > 0) {
+      try { await navigator.clipboard.writeText(chunks.join("\n\n")); } catch (_err) {}
+    }
+    let purgedCount = 0;
+    let hasAlertItem = false;
+    for (const item of targets) {
+      if (this.isRedOrOversizedItem(item)) hasAlertItem = true;
+      if (this.purgeDomOnly(item)) purgedCount += 1;
+    }
+    if (purgedCount > 0) {
+      if (typeof this.onPurge === "function") this.onPurge();
+      const lastItem = targets.at(-1);
+      if (lastItem && !hasAlertItem) this.maybeAutoSendSuite(lastItem);
+    }
+    return purgedCount;
+  }
+
   async copyOnly(item) {
     const text = this.extractCombinedCode(item);
     try { await navigator.clipboard.writeText(text); } catch (_err) {}
@@ -89,7 +143,7 @@ class CodeBlockManager {
   maybeAutoSendSuite(item) {
     if (!this.chat || typeof this.chat.insertPrompt !== "function") return false;
     if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE) return false;
-    if (this.trackedBlocks.some((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b))) return false;
+    if (this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false;
     const turnKey = this.findTurnContainer(item.el) || item.el;
     if (this.autoSentSuiteForTurn === turnKey || !this.hasSuitePromptAfterBlock(item)) return false;
     this.autoSentSuiteForTurn = turnKey;
@@ -97,12 +151,12 @@ class CodeBlockManager {
     this.pendingSuiteTimer = setTimeout(() => {
       this.pendingSuiteTimer = null;
       if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE) return;
+      if (this.isComposerNonEmpty()) return;
       this.consecutiveAutoSuiteCount += 1;
       this.chat.insertPrompt("Suite", true);
     }, this.AUTO_SUITE_DELAY_MS);
     return true;
   }
-
   scrollToNextUnpurgedBlock(currentItem) {
     const startIdx = this.trackedBlocks.indexOf(currentItem);
     if (startIdx < 0) return false;
@@ -114,12 +168,7 @@ class CodeBlockManager {
   }
 
   async copyAndPurge(item) {
-    const isRedOrOversized = Boolean(
-      item?.hasSpill ||
-      (item?.spilledNodes && item.spilledNodes.length > 0) ||
-      item?.placeholderEl?.classList?.contains?.("gmc-spilled") ||
-      item?.placeholderEl?.classList?.contains?.("gmc-oversized")
-    );
+    const isRedOrOversized = this.isRedOrOversizedItem(item);
     await this.copyOnly(item);
     if (this.purgeDomOnly(item)) {
       if (typeof this.onPurge === "function") this.onPurge();

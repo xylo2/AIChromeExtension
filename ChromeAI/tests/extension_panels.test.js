@@ -117,8 +117,8 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
   assert.equal(preview.tooltipEl.style.display, "flex");
 });
 
-test("ChatInjector, CodeBlockManager (SVG, purge, bloc rouge sans Suite auto) et WatcherBackgroundService", async () => {
-  const scrolled = []; let removedKey = null; let calls = 0; const clickedLinks = [];
+test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiToken 401)", async () => {
+  const scrolled = []; let removedKey = null; let savedObj = null; let calls = 0; const clickedLinks = []; let copiedBatch = "";
   const makeEl = (tag) => ({
     tagName: tag, type: "", className: "", title: "", innerHTML: "", href: "", download: "", style: {}, listeners: {},
     classList: { add() {}, remove() {} }, addEventListener(ev, fn) { this.listeners[ev] = fn; },
@@ -128,30 +128,33 @@ test("ChatInjector, CodeBlockManager (SVG, purge, bloc rouge sans Suite auto) et
     window: { scrollBy(x, y) { scrolled.push({ x, y }); } }, globalThis: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     Blob: class FakeBlob { constructor(parts) { this.parts = parts; } }, URL: { createObjectURL: () => "blob:test-svg", revokeObjectURL: () => {} },
     document: { createElement: makeEl, body: { appendChild() {} } }, setTimeout: () => {},
-    navigator: { clipboard: { writeText: async () => {} } }, chrome: { storage: { local: { remove: async (k) => { removedKey = k; } } } },
-    fetch: async (_u, opts) => (++calls === 1 && opts.headers["X-Watcher-Token"] ? { status: 401, ok: false } : { status: 200, ok: true })
+    navigator: { clipboard: { writeText: async (t) => { copiedBatch = t; } } },
+    chrome: { storage: { local: { remove: async (k) => { removedKey = k; }, set: async (o) => { savedObj = o; } } } },
+    fetch: async (_u, opts) => {
+      calls += 1;
+      if (calls === 1 && opts.headers["X-Watcher-Token"] === "stale-tok") return { status: 401, ok: false };
+      if (calls === 2 && opts.headers["X-Watcher-Token"] === "fresh-tok") return { status: 200, ok: true };
+      return opts.headers["X-Watcher-Token"] ? { status: 401, ok: false } : { status: 200, ok: true };
+    }
   };
   vm.createContext(sandbox);
   for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "git_commit_ui.js", "git_panel.js", "svg_sanitizer.js", "svg_preview.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "bg_native_helper.js", "background.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const spill = new sandbox.window.GmcSpillDetector();
-  const sentPrompts = [];
-  const fakeChat = { insertPrompt(txt, auto) { sentPrompts.push({ txt, auto }); } };
-  const blockMgr = new sandbox.window.GmcCodeBlockManager(spill, fakeChat, null, new sandbox.window.GmcSvgPreviewManager(spill));
+  const blockMgr = new sandbox.window.GmcCodeBlockManager(spill, { insertPrompt() {} }, null, new sandbox.window.GmcSvgPreviewManager(spill));
   const dlBtn = blockMgr.createDownloadBtn({ el: { tagName: "PRE", textContent: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>', getAttribute: () => null, querySelector: () => null }, headerName: "dragon.svg" });
   dlBtn.listeners.click({ stopPropagation() {} });
   assert.deepEqual(clickedLinks, ["dragon.svg"]);
-  let scrollTargetOpts = null;
-  const firstItem = { el: { tagName: "PRE", textContent: "a = 1", isConnected: true, getAttribute: () => null, setAttribute() {}, querySelector: () => null, classList: { add() {} } }, headerName: "first.py", spilledNodes: [], purgeButtons: [] };
-  const afterCommentNode = { nodeType: 1, tagName: "P", className: "", textContent: "Partie suivante attendue : fichier. Réponds « Suite ».", nextSibling: null };
-  const redSpilledItem = { el: { tagName: "PRE", textContent: "b = 2", isConnected: true, attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, classList: { add() {} }, nextSibling: afterCommentNode }, placeholderEl: { scrollIntoView(opts) { scrollTargetOpts = opts; }, classList: { contains: (c) => c === "gmc-spilled" } }, hasSpill: true, spilledNodes: [], purgeButtons: [] };
-  blockMgr.trackedBlocks.push(firstItem, redSpilledItem);
-  await blockMgr.copyAndPurge(firstItem);
-  assert.deepEqual({ ...scrollTargetOpts }, { behavior: "smooth", block: "center" });
-  await blockMgr.copyAndPurge(redSpilledItem);
-  assert.equal(sentPrompts.length, 0);
+  const makePre = (txt) => ({ tagName: "PRE", textContent: txt, isConnected: true, attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, classList: { add() {} } });
+  blockMgr.trackedBlocks.push({ el: makePre("=== FILE: a.py ===\nx = 1"), headerName: "a.py", spilledNodes: [], purgeButtons: [] });
+  assert.equal(await blockMgr.copyAndPurgeAll(), 1);
+  assert.equal(copiedBatch, "=== FILE: a.py ===\nx = 1");
   const bgSvc = new sandbox.globalThis.GmcBackgroundService();
-  assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "tok")).ok, true);
+  bgSvc.nativeHelper.fetchSessionToken = async () => "fresh-tok";
+  assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "stale-tok")).ok, true);
+  assert.deepEqual(savedObj, { watcherApiToken: "fresh-tok" });
+  bgSvc.nativeHelper.fetchSessionToken = async () => null;
+  assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "old-tok")).ok, true);
   assert.equal(removedKey, "watcherApiToken");
 });

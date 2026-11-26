@@ -11,12 +11,13 @@ import unittest
 from unittest.mock import patch
 from clipboard_watcher.native_host import NativeMessagingHost
 from install_native_host import NativeHostInstaller
+import watch_clipboard as wc_mod
 
 
 class TestNativeMessagingHost(unittest.TestCase):
     """
     Tests unitaires vérifiant le protocole binaire Native Messaging,
-    la résolution du répertoire racine, du binaire Python réel (hors WindowsApps)
+    la persistance du jeton de session, la résolution du binaire Python réel
     et du navigateur parent.
     """
 
@@ -33,6 +34,12 @@ class TestNativeMessagingHost(unittest.TestCase):
             cmd = host._build_command(target_dir="Médical\\", extra_args="--verbose")
             self.assertEqual(cmd[-2:], ["Médical", "--verbose"])
 
+            host._save_session_token("tok-sync-999")
+            with patch.dict(os.environ, {"WATCH_CLIPBOARD_TOKEN": ""}):
+                self.assertEqual(host._load_session_token(), "tok-sync-999")
+                with patch.object(wc_mod, "__file__", script_path):
+                    self.assertEqual(wc_mod._resolve_default_api_token(None), "tok-sync-999")
+
     def test_find_real_windows_python_prefers_local_venv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             proj_dir: Path = Path(tmp_dir) / "watch_clipboard"
@@ -46,22 +53,20 @@ class TestNativeMessagingHost(unittest.TestCase):
 
     def test_read_and_send_message_protocol(self) -> None:
         host: NativeMessagingHost = NativeMessagingHost(script_path="watch_clipboard.py")
-        raw_payload: bytes = json.dumps({"action": "ping"}).encode("utf-8")
+        raw_payload: bytes = json.dumps({"action": "get_token"}).encode("utf-8")
         packed_in: bytes = struct.pack("@I", len(raw_payload)) + raw_payload
 
         fake_stdin = type("FakeStdin", (), {"buffer": io.BytesIO(packed_in)})()
         fake_stdout = type("FakeStdout", (), {"buffer": io.BytesIO()})()
 
-        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout):
-            decoded = host.read_message()
-            self.assertEqual(decoded, {"action": "ping"})
-
-            host.send_message({"ok": True})
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout), patch.object(
+            host, "_load_session_token", return_value="cached-tok"
+        ):
+            host.run_once()
             out_bytes: bytes = fake_stdout.buffer.getvalue()
             out_len: int = next(iter(struct.unpack("@I", out_bytes[:4])), 0)
             out_json = json.loads(out_bytes[4 : 4 + out_len].decode("utf-8"))
-            self.assertEqual(out_json, {"ok": True})
-
+            self.assertEqual(out_json, {"ok": True, "api_token": "cached-tok"})
     @unittest.skipUnless(os.name == "nt", "Test spécifique à l'API Toolhelp32 Windows")
     def test_detect_browser_executable_deep_tree_and_no_fallback(self) -> None:
         host: NativeMessagingHost = NativeMessagingHost(script_path="watch_clipboard.py")

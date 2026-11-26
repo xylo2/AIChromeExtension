@@ -10,6 +10,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
+  const exportMenu = window.GmcExportMenuManager ? new window.GmcExportMenuManager() : null;
   let canRequestCommitMsg = false;
   let updateIndicators = () => {};
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector, (isVerify) => { canRequestCommitMsg = Boolean(isVerify); updateIndicators(); });
@@ -17,7 +18,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   let scanTimer = null, isStartingWatcher = false, isTriggeringFreshExport = false;
   let lastCheckedHref = String(window.location?.href || "");
-  let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, lastEvent: null };
+  let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, lastEvent: null };
 
   let floatingBar = document.querySelector(".gmc-floating-bar");
   if (!floatingBar) { floatingBar = document.createElement("div"); floatingBar.className = "gmc-floating-bar"; document.body.appendChild(floatingBar); }
@@ -41,7 +42,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   };
 
   const statusPill = makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, topRow);
-  const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page", false, topRow);
+  const copyPurgeAllBtn = makeBtn("gmc-global-copypurge-btn", "📋 Tout copier & purger", "Copier tous les blocs non purgés et purger le DOM", true, topRow);
+  const purgeBtn = makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page sans copier", false, topRow);
   const eventPill = makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, bottomRow);
   const commitMsgBtn = makeBtn("gmc-global-commitmsg-btn", "💬 Message de commit", "Demander à l'IA le bloc COMMIT_MESSAGE sans renvoyer le diff", true, bottomRow);
   const gitBtn = makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true, bottomRow);
@@ -58,11 +60,18 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     chrome.runtime.sendMessage(payload, (res) => { onReply(chrome.runtime.lastError ? { ok: false, error: chrome.runtime.lastError.message || "Port fermé" } : res); });
   };
   const setBtnState = (btn, state, label) => { btn.classList.remove("state-running", "state-pass", "state-fail"); if (state) btn.classList.add(`state-${state}`); btn.textContent = label; };
-  const triggerProjectExport = () => {
+  const triggerProjectExport = (mode = "full") => {
     setBtnState(exportBtn, "running", "⏳ Export...");
-    sendBgMessage({ type: "EXPORT_PROJECT" }, (res) => {
-      if (res?.ok && res.content) { chatInjector.dropFile(res.filename || "export.txt", res.content, true); setBtnState(exportBtn, "pass", "✅ Exporté & envoyé"); }
-      else setBtnState(exportBtn, "fail", "❌ Erreur");
+    sendBgMessage({ type: "EXPORT_PROJECT", mode }, (res) => {
+      if (res?.ok && res.content) {
+        const fname = res.filename || "export.txt";
+        const estTok = Number(res.estimated_tokens || Math.ceil(String(res.content).length / 4));
+        const promptTxt = exportMenu ? exportMenu.buildExportPrompt(mode, fname, res.file_count, estTok) : `Fichier joint (\x60${fname}\x60) :`;
+        chatInjector.insertPrompt(promptTxt, false);
+        chatInjector.dropFile(fname, res.content, true);
+        const tokLabel = estTok >= 1000 ? `~${(estTok / 1000).toFixed(1)}k tok` : `~${estTok} tok`;
+        setBtnState(exportBtn, "pass", `✅ Exporté (${tokLabel})`);
+      } else setBtnState(exportBtn, "fail", "❌ Erreur");
     });
   };
   const checkPendingFreshExport = () => {
@@ -72,12 +81,12 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       const ts = Number(res?.pendingFreshExportAt || 0);
       if (!ts || Date.now() - ts > 60000) { if (ts) chrome.storage.local.remove("pendingFreshExportAt"); return; }
       isTriggeringFreshExport = true;
-      chrome.storage.local.remove("pendingFreshExportAt", () => { setTimeout(() => { isTriggeringFreshExport = false; triggerProjectExport(); }, 500); });
+      chrome.storage.local.remove("pendingFreshExportAt", () => { setTimeout(() => { isTriggeringFreshExport = false; triggerProjectExport("full"); }, 500); });
     });
   };
 
   const testActions = new window.GmcTestActionsController(chatInjector, sendBgMessage, setBtnState, { testsBtn, coverageBtn }, () => watcherState, () => updateIndicators());
-  const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector, () => setTimeout(() => composerUi.mount(), 80), svgPreview);
+  const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector, () => { updateIndicators(); setTimeout(() => composerUi.mount(), 80); }, svgPreview);
 
   updateIndicators = () => {
     testActions.invalidateOnNewFiles();
@@ -87,6 +96,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     const folder = watcherState.targetDir ? watcherState.targetDir.split(/[\\/]/).filter(Boolean).pop() : "";
     if (running) statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
     else if (!isStartingWatcher) statusPill.textContent = "🔴 Watcher OFF";
+    const unpurgedCount = blockManager.getUnpurgedCount();
+    copyPurgeAllBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
+    if (unpurgedCount > 0) copyPurgeAllBtn.textContent = `📋 Tout copier & purger (${unpurgedCount})`;
     commitMsgBtn.style.display = running && watcherState.hasGit && canRequestCommitMsg ? "inline-flex" : "none";
     gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
@@ -95,7 +107,13 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     testLogBtn.style.display = running && watcherState.hasRunTestsClip && (testActions.panel.fullReport || testActions.panel.isRunning) ? "inline-flex" : "none";
     testActions.renderCoverageIndicator();
     eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
-    if (running && watcherState.lastEvent) eventPill.textContent = String(watcherState.lastEvent);
+    if (running && watcherState.lastEvent) {
+      const evStr = String(watcherState.lastEvent);
+      const isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
+      eventPill.classList.toggle("state-fail", isSyntaxErr);
+      eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
+      eventPill.title = isSyntaxErr ? "Erreur de syntaxe détectée : cliquer pour envoyer l'extrait à l'IA" : "Cliquer pour envoyer ce statut dans le chat";
+    }
     composerUi.mount(); checkPendingFreshExport();
   };
   const refreshState = () => {
@@ -111,8 +129,23 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     });
   });
 
+  copyPurgeAllBtn.addEventListener("click", () => blockManager.copyAndPurgeAll());
   commitMsgBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true); canRequestCommitMsg = false; updateIndicators(); });
-  eventPill.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt(eventPill.textContent, true); });
+  eventPill.addEventListener("click", () => {
+    blockManager.resetAutoSuiteQuota();
+    const rawEv = String(watcherState?.lastEvent || eventPill.textContent || "");
+    if (watcherState?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) {
+      sendBgMessage({ type: "GET_SYNTAX_ERROR" }, (res) => {
+        const err = res?.syntax_error;
+        if (res?.ok && err?.file) {
+          const prompt = `Erreur de syntaxe détectée automatiquement dans \x60${err.file}\x60 (${err.message}) :\n\x60\x60\x60text\n${err.snippet || ""}\n\x60\x60\x60\nPeux-tu corriger ce fichier ?`;
+          chatInjector.insertPrompt(prompt, true);
+        } else chatInjector.insertPrompt(rawEv, true);
+      });
+      return;
+    }
+    chatInjector.insertPrompt(rawEv, true);
+  });
   yesBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
   nextBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); });
   excuseBtn.addEventListener("click", () => chatInjector.insertPrompt(composerUi.pickExcuse(), false));
@@ -126,7 +159,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       setBtnState(gitBtn, null, "🔀 Git status"); gitManager.open(entries);
     });
   });
-  exportBtn.addEventListener("click", triggerProjectExport);
+  exportBtn.addEventListener("click", () => { if (exportMenu) exportMenu.toggle((selectedMode) => triggerProjectExport(selectedMode)); else triggerProjectExport("full"); });
   testLogBtn.addEventListener("click", () => testActions.panel.toggle());
   purgeBtn.addEventListener("click", () => blockManager.purgeAll());
 
@@ -141,7 +174,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     const nodes = [...(r.addedNodes || []), ...(r.removedNodes || [])];
     return nodes.length === 0 || nodes.some((n) => n.nodeType !== 1 || !String(n.className || "").includes("gmc-"));
   });
-  const scanAll = (preExisting = false) => { composerUi.mount(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); svgPreview.scanStandaloneBlocks(); };
+  const scanAll = (preExisting = false) => { composerUi.mount(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); svgPreview.scanStandaloneBlocks(); updateIndicators(); };
   window.__gmcObserver = new MutationObserver((records) => { if (!isExternalMutation(records)) return; clearTimeout(scanTimer); scanTimer = setTimeout(() => scanAll(false), 300); });
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
   scanAll(true); refreshState();

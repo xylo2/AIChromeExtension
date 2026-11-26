@@ -26,6 +26,23 @@ from clipboard_watcher.status_server import StatusServer
 from clipboard_watcher.watcher import ClipboardWatcher
 
 
+def _resolve_default_api_token(explicit_token: Optional[str]) -> str:
+    if explicit_token is not None:
+        return explicit_token.strip()
+    env_tok: str = os.environ.get("WATCH_CLIPBOARD_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+    script_dir: str = os.path.dirname(os.path.abspath(__file__))
+    token_file: str = os.path.join(script_dir, ".native_host", "session_token.txt")
+    try:
+        if os.path.isfile(token_file):
+            with open(token_file, "r", encoding="utf-8") as f_tok:
+                return f_tok.read().strip()
+    except OSError:
+        pass
+    return ""
+
+
 class ApplicationRunner:
     """
     Orchestre l'initialisation des composants, le serveur de statut et la surveillance.
@@ -60,7 +77,7 @@ class ApplicationRunner:
         )
         self.status_server: Optional[StatusServer] = None
         if self.config.server_enabled:
-            tok: str = (api_token if api_token is not None else os.environ.get("WATCH_CLIPBOARD_TOKEN", "")).strip()
+            tok: str = _resolve_default_api_token(api_token)
             orig: str = (allowed_origin if allowed_origin is not None else os.environ.get("WATCH_CLIPBOARD_ORIGIN", "")).strip()
             self.status_server = StatusServer(
                 host=self.config.server_host,

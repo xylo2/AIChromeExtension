@@ -66,8 +66,7 @@ def try_assemble_parts(
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         with open(target_path, "w", encoding=assembler.config.encoding, newline="\n") as out:
             out.write("\n".join(assembled).rstrip() + "\n")
-        assembler._record_event("COMPLET", target_path, f"{total_parts}/{total_parts}")
-        print(f"[COMPLET] {target_path} ({total_parts}/{total_parts} parties assemblées)")
+        assembler._verify_written_syntax(target_path, ok_tag="COMPLET", ok_detail=f"{total_parts}/{total_parts}")
     elif total_parts and missing:
         assembler._record_event("ATTENTE", target_path, f"{part_num}/{total_parts}, manque {missing}")
         print(f"[ATTENTE] {target_path} (partie {part_num}/{total_parts} sauvée, manque : {missing})")
@@ -75,5 +74,4 @@ def try_assemble_parts(
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
         with open(target_path, "w", encoding=assembler.config.encoding, newline="\n") as out:
             out.write("\n".join(assembled).rstrip() + "\n")
-        assembler._record_event("OK", target_path, f"partie {part_num}")
-        print(f"[OK] {target_path} (partie {part_num} assemblée)")
+        assembler._verify_written_syntax(target_path, ok_tag="OK", ok_detail=f"partie {part_num}")

@@ -12,7 +12,8 @@ from project_exporter.gitignore import GitignoreRule
 class TestProjectExporter(unittest.TestCase):
     """
     Tests unitaires vérifiant le filtrage .gitignore (classes [...], négations, sous-dossiers),
-    les surcharges CLI, le repli d'encodage latin-1 et la consolidation finale.
+    les surcharges CLI, le repli d'encodage latin-1, le manifeste avec compteur de lignes
+    et estimation de tokens, ainsi que la consolidation finale.
     """
 
     def setUp(self) -> None:
@@ -52,8 +53,7 @@ class TestProjectExporter(unittest.TestCase):
         rule_dir = GitignoreRule("build/")
         self.assertTrue(rule_dir.matches("build", is_dir=True))
         self.assertFalse(rule_dir.matches("build", is_dir=False))
-
-    def test_export_negation_fallback_encoding_and_nested_gitignore(self) -> None:
+    def test_export_negation_fallback_encoding_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_str:
             root = Path(tmp_str)
 
@@ -65,12 +65,13 @@ class TestProjectExporter(unittest.TestCase):
             latin_file = root / "legacy_latin1.py"
             latin_file.write_bytes("# Commentaire café résumé\nx = 1\n".encode("latin-1"))
 
-            # Sous-répertoire avec son propre .gitignore
+            # Sous-répertoire avec son propre .gitignore et un fichier long (> 75 lignes)
             sub_dir = root / "subpkg"
             sub_dir.mkdir()
             (sub_dir / ".gitignore").write_text("local_secret.py\n", encoding="utf-8")
             (sub_dir / "local_secret.py").write_text("SECRET = '123'\n", encoding="utf-8")
-            (sub_dir / "public.py").write_text("OK = True\n", encoding="utf-8")
+            long_lines: str = "\n".join(f"VAR_{idx} = {idx}" for idx in range(80)) + "\n"
+            (sub_dir / "public.py").write_text(long_lines, encoding="utf-8")
 
             out_file = root / "out" / "result.txt"
             cfg = ExporterConfig(config_path=root / "missing.ini", logger=self.logger)
@@ -88,6 +89,11 @@ class TestProjectExporter(unittest.TestCase):
             self.assertEqual(count, 3)
 
             exported_text: str = out_file.read_text(encoding="utf-8")
+            self.assertIn("MANIFESTE DU PROJET : 3 fichier(s) | 83 lignes | ~", exported_text)
+            self.assertIn("- important.log (1 lignes, ~", exported_text)
+            self.assertIn("- legacy_latin1.py (2 lignes, ~", exported_text)
+            self.assertIn("- subpkg/public.py (80 lignes, ~", exported_text)
+            self.assertIn("[>75l -> FILE_PART]", exported_text)
             self.assertIn("FICHIER : important.log", exported_text)
             self.assertIn("FICHIER : legacy_latin1.py", exported_text)
             self.assertIn("café résumé", exported_text)

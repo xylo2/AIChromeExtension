@@ -22,7 +22,7 @@ from clipboard_watcher.win32_process_helper import (  # noqa: E402
 class NativeMessagingHost:
     """
     Hôte Native Messaging compatible avec le protocole stdio de Chrome/Edge/Brave.
-    Lance watch_clipboard.py en arrière-plan et lui transmet le jeton d'API et l'origine autorisée.
+    Lance watch_clipboard.py en arrière-plan et synchronise le jeton d'API de session.
     """
 
     BROWSER_EXECUTABLES: tuple[str, ...] = (
@@ -35,6 +35,7 @@ class NativeMessagingHost:
             script_path = os.path.join(watcher_dir, "watch_clipboard.py")
         self.script_path: str = os.path.abspath(script_path)
         self.work_dir: str = self._resolve_work_dir()
+        self.token_cache_path: str = os.path.join(os.path.dirname(self.script_path), ".native_host", "session_token.txt")
 
     def _resolve_work_dir(self) -> str:
         watch_clip_dir: str = os.path.dirname(self.script_path)
@@ -58,6 +59,26 @@ class NativeMessagingHost:
         if clean_extra:
             cmd.extend(shlex.split(clean_extra, posix=(os.name != "nt")))
         return cmd
+    def _save_session_token(self, token: str) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.token_cache_path), exist_ok=True)
+            with open(self.token_cache_path, "w", encoding="utf-8") as f_tok:
+                f_tok.write(token.strip())
+        except OSError:
+            pass
+
+    def _load_session_token(self) -> str:
+        env_tok: str = os.environ.get("WATCH_CLIPBOARD_TOKEN", "").strip()
+        if env_tok:
+            return env_tok
+        try:
+            if os.path.isfile(self.token_cache_path):
+                with open(self.token_cache_path, "r", encoding="utf-8") as f_tok:
+                    return f_tok.read().strip()
+        except OSError:
+            pass
+        return ""
+
     def read_message(self) -> Optional[Dict[str, Any]]:
         raw_len: bytes = sys.stdin.buffer.read(4)
         if not raw_len or len(raw_len) < 4:
@@ -84,6 +105,7 @@ class NativeMessagingHost:
         extra_args: str = str(message.get("extra_args", "")).strip()
         api_token: str = str(message.get("api_token", "")).strip()
         allowed_origin: str = str(message.get("allowed_origin", "")).strip()
+        self._save_session_token(api_token)
         cmd: List[str] = self._build_command(target_dir=target_dir, extra_args=extra_args)
         env: Dict[str, str] = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         if api_token:
@@ -109,6 +131,8 @@ class NativeMessagingHost:
             action: str = str(msg.get("action", "")).strip()
             if action == "ping":
                 self.send_message({"ok": True, "service": "watch_clipboard_host"})
+            elif action == "get_token":
+                self.send_message({"ok": True, "api_token": self._load_session_token()})
             elif action == "start":
                 self.send_message(self._start_watcher_process(msg))
             else:

@@ -183,6 +183,8 @@ class TestStatusServer(unittest.TestCase):
                     self.assertTrue(exp_data.get("ok"))
                     self.assertEqual(exp_data.get("filename"), "demo_app_export.txt")
                     self.assertEqual(exp_data.get("file_count"), 1)
+                    self.assertGreater(exp_data.get("estimated_tokens", 0), 0)
+                    self.assertIn("MANIFESTE DU PROJET : 1 fichier(s) | 2 lignes", exp_data.get("content", ""))
                     self.assertIn("FICHIER : app.py", exp_data.get("content", ""))
             finally:
                 server.stop()

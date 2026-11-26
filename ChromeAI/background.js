@@ -42,17 +42,34 @@ class WatcherBackgroundService {
     } catch (_err) {}
   }
 
+  async resyncApiToken(currentToken) {
+    if (!this.nativeHelper || typeof this.nativeHelper.fetchSessionToken !== "function") return null;
+    const nativeTok = await this.nativeHelper.fetchSessionToken();
+    if (nativeTok === null || nativeTok === currentToken) return null;
+    if (nativeTok) await chrome.storage.local.set({ watcherApiToken: nativeTok });
+    else await chrome.storage.local.remove("watcherApiToken");
+    return nativeTok;
+  }
+
   async fetchWithTokenFallback(url, options, apiToken) {
-    const baseHeaders = { ...(options.headers || {}) };
-    if (apiToken) baseHeaders["X-Watcher-Token"] = apiToken;
-    let response = await fetch(url, { ...options, headers: baseHeaders });
-    if (response.status === 401 && apiToken) {
-      response = await fetch(url, { ...options, headers: { ...(options.headers || {}) } });
+    const sendWith = (tok) => {
+      const hdrs = { ...(options.headers || {}) };
+      if (tok) hdrs["X-Watcher-Token"] = tok;
+      return fetch(url, { ...options, headers: hdrs });
+    };
+    let response = await sendWith(apiToken);
+    if (response.status !== 401) return response;
+    const syncedToken = await this.resyncApiToken(apiToken);
+    if (syncedToken !== null) {
+      response = await sendWith(syncedToken);
+      if (response.status !== 401) return response;
+    }
+    if (apiToken) {
+      response = await sendWith("");
       if (response.ok) await chrome.storage.local.remove("watcherApiToken");
     }
     return response;
   }
-
   updateBadge(isRunning) {
     chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" });
     chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" });
@@ -62,21 +79,21 @@ class WatcherBackgroundService {
     this.isChecking = true;
     const storedPrefs = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
     const customRunner = (storedPrefs.savedTestRunner || "").trim();
-    const state = { running: false, targetDir: null, pid: null, command: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, testRunnerPath: null, lastEvent: null, configuredTestRunner: customRunner || this.DEFAULT_TEST_RUNNER, checkedAt: new Date().toLocaleTimeString() };
+    const state = { running: false, targetDir: null, pid: null, command: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, testRunnerPath: null, lastEvent: null, configuredTestRunner: customRunner || this.DEFAULT_TEST_RUNNER, checkedAt: new Date().toLocaleTimeString() };
     try {
       const query = customRunner ? `?test_runner=${encodeURIComponent(customRunner)}` : "";
       const response = await this.fetchWithTokenFallback(`${this.BASE_URL}/status${query}`, { signal: AbortSignal.timeout(4500), cache: "no-store" }, storedPrefs.watcherApiToken || "");
       if (response.ok) {
         const data = await response.json();
         if (data?.status === "running") {
-          Object.assign(state, { running: true, targetDir: data.target_dir || "", pid: data.pid || null, command: data.command || null, hasRunTestsClip: Boolean(data.has_run_tests_clip), hasExporter: Boolean(data.has_exporter), hasGit: Boolean(data.has_git), testRunnerPath: data.test_runner_path || null, lastEvent: data.last_event || null });
+          Object.assign(state, { running: true, targetDir: data.target_dir || "", pid: data.pid || null, command: data.command || null, hasRunTestsClip: Boolean(data.has_run_tests_clip), hasExporter: Boolean(data.has_exporter), hasGit: Boolean(data.has_git), hasSyntaxError: Boolean(data.has_syntax_error), testRunnerPath: data.test_runner_path || null, lastEvent: data.last_event || null });
           if (data.configured_test_runner) state.configuredTestRunner = data.configured_test_runner;
           const detectedRoot = this.extractWorkspaceRoot(state.targetDir);
           if (detectedRoot) await chrome.storage.local.set({ savedRootDir: detectedRoot });
         }
       }
     } catch (_err) { state.running = false; } finally { this.isChecking = false; }
-    const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasGit}|${state.lastEvent}`;
+    const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasGit}|${state.hasSyntaxError}|${state.lastEvent}`;
     await chrome.storage.local.set({ watchClipboardState: state });
     this.updateBadge(state.running);
     if (forceBroadcast || this.lastKnownSignature !== signature) { this.lastKnownSignature = signature; await this.broadcastStateToTabs(state); }
@@ -114,7 +131,6 @@ class WatcherBackgroundService {
     await chrome.storage.local.remove("watcherApiToken");
     return this.waitForExpectedState(false, 2000);
   }
-
   async postJson(endpoint, bodyObj, timeoutMs = 15000, errFallback = "Erreur serveur.") {
     try {
       const res = await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) }, await this.getApiToken());
@@ -151,10 +167,11 @@ class WatcherBackgroundService {
     if (!message) return false;
     const routes = {
       REFRESH_STATUS: () => this.checkStatus(true), START_WATCHER: () => this.startWatcher(message.targetDir, message.extraArgs), STOP_WATCHER: () => this.stopWatcher(),
-      EXPORT_PROJECT: () => this.postJson("/export-project", {}, 65000, "Impossible de générer l'export du projet."), GIT_STATUS: () => this.getJson("/git-status", 10000, "Impossible de lire git status."),
+      EXPORT_PROJECT: () => this.postJson("/export-project", { mode: message.mode || "full" }, 65000, "Impossible de générer l'export du projet."), GIT_STATUS: () => this.getJson("/git-status", 10000, "Impossible de lire git status."),
       GIT_DIFF_SELECTED: () => this.postJson("/git-diff", { files: message.files || [] }, 15000, "Impossible de récupérer git diff."),
       GIT_COMMIT: () => this.postJson("/git-commit", Array.isArray(message.files) && message.files.length > 0 ? { message: message.message || "", files: message.files } : { message: message.message || "" }, 15000, "Impossible d'exécuter git commit."),
       READ_SAVED_FILE: () => this.getJson(`/read-file?header=${encodeURIComponent(message.header || "")}`, 5000, "Impossible de relire le fichier sauvegardé."),
+      GET_SYNTAX_ERROR: () => this.getJson("/last-syntax-error", 5000, "Impossible de lire l'erreur de syntaxe."),
       RUN_PROJECT_TESTS: () => this.runTests(message.injectIntoActiveTab !== false), STOP_PROJECT_TESTS: () => this.postJson("/run-tests-stop", {}, 8000, "Impossible d'arrêter les tests."),
       POLL_TEST_STREAM: () => this.getJson(`/test-stream?offset=${Number(message.offset || 0)}`, 5000, "Erreur flux tests.")
     };

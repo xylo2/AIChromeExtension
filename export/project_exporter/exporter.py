@@ -4,14 +4,22 @@ import fnmatch
 import logging
 import os
 from pathlib import Path
+from typing import List, Tuple
 from project_exporter.config import ExporterConfig
 from project_exporter.gitignore import GitignoreManager
 
 
 class ProjectExporter:
     """
-    Parcourt récursivement un répertoire projet et consolide les fichiers cibles dans un export unique.
+    Parcourt récursivement un répertoire projet et consolide les fichiers cibles dans un export unique,
+    précédé d'un manifeste listant les fichiers, leur nombre de lignes et une estimation de tokens.
     """
+
+    MODE_LABELS: dict[str, str] = {
+        "full": "COMPLET (code + tests)",
+        "code": "PARTIEL — CODE UNIQUEMENT (sans fichiers de tests)",
+        "tests": "PARTIEL — TESTS UNIQUEMENT",
+    }
 
     def __init__(
         self,
@@ -20,17 +28,28 @@ class ProjectExporter:
         output_file: Path,
         script_path: Path,
         logger: logging.Logger,
+        export_mode: str = "full",
     ) -> None:
         self.root_dir: Path = root_dir.resolve()
         self.config: ExporterConfig = config
         self.output_file: Path = output_file.resolve()
         self.script_path: Path = script_path.resolve()
         self.logger: logging.Logger = logger
+        clean_mode: str = (export_mode or "full").strip().lower()
+        self.export_mode: str = clean_mode if clean_mode in self.MODE_LABELS else "full"
         self.gitignore_mgr: GitignoreManager = GitignoreManager(
             root_dir=self.root_dir,
             logger=self.logger,
             enabled=self.config.respect_gitignore,
         )
+
+    @staticmethod
+    def is_test_rel_path(rel_posix: str) -> bool:
+        parts: List[str] = [p.lower() for p in rel_posix.replace("\\", "/").split("/") if p]
+        if any(p in ("tests", "test", "__tests__") for p in parts[:-1]):
+            return True
+        fname: str = parts[-1] if parts else ""
+        return fname.startswith("test_") or fname.endswith(("_test.py", ".test.js", ".spec.js", ".test.ts", ".spec.ts"))
 
     def should_exclude_dir(self, dir_path: Path) -> bool:
         """
@@ -44,12 +63,14 @@ class ProjectExporter:
             self.logger.debug("Dossier ignoré (règle fixe) : %s/", rel_dir)
             return True
 
+        if self.export_mode == "code" and dir_name.lower() in ("tests", "test", "__tests__"):
+            return True
+
         if self.gitignore_mgr.is_ignored(dir_path, is_dir=True):
             self.logger.debug("Dossier ignoré (.gitignore) : %s/", rel_dir)
             return True
 
         return False
-
     def _matches_exclusion(self, file_path: Path) -> bool:
         rel_posix: str = file_path.relative_to(self.root_dir).as_posix().lower()
         name_low: str = file_path.name.lower()
@@ -77,6 +98,12 @@ class ProjectExporter:
             return False
         if self._matches_exclusion(file_path):
             return False
+        rel_posix: str = file_path.relative_to(self.root_dir).as_posix()
+        is_test: bool = self.is_test_rel_path(rel_posix)
+        if self.export_mode == "code" and is_test:
+            return False
+        if self.export_mode == "tests" and not is_test:
+            return False
         if file_path.name in self.config.included_exact_names:
             return True
         if file_path.suffix.lower() in self.config.included_extensions:
@@ -96,25 +123,48 @@ class ProjectExporter:
         if self.output_file.exists():
             self.output_file.unlink()
 
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        return max(1, (len(text) + 3) // 4) if text else 0
+
+    @classmethod
+    def build_manifest(cls, entries: List[Tuple[str, str, int]], export_mode: str = "full") -> str:
+        sep: str = "=" * 80
+        mode_label: str = cls.MODE_LABELS.get(export_mode, cls.MODE_LABELS["full"])
+        total_lines: int = sum(ln_cnt for _, _, ln_cnt in entries)
+        total_tokens: int = sum(cls.estimate_tokens(body) for _, body, _ in entries)
+        header_lines: List[str] = [
+            sep,
+            f"TYPE D'EXPORT : {mode_label}",
+            f"MANIFESTE DU PROJET : {len(entries)} fichier(s) | {total_lines} lignes | ~{total_tokens:,} tokens".replace(",", " "),
+            sep,
+        ]
+        for rel, body, ln_cnt in entries:
+            tok_est: int = cls.estimate_tokens(body)
+            split_hint: str = " [>75l -> FILE_PART]" if ln_cnt > 75 else ""
+            header_lines.append(f"- {rel} ({ln_cnt} lignes, ~{tok_est} tok){split_hint}")
+        return "\n".join(header_lines) + "\n\n"
+
     def export(self) -> int:
         self._prepare_output_file()
-        exported: int = 0
         sep: str = "=" * 80 + "\n"
+        entries: List[Tuple[str, str, int]] = []
+
+        for current_root, dirs, files in os.walk(self.root_dir):
+            curr_path: Path = Path(current_root)
+            self.gitignore_mgr.register_directory(curr_path)
+            dirs[:] = sorted(d for d in dirs if not self.should_exclude_dir(curr_path / d))
+            for file_name in sorted(files):
+                file_path: Path = curr_path / file_name
+                if not self.is_target_file(file_path):
+                    continue
+                rel: str = file_path.relative_to(self.root_dir).as_posix()
+                content: str = self._read_file_content(file_path)
+                normalized: str = content if content.endswith("\n") else content + "\n"
+                entries.append((rel, normalized, len(normalized.splitlines())))
 
         with self.output_file.open("w", encoding="utf-8") as out:
-            for current_root, dirs, files in os.walk(self.root_dir):
-                curr_path: Path = Path(current_root)
-                self.gitignore_mgr.register_directory(curr_path)
-                dirs[:] = sorted(d for d in dirs if not self.should_exclude_dir(curr_path / d))
-
-                for file_name in sorted(files):
-                    file_path: Path = curr_path / file_name
-                    if not self.is_target_file(file_path):
-                        continue
-                    rel: str = file_path.relative_to(self.root_dir).as_posix()
-                    content: str = self._read_file_content(file_path)
-                    out.write(f"{sep}FICHIER : {rel}\n{sep}")
-                    out.write(content if content.endswith("\n") else content + "\n")
-                    out.write("\n")
-                    exported += 1
-        return exported
+            out.write(self.build_manifest(entries, export_mode=self.export_mode))
+            for rel, normalized, _ in entries:
+                out.write(f"{sep}FICHIER : {rel}\n{sep}{normalized}\n")
+        return len(entries)

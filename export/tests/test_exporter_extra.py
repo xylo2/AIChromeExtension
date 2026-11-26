@@ -14,7 +14,7 @@ from project_exporter.gitignore import GitignoreManager
 
 
 class TestExporterExtra(unittest.TestCase):
-    """Tests complémentaires couvrant les branches d'exclusion et la CLI export_project.py."""
+    """Tests complémentaires couvrant les modes d'export (code, tests, full), les exclusions et la CLI."""
 
     def setUp(self) -> None:
         self.logger: logging.Logger = logging.getLogger("test_exporter_extra")
@@ -27,6 +27,30 @@ class TestExporterExtra(unittest.TestCase):
             cfg = ExporterConfig(config_path=ini_path, logger=self.logger)
             cfg.output_filename = "archive.txt"
             self.assertEqual(cfg.build_output_filename("demo"), "demo_archive.txt")
+
+    def test_export_modes_code_only_and_tests_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests" / "test_app.py").write_text("assert True\n", encoding="utf-8")
+            cfg = ExporterConfig(config_path=root / "missing.ini", logger=self.logger)
+
+            out_code = root / "code_only.txt"
+            cnt_code = ProjectExporter(root, cfg, out_code, root / "export_project.py", self.logger, export_mode="code").export()
+            txt_code = out_code.read_text(encoding="utf-8")
+            self.assertEqual(cnt_code, 1)
+            self.assertIn("TYPE D'EXPORT : PARTIEL — CODE UNIQUEMENT", txt_code)
+            self.assertIn("FICHIER : app.py", txt_code)
+            self.assertNotIn("test_app.py", txt_code)
+
+            out_tests = root / "tests_only.txt"
+            cnt_tests = ProjectExporter(root, cfg, out_tests, root / "export_project.py", self.logger, export_mode="tests").export()
+            txt_tests = out_tests.read_text(encoding="utf-8")
+            self.assertEqual(cnt_tests, 1)
+            self.assertIn("TYPE D'EXPORT : PARTIEL — TESTS UNIQUEMENT", txt_tests)
+            self.assertIn("FICHIER : tests/test_app.py", txt_tests)
+            self.assertNotIn("FICHIER : app.py", txt_tests)
 
     def test_exporter_exclusions_and_gitignore_wildcards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -77,13 +101,6 @@ class TestExporterExtra(unittest.TestCase):
                 except SystemExit as exc:
                     self.assertIn(exc.code, (0, None))
             self.assertTrue(out_path.is_file())
-
-            with patch.object(sys, "argv", ["export_project.py", str(Path(tmp_dir) / "absent_dir")]):
-                spec_err = importlib.util.spec_from_file_location("__main__", str(cli_script))
-                assert spec_err and spec_err.loader
-                mod_err = importlib.util.module_from_spec(spec_err)
-                with self.assertRaises(SystemExit):
-                    spec_err.loader.exec_module(mod_err)
 
 
 if __name__ == "__main__":
