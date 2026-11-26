@@ -1,5 +1,5 @@
 /**
- * Création des placeholders, boutons de contrôle (purge, SVG) et synchronisation DOM des blocs.
+ * Création des placeholders, boutons de contrôle (purge, batch, SVG) et synchronisation DOM.
  */
 class BlockControlsUiHelper {
   constructor(spillDetector, svgPreview = null) {
@@ -43,7 +43,11 @@ class BlockControlsUiHelper {
     const verifyBtn = document.createElement("button");
     verifyBtn.type = "button"; verifyBtn.className = "gmc-verify-btn";
     verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)"; verifyBtn.innerHTML = this.VERIFY_SVG;
-    const item = { el: pre, placeholderEl: placeholder, placeholderRow: row, headerName, labelEl, verifyBtn, downloadBtn: null, purgeButtons: [], placeholderPurgeBtn: null, headerPurgeBtn: null, headerPurgeAttached: false, spilledNodes: [], cachedCombinedCode: "", preExisting };
+    const batchBtn = document.createElement("button");
+    batchBtn.type = "button"; batchBtn.className = "gmc-batch-purge-btn";
+    batchBtn.title = "Copier tous les blocs non purgés et purger le DOM"; batchBtn.style.display = "none";
+    batchBtn.addEventListener("click", (e) => { e.stopPropagation(); manager.copyAndPurgeAll(); });
+    const item = { el: pre, placeholderEl: placeholder, placeholderRow: row, headerName, labelEl, verifyBtn, batchBtn, downloadBtn: null, purgeButtons: [], placeholderPurgeBtn: null, headerPurgeBtn: null, headerPurgeAttached: false, spilledNodes: [], cachedCombinedCode: "", preExisting };
     verifyBtn.addEventListener("click", (e) => { e.stopPropagation(); manager.verifyWithAi(item); });
     item.downloadBtn = this.createDownloadBtn(item, (it) => manager.extractCombinedCode(it));
     item.placeholderPurgeBtn = this.createPurgeBtn(item, (it) => manager.copyAndPurge(it));
@@ -52,12 +56,18 @@ class BlockControlsUiHelper {
       toggleBtn.textContent = collapsed ? "Afficher" : "Masquer";
       manager.syncItem(item); manager.attachHeaderControls(pre, item);
     });
-    row.append(labelEl, toggleBtn, item.downloadBtn, verifyBtn, item.placeholderPurgeBtn);
+    row.append(labelEl, toggleBtn, item.downloadBtn, verifyBtn, item.placeholderPurgeBtn, batchBtn);
     placeholder.append(row);
     return item;
   }
 
   syncItemVisuals(item, manager) {
+    const unpurged = manager.getUnpurgedBlocks();
+    const isFirstUnpurged = unpurged.length > 1 && unpurged.at(0) === item;
+    if (item.batchBtn) {
+      item.batchBtn.style.display = isFirstUnpurged ? "inline-flex" : "none";
+      if (isFirstUnpurged) item.batchBtn.textContent = `📋 Tout purger (${unpurged.length})`;
+    }
     if (manager.isItemPurged(item)) {
       if (this.svgPreview?.hasSvg(item.cachedCombinedCode)) {
         this.svgPreview.bindHoverTarget(item.placeholderEl, () => item.cachedCombinedCode);

@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover tests)
-
 import importlib.util
 import io
 import json
@@ -16,7 +14,7 @@ from clipboard_watcher.assembler import FileAssembler
 from clipboard_watcher.config import WatcherConfig
 from clipboard_watcher.native_host import NativeMessagingHost
 import clipboard_watcher.native_host as native_host_mod
-from clipboard_watcher.status_server import StatusServer, _QuietThreadingHTTPServer, _StatusRequestHandler
+from clipboard_watcher.status_server import StatusServer, _StatusRequestHandler
 from clipboard_watcher.watcher import ClipboardWatcher
 from install_native_host import NativeHostInstaller
 import tools.fix_urls as fix_urls_mod
@@ -121,7 +119,7 @@ class TestFinalCoverage(unittest.TestCase):
             handler.end_headers = lambda: None  # type: ignore[method-assign]
             self.assertEqual(handler._read_json_body(), {})
 
-            self.assertFalse(handler._is_within_allowed_roots("C:\\a.py", ["D:\\"]))
+            self.assertFalse(handler._is_within_allowed_roots("C:\\x.py", ["D:\\"]))
             ok_abs1, _, _ = handler._read_saved_file_from_header("/abs/path.py")
             ok_abs2, _, _ = handler._read_saved_file_from_header("/abs/part.py | 1/2")
             self.assertFalse(ok_abs1)
@@ -132,7 +130,7 @@ class TestFinalCoverage(unittest.TestCase):
             (fake_exp / "__init__.py").write_text("", encoding="utf-8")
 
             def _fake_export_run(cmd: list[str], **_kw: object) -> object:
-                out_dir = Path(cmd[-2])
+                out_dir = Path(cmd[-4])
                 (out_dir / "proj_export.txt").write_text("EXPORT_OK", encoding="utf-8")
                 return type("R", (), {"returncode": 0, "stdout": "proj_export.txt|1\n", "stderr": ""})()
 

@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 class GitOperations:
-    """Encapsule les opérations Git locales (status, diff, commit, push)."""
+    """Encapsule les opérations Git locales (status, diff -U5 intelligent, commit, push)."""
 
     def __init__(
         self,
@@ -22,9 +22,7 @@ class GitOperations:
         self._run = run_fn
 
     def _resolve_root(self) -> Optional[str]:
-        if self._find_git_root_override is not None:
-            return self._find_git_root_override()
-        return self.find_git_root()
+        return self._find_git_root_override() if self._find_git_root_override is not None else self.find_git_root()
 
     def find_git_root(self) -> Optional[str]:
         base_real: str = os.path.realpath(self.target_dir)
@@ -46,8 +44,7 @@ class GitOperations:
         base_real: str = os.path.realpath(self.target_dir)
         cmd: List[str] = ["git", "-c", "core.quotePath=false", "status", "--porcelain", "-uall"]
         if base_real != git_root and self._is_within_allowed_roots(base_real, [git_root]):
-            rel_scope: str = os.path.relpath(base_real, git_root).replace("\\", "/")
-            cmd.extend(["--", rel_scope])
+            cmd.extend(["--", os.path.relpath(base_real, git_root).replace("\\", "/")])
         proc = self._run(cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
         if proc.returncode != 0:
             return False, [], (proc.stderr or proc.stdout or "Erreur git status").strip()
@@ -56,19 +53,27 @@ class GitOperations:
             if len(raw_line) < 4:
                 continue
             code: str = raw_line[:2].strip() or "M"
-            rel_path: str = raw_line[3:].strip().strip('"')
-            if " -> " in rel_path:
-                _, rel_path = rel_path.split(" -> ", 1)
+            rel_path: str = raw_line[3:].strip().strip('"').split(" -> ")[-1]
             if rel_path:
                 entries.append({"status": code, "path": rel_path.replace("\\", "/")})
         return True, entries, ""
+
+    @staticmethod
+    def _summarize_untracked_test(rel: str, content: str) -> str:
+        low = rel.lower()
+        is_test = "/tests/" in f"/{low}" or os.path.basename(low).startswith("test_") or low.endswith((".test.js", ".spec.js"))
+        if not is_test or len(content) <= 3500:
+            return content[:12000]
+        test_defs = [ln.strip() for ln in content.splitlines() if re.match(r"^\s*(?:async\s+)?(?:def\s+test_|test\(|it\()", ln)]
+        summary = "\n".join(test_defs[:40]) or content[:2500]
+        return f"[Résumé nouveau fichier de tests ({len(content.splitlines())} lignes)]\n{summary}"
+
     def diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
             return False, "", "Aucun dépôt Git détecté."
         clean_files: List[str] = [
-            str(item).strip().replace("\\", "/")
-            for item in files
+            str(item).strip().replace("\\", "/") for item in files
             if str(item).strip() and not str(item).strip().startswith("/") and not os.path.isabs(str(item).strip())
             and self._is_within_allowed_roots(os.path.realpath(os.path.join(git_root, str(item).strip())), [git_root])
         ]
@@ -79,12 +84,12 @@ class GitOperations:
         if st_proc.stdout.strip():
             chunks.append("=== GIT STATUS ===\n" + st_proc.stdout.strip())
         has_head = self._run(["git", "rev-parse", "--verify", "HEAD"], cwd=git_root, capture_output=True, check=False).returncode == 0
-        diff_cmd: List[str] = ["git", "diff", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "--cached", "--", *clean_files]
+        diff_cmd: List[str] = ["git", "diff", "-U5", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "-U5", "--cached", "--", *clean_files]
         diff_proc = self._run(diff_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
         if diff_proc.stdout.strip():
             chunks.append("=== GIT DIFF ===\n" + diff_proc.stdout.strip())
         if not has_head:
-            wt_proc = self._run(["git", "diff", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+            wt_proc = self._run(["git", "diff", "-U5", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
             if wt_proc.stdout.strip():
                 chunks.append("=== GIT DIFF (WORKING TREE) ===\n" + wt_proc.stdout.strip())
         for rel in clean_files:
@@ -92,7 +97,7 @@ class GitOperations:
             ut_proc = self._run(["git", "ls-files", "--others", "--exclude-standard", "--", rel], cwd=git_root, capture_output=True, text=True, check=False)
             if ut_proc.stdout.strip() and os.path.isfile(full_p):
                 with open(full_p, "r", encoding="utf-8", errors="replace") as f_ut:
-                    chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + f_ut.read()[:12000])
+                    chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + self._summarize_untracked_test(rel, f_ut.read()))
         return True, ("\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."), ""
 
     @staticmethod
@@ -103,8 +108,7 @@ class GitOperations:
         prefixes: Tuple[str, ...] = ("fatal:", "error:", "! [", "remote: error", "permission denied")
         important: List[str] = [ln for ln in lines if any(ln.lower().startswith(pref) for pref in prefixes)]
         summary: str = " | ".join(important[:2]) if important else lines[-1]
-        low_all: str = raw_output.lower()
-        if "terminal prompts disabled" in low_all or "could not read username" in low_all:
+        if "terminal prompts disabled" in raw_output.lower() or "could not read username" in raw_output.lower():
             summary += "\nConseil : exécutez `git config --global credential.helper manager` dans un terminal."
         return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}" if len(lines) > 1 else summary
 
@@ -118,8 +122,7 @@ class GitOperations:
             if not clean_msg:
                 return False, "Message de commit vide."
             safe_files: List[str] = [
-                str(item).strip().replace("\\", "/")
-                for item in (files or [])
+                str(item).strip().replace("\\", "/") for item in (files or [])
                 if str(item).strip() and not os.path.isabs(str(item).strip())
                 and self._is_within_allowed_roots(os.path.realpath(os.path.join(git_root, str(item).strip())), [git_root])
             ]

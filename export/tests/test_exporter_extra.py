@@ -1,8 +1,7 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover -s export/tests -t export)
-
 import importlib.util
 import logging
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,7 +13,7 @@ from project_exporter.gitignore import GitignoreManager
 
 
 class TestExporterExtra(unittest.TestCase):
-    """Tests complémentaires couvrant les modes d'export (code, tests, full), les exclusions et la CLI."""
+    """Tests complémentaires couvrant les modes d'export (code, tests, modified, skeleton, subpaths)."""
 
     def setUp(self) -> None:
         self.logger: logging.Logger = logging.getLogger("test_exporter_extra")
@@ -28,29 +27,57 @@ class TestExporterExtra(unittest.TestCase):
             cfg.output_filename = "archive.txt"
             self.assertEqual(cfg.build_output_filename("demo"), "demo_archive.txt")
 
-    def test_export_modes_code_only_and_tests_only(self) -> None:
+    def test_export_modes_code_tests_skeleton_and_subpaths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "app.py").write_text("import os\n\nclass Demo:\n    def run(self):\n        return 1\n", encoding="utf-8")
+            (root / "script.js").write_text("function hello(a) {\n  return a;\n}\n", encoding="utf-8")
             (root / "tests").mkdir()
             (root / "tests" / "test_app.py").write_text("assert True\n", encoding="utf-8")
             cfg = ExporterConfig(config_path=root / "missing.ini", logger=self.logger)
+            cfg.included_extensions.add(".js")
 
             out_code = root / "code_only.txt"
             cnt_code = ProjectExporter(root, cfg, out_code, root / "export_project.py", self.logger, export_mode="code").export()
             txt_code = out_code.read_text(encoding="utf-8")
-            self.assertEqual(cnt_code, 1)
-            self.assertIn("TYPE D'EXPORT : PARTIEL — CODE UNIQUEMENT", txt_code)
-            self.assertIn("FICHIER : app.py", txt_code)
-            self.assertNotIn("test_app.py", txt_code)
+            self.assertEqual(cnt_code, 2)
+            self.assertIn("PARTIEL — CODE UNIQUEMENT", txt_code)
+            self.assertIn("--- app.py ---", txt_code)
+            self.assertNotIn("--- tests/test_app.py ---", txt_code)
 
             out_tests = root / "tests_only.txt"
             cnt_tests = ProjectExporter(root, cfg, out_tests, root / "export_project.py", self.logger, export_mode="tests").export()
             txt_tests = out_tests.read_text(encoding="utf-8")
             self.assertEqual(cnt_tests, 1)
-            self.assertIn("TYPE D'EXPORT : PARTIEL — TESTS UNIQUEMENT", txt_tests)
-            self.assertIn("FICHIER : tests/test_app.py", txt_tests)
-            self.assertNotIn("FICHIER : app.py", txt_tests)
+            self.assertIn("PARTIEL — TESTS UNIQUEMENT", txt_tests)
+            self.assertIn("--- tests/test_app.py ---", txt_tests)
+
+            out_skel = root / "skel.txt"
+            cnt_skel = ProjectExporter(root, cfg, out_skel, root / "export_project.py", self.logger, export_mode="skeleton", include_subpaths=["app.py", "script.js"]).export()
+            txt_skel = out_skel.read_text(encoding="utf-8")
+            self.assertEqual(cnt_skel, 2)
+            self.assertIn("def run(self): ...", txt_skel)
+            self.assertIn("function hello(a) {", txt_skel)
+            self.assertIn("--- Arborescence omise (", txt_skel)
+            self.assertIn("tests/test_app.py", txt_skel)
+    def test_export_mode_modified_git_and_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Tester"], cwd=root, check=True)
+            (root / "committed.py").write_text("A = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "committed.py"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True)
+            (root / "modified.py").write_text("B = 2\n", encoding="utf-8")
+
+            cfg = ExporterConfig(config_path=root / "missing.ini", logger=self.logger)
+            out_mod = root / "mod.txt"
+            cnt_mod = ProjectExporter(root, cfg, out_mod, root / "export_project.py", self.logger, export_mode="modified").export()
+            txt_mod = out_mod.read_text(encoding="utf-8")
+            self.assertEqual(cnt_mod, 1)
+            self.assertIn("PARTIEL — MODIFIÉS GIT UNIQUEMENT", txt_mod)
+            self.assertIn("--- modified.py ---", txt_mod)
 
     def test_exporter_exclusions_and_gitignore_wildcards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -75,7 +102,7 @@ class TestExporterExtra(unittest.TestCase):
             )
             self.assertFalse(exp.is_target_file(Path(tmp_dir).parent / "outside.py"))
             self.assertEqual(exp.export(), 1)
-            self.assertIn("FICHIER : keep.py", out_file.read_text(encoding="utf-8"))
+            self.assertIn("--- keep.py ---", out_file.read_text(encoding="utf-8"))
 
             gi_disabled = GitignoreManager(root_dir=root, logger=self.logger, enabled=False)
             gi_disabled.register_directory(root)

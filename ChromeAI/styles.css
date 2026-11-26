@@ -62,7 +62,6 @@ code.gmc-collapsed-code,
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-
 .gmc-purge-btn:hover:not(:disabled),
 .gmc-verify-btn:hover:not(:disabled) {
   background: rgba(56, 189, 248, 0.22);
@@ -128,7 +127,6 @@ code.gmc-collapsed-code,
   opacity: 0.65;
   cursor: wait;
 }
-
 .gmc-global-status-pill.online {
   background: rgba(20, 83, 45, 0.94);
   border-color: #22c55e;
@@ -224,3 +222,10 @@ code.gmc-collapsed-code,
 .gmc-svg-preview-header { font-size: 11px; font-weight: 600; color: #38bdf8; }
 .gmc-svg-preview-stage { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 6px; background-color: #ffffff; background-image: linear-gradient(45deg, #e2e8f0 25%, transparent 25%), linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e2e8f0 75%), linear-gradient(-45deg, transparent 75%, #e2e8f0 75%); background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0; }
 .gmc-svg-preview-svg, .gmc-svg-preview-img { display: block; max-width: 240px; max-height: 240px; width: auto; height: auto; }
+.gmc-batch-purge-btn { background: #1e293b; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.gmc-autosuite-banner { position: fixed; bottom: 88px; right: 18px; z-index: 2147483647; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; background: #0f172a; color: #f8fafc; border: 1px solid #38bdf8; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; font-weight: 600; }
+.gmc-autosuite-cancel { background: #dc2626; color: #ffffff; border: none; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.gmc-export-folders-box { margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; background: #0f172a; border: 1px solid #334155; }
+.gmc-export-sublabel { font-size: 11px; color: #94a3b8; margin-bottom: 5px; font-weight: 600; }
+.gmc-export-folders-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.gmc-export-folder-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; background: #1e293b; font-size: 11px; cursor: pointer; }

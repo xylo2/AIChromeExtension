@@ -1,5 +1,5 @@
 /**
- * Gestion du repliage, de la purge DOM et de la navigation entre blocs FILE / SVG.
+ * Gestion du repliage, de la purge DOM et de l'enchaînement auto-Suite des blocs FILE / SVG.
  */
 class CodeBlockManager {
   constructor(spillDetector, chatInjector, onPurgeCallback = null, svgPreview = null) {
@@ -26,9 +26,7 @@ class CodeBlockManager {
       if (ev && ev.type === "keydown" && (ev.ctrlKey || ev.metaKey || ev.altKey)) return;
       if (this.pendingSuiteTimer) this.resetAutoSuiteQuota();
     };
-    ["keydown", "beforeinput", "input", "paste"].forEach((evtName) => {
-      document.addEventListener(evtName, cancelIfTrusted, true);
-    });
+    ["keydown", "beforeinput", "input", "paste"].forEach((evtName) => document.addEventListener(evtName, cancelIfTrusted, true));
   }
 
   isComposerNonEmpty() {
@@ -40,10 +38,13 @@ class CodeBlockManager {
   isItemPurged(item) { return Boolean(item?.purged || item?.el?.getAttribute?.("data-gmc-purged") === "true"); }
   getUnpurgedBlocks() { return this.trackedBlocks.filter((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b)); }
   getUnpurgedCount() { return this.getUnpurgedBlocks().length; }
+  hideSuiteBanner() { this.verifier?.hideSuiteBanner(); }
+  showSuiteBanner(delayMs) { this.verifier?.showSuiteBanner(delayMs, () => this.resetAutoSuiteQuota()); }
 
   resetAutoSuiteQuota() {
     this.consecutiveAutoSuiteCount = 0;
     if (this.pendingSuiteTimer) { clearTimeout(this.pendingSuiteTimer); this.pendingSuiteTimer = null; }
+    this.hideSuiteBanner();
   }
 
   preserveScrollAround(targetEl, mutatorFn) {
@@ -80,49 +81,25 @@ class CodeBlockManager {
     return this.preserveScrollAround(el.parentElement || el, () => {
       const codeNode = el.tagName === "CODE" ? el : (el.querySelector("code") || el);
       codeNode.textContent = headerName ? `${headerName} — ${customMessage}` : customMessage;
-      item.purged = true;
-      el.setAttribute("data-gmc-purged", "true");
-      el.classList.add("gmc-purged-code");
-      (spilledNodes || []).forEach((n) => n.remove());
-      item.spilledNodes = [];
+      item.purged = true; el.setAttribute("data-gmc-purged", "true"); el.classList.add("gmc-purged-code");
+      (spilledNodes || []).forEach((n) => n.remove()); item.spilledNodes = [];
       if (labelEl) labelEl.textContent = `✅ ${headerName || "Bloc"} — ${customMessage}`;
       (purgeButtons || []).forEach((btn) => { btn.disabled = true; btn.classList.add("gmc-purged-btn"); });
       if (verifyBtn && !verifyBtn.disabled) verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)";
       return true;
     });
   }
-  isRedOrOversizedItem(item) {
-    return Boolean(
-      item?.hasSpill ||
-      (item?.spilledNodes && item.spilledNodes.length > 0) ||
-      item?.placeholderEl?.classList?.contains?.("gmc-spilled") ||
-      item?.placeholderEl?.classList?.contains?.("gmc-oversized")
-    );
-  }
 
-  purgeAll() {
-    let anyPurged = false;
-    this.trackedBlocks.forEach((b) => { if (this.purgeDomOnly(b, "Purge manuelle")) anyPurged = true; });
-    if (anyPurged && typeof this.onPurge === "function") this.onPurge();
-  }
+  isRedOrOversizedItem(item) { return Boolean(item?.hasSpill || (item?.spilledNodes && item.spilledNodes.length > 0) || item?.placeholderEl?.classList?.contains?.("gmc-spilled") || item?.placeholderEl?.classList?.contains?.("gmc-oversized")); }
+  purgeAll() { let any = false; this.trackedBlocks.forEach((b) => { if (this.purgeDomOnly(b, "Purge manuelle")) any = true; }); if (any && typeof this.onPurge === "function") this.onPurge(); }
 
   async copyAndPurgeAll() {
     const targets = this.getUnpurgedBlocks();
     if (targets.length === 0) return 0;
-    const chunks = [];
-    for (const item of targets) {
-      const code = this.extractCombinedCode(item);
-      if (code) chunks.push(code);
-    }
-    if (chunks.length > 0) {
-      try { await navigator.clipboard.writeText(chunks.join("\n\n")); } catch (_err) {}
-    }
-    let purgedCount = 0;
-    let hasAlertItem = false;
-    for (const item of targets) {
-      if (this.isRedOrOversizedItem(item)) hasAlertItem = true;
-      if (this.purgeDomOnly(item)) purgedCount += 1;
-    }
+    const chunks = targets.map((it) => this.extractCombinedCode(it)).filter(Boolean);
+    if (chunks.length > 0) { try { await navigator.clipboard.writeText(chunks.join("\n\n")); } catch (_err) {} }
+    let purgedCount = 0, hasAlertItem = false;
+    for (const item of targets) { if (this.isRedOrOversizedItem(item)) hasAlertItem = true; if (this.purgeDomOnly(item)) purgedCount += 1; }
     if (purgedCount > 0) {
       if (typeof this.onPurge === "function") this.onPurge();
       const lastItem = targets.at(-1);
@@ -131,32 +108,26 @@ class CodeBlockManager {
     return purgedCount;
   }
 
-  async copyOnly(item) {
-    const text = this.extractCombinedCode(item);
-    try { await navigator.clipboard.writeText(text); } catch (_err) {}
-    return text;
-  }
-
+  async copyOnly(item) { const text = this.extractCombinedCode(item); try { await navigator.clipboard.writeText(text); } catch (_err) {} return text; }
   findTurnContainer(el) { return this.verifier ? this.verifier.findTurnContainer(el) : (el?.parentElement || null); }
   hasSuitePromptAfterBlock(item) { return this.verifier ? this.verifier.hasSuitePromptAfterBlock(item) : false; }
 
   maybeAutoSendSuite(item) {
     if (!this.chat || typeof this.chat.insertPrompt !== "function") return false;
-    if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE) return false;
-    if (this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false;
+    if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false;
     const turnKey = this.findTurnContainer(item.el) || item.el;
     if (this.autoSentSuiteForTurn === turnKey || !this.hasSuitePromptAfterBlock(item)) return false;
     this.autoSentSuiteForTurn = turnKey;
     if (this.pendingSuiteTimer) clearTimeout(this.pendingSuiteTimer);
+    this.showSuiteBanner(this.AUTO_SUITE_DELAY_MS);
     this.pendingSuiteTimer = setTimeout(() => {
-      this.pendingSuiteTimer = null;
-      if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE) return;
-      if (this.isComposerNonEmpty()) return;
-      this.consecutiveAutoSuiteCount += 1;
-      this.chat.insertPrompt("Suite", true);
+      this.pendingSuiteTimer = null; this.hideSuiteBanner();
+      if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return;
+      this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true);
     }, this.AUTO_SUITE_DELAY_MS);
     return true;
   }
+
   scrollToNextUnpurgedBlock(currentItem) {
     const startIdx = this.trackedBlocks.indexOf(currentItem);
     if (startIdx < 0) return false;
@@ -170,35 +141,16 @@ class CodeBlockManager {
   async copyAndPurge(item) {
     const isRedOrOversized = this.isRedOrOversizedItem(item);
     await this.copyOnly(item);
-    if (this.purgeDomOnly(item)) {
-      if (typeof this.onPurge === "function") this.onPurge();
-      if (!this.scrollToNextUnpurgedBlock(item) && !isRedOrOversized) this.maybeAutoSendSuite(item);
-    }
+    if (this.purgeDomOnly(item)) { if (typeof this.onPurge === "function") this.onPurge(); if (!this.scrollToNextUnpurgedBlock(item) && !isRedOrOversized) this.maybeAutoSendSuite(item); }
   }
 
-  buildFallbackAttachmentName(headerName) {
-    return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : `${headerName || "bloc.txt"}.txt`;
-  }
-
-  async verifyWithAi(item) {
-    if (!this.verifier) return;
-    this.resetAutoSuiteQuota();
-    await this.verifier.verifyWithAi(item, (it) => {
-      const code = this.isItemPurged(it) ? (it.cachedCombinedCode || "") : this.extractCombinedCode(it);
-      if (code) it.cachedCombinedCode = code;
-      return code;
-    });
-  }
-
+  buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : `${headerName || "bloc.txt"}.txt`; }
+  async verifyWithAi(item) { if (!this.verifier) return; this.resetAutoSuiteQuota(); await this.verifier.verifyWithAi(item, (it) => { const c = this.isItemPurged(it) ? (it.cachedCombinedCode || "") : this.extractCombinedCode(it); if (c) it.cachedCombinedCode = c; return c; }); }
   syncItem(item) { if (item?.el && this.controlsUi) this.controlsUi.syncItemVisuals(item, this); }
   createPurgeBtn(item) { return this.controlsUi ? this.controlsUi.createPurgeBtn(item, (it) => this.copyAndPurge(it)) : document.createElement("button"); }
   createDownloadBtn(item) { return this.controlsUi ? this.controlsUi.createDownloadBtn(item, (it) => this.extractCombinedCode(it)) : document.createElement("button"); }
   attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
-
-  detectHeaderName(rawCode) {
-    const match = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX);
-    return match ? match.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null);
-  }
+  detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
 
   scan(preExisting = false) {
     for (const pre of document.querySelectorAll("pre")) {
@@ -211,8 +163,7 @@ class CodeBlockManager {
       const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this);
       this.trackedBlocks.push(item);
       this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); });
-      this.attachHeaderControls(pre, item);
-      this.syncItem(item);
+      this.attachHeaderControls(pre, item); this.syncItem(item);
     }
     for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
   }

@@ -71,6 +71,7 @@ class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
             except ValueError:
                 continue
         return False
+
     def _file_reader(self) -> SavedFileReader:
         return SavedFileReader(self.target_dir, self.assembler_ref, self._is_within_allowed_roots)
 
@@ -108,8 +109,8 @@ class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
     def _compute_export_project_label(self, target_real: str, exporter_root: str) -> str:
         return self._exporter().compute_project_label(target_real, exporter_root)
 
-    def _run_project_export(self, mode: str = "full") -> Tuple[bool, str, str, int]:
-        return self._exporter().run_export(mode=mode)
+    def _run_project_export(self, mode: str = "full", subpaths: Optional[List[str]] = None) -> Tuple[bool, str, str, int]:
+        return self._exporter().run_export(mode=mode, subpaths=subpaths)
 
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
         raw_custom: str = custom_path.strip()

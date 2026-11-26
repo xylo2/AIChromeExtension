@@ -1,10 +1,12 @@
 /**
- * Vérification IA des blocs FILE/FILE_PART et détection de la demande « Suite » en fin de tour.
+ * Vérification IA des blocs FILE/FILE_PART, bannière auto-Suite et détection de fin de tour.
  */
 class BlockVerificationHelper {
   constructor(chatInjector, spillDetector) {
     this.chat = chatInjector;
     this.spill = spillDetector;
+    this.suiteCountdownTimer = null;
+    this.suiteBannerEl = null;
     this.DONE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
   }
 
@@ -57,7 +59,6 @@ class BlockVerificationHelper {
     }
     return el?.parentElement || null;
   }
-
   hasSuitePromptAfterBlock(item) {
     if (!item?.el) return false;
     const tailParts = [];
@@ -85,6 +86,29 @@ class BlockVerificationHelper {
     }
     const combinedTail = tailParts.join("\n");
     return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|r[eé]pond(?:s|re)\s*[«"']\s*suite\s*[»"']|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']\s*suite\s*[»"'])/i.test(combinedTail);
+  }
+
+  hideSuiteBanner() {
+    if (this.suiteCountdownTimer) { clearInterval(this.suiteCountdownTimer); this.suiteCountdownTimer = null; }
+    if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; }
+  }
+
+  showSuiteBanner(delayMs, onCancel) {
+    this.hideSuiteBanner();
+    if (typeof document === "undefined" || !document.createElement || !document.body?.appendChild) return;
+    const banner = document.createElement("div");
+    banner.className = "gmc-autosuite-banner";
+    const label = document.createElement("span");
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button"; cancelBtn.className = "gmc-autosuite-cancel"; cancelBtn.textContent = "Annuler";
+    cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); onCancel(); });
+    banner.append(label, cancelBtn);
+    document.body.appendChild(banner);
+    this.suiteBannerEl = banner;
+    const deadline = Date.now() + delayMs;
+    const updateLabel = () => { label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`; };
+    updateLabel();
+    this.suiteCountdownTimer = setInterval(updateLabel, 200);
   }
 }
 window.GmcBlockVerificationHelper = BlockVerificationHelper;

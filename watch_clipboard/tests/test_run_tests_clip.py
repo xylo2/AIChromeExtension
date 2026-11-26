@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover tests)
-
 import os
 import tempfile
 import unittest
@@ -80,9 +78,8 @@ class TestClipboardTestRunner(unittest.TestCase):
             pct, table_text = runner.format_coverage_report(rows, total_tests=1)
             self.assertAlmostEqual(pct, 40.0)
             self.assertIn("COUVERTURE GLOBALE : 40.0% (2/5 lignes) (1 tests unitaires)", table_text)
-            self.assertIn("0.0% | BAS     | 0/2", table_text)
-            self.assertIn("66.7% | BAS     | 2/3", table_text)
-            self.assertIn("demo.py (66.7%) : lignes 5", table_text)
+            self.assertIn("0.0% | BAS     | 0/2 | unused.py -> lignes 2-3", table_text)
+            self.assertIn("66.7% | BAS     | 2/3 | demo.py -> lignes 5", table_text)
 
 
 if __name__ == "__main__":

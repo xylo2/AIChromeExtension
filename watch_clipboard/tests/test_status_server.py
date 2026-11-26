@@ -159,7 +159,7 @@ class TestStatusServer(unittest.TestCase):
             finally:
                 server.stop()
 
-    def test_export_project_endpoint(self) -> None:
+    def test_export_project_and_folders_endpoints(self) -> None:
         opener = self._no_proxy_opener()
         workspace_root: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         real_exporter_dir: str = os.path.join(workspace_root, "export")
@@ -169,23 +169,26 @@ class TestStatusServer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_workspace:
             shutil.copytree(real_exporter_dir, os.path.join(tmp_workspace, "export"))
             sample_proj: str = os.path.join(tmp_workspace, "demo_app")
-            os.makedirs(sample_proj, exist_ok=True)
-            with open(os.path.join(sample_proj, "app.py"), "w", encoding="utf-8") as f_app:
+            os.makedirs(os.path.join(sample_proj, "pkg_a"), exist_ok=True)
+            with open(os.path.join(sample_proj, "pkg_a", "app.py"), "w", encoding="utf-8") as f_app:
                 f_app.write("def run():\n    return 42\n")
 
             port: int = self._find_free_port()
             server: StatusServer = StatusServer(host="127.0.0.1", port=port, target_dir=sample_proj)
             self.assertTrue(server.start())
             try:
-                exp_req = urllib.request.Request(f"http://127.0.0.1:{port}/export-project", data=b"{}", method="POST")
+                with opener.open(f"http://127.0.0.1:{port}/export-folders", timeout=5.0) as fld_resp:
+                    fld_data = json.loads(fld_resp.read().decode("utf-8"))
+                    self.assertEqual(fld_data.get("folders"), ["pkg_a"])
+
+                exp_req = urllib.request.Request(f"http://127.0.0.1:{port}/export-project", data=b'{"mode":"full","subpaths":["pkg_a"]}', method="POST")
                 with opener.open(exp_req, timeout=15.0) as exp_resp:
                     exp_data = json.loads(exp_resp.read().decode("utf-8"))
                     self.assertTrue(exp_data.get("ok"))
                     self.assertEqual(exp_data.get("filename"), "demo_app_export.txt")
                     self.assertEqual(exp_data.get("file_count"), 1)
-                    self.assertGreater(exp_data.get("estimated_tokens", 0), 0)
-                    self.assertIn("MANIFESTE DU PROJET : 1 fichier(s) | 2 lignes", exp_data.get("content", ""))
-                    self.assertIn("FICHIER : app.py", exp_data.get("content", ""))
+                    self.assertIn("=== EXPORT : COMPLET (code + tests) | 1 fichier(s) | 2 lignes", exp_data.get("content", ""))
+                    self.assertIn("--- pkg_a/app.py ---", exp_data.get("content", ""))
             finally:
                 server.stop()
 

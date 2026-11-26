@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google AI Code Collapser & Watch Clipboard",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "description": "Allège les blocs de code Google AI, affiche l'aperçu SVG au survol et pilote watch_clipboard.",
   "icons": {
     "16": "icons/icon16.png",
@@ -50,6 +50,7 @@
         "block_verifier.js",
         "block_controls_ui.js",
         "block_manager.js",
+        "content_events.js",
         "content.js"
       ],
       "css": ["styles.css"],

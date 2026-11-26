@@ -118,7 +118,7 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
 });
 
 test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiToken 401)", async () => {
-  const scrolled = []; let removedKey = null; let savedObj = null; let calls = 0; const clickedLinks = []; let copiedBatch = "";
+  const scrolled = []; let removedKey = null; let savedJson = ""; let calls = 0; const clickedLinks = []; let copiedBatch = "";
   const makeEl = (tag) => ({
     tagName: tag, type: "", className: "", title: "", innerHTML: "", href: "", download: "", style: {}, listeners: {},
     classList: { add() {}, remove() {} }, addEventListener(ev, fn) { this.listeners[ev] = fn; },
@@ -129,7 +129,7 @@ test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiT
     Blob: class FakeBlob { constructor(parts) { this.parts = parts; } }, URL: { createObjectURL: () => "blob:test-svg", revokeObjectURL: () => {} },
     document: { createElement: makeEl, body: { appendChild() {} } }, setTimeout: () => {},
     navigator: { clipboard: { writeText: async (t) => { copiedBatch = t; } } },
-    chrome: { storage: { local: { remove: async (k) => { removedKey = k; }, set: async (o) => { savedObj = o; } } } },
+    chrome: { storage: { local: { remove: async (k) => { removedKey = k; }, set: async (o) => { savedJson = JSON.stringify(o); } } } },
     fetch: async (_u, opts) => {
       calls += 1;
       if (calls === 1 && opts.headers["X-Watcher-Token"] === "stale-tok") return { status: 401, ok: false };
@@ -153,7 +153,7 @@ test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiT
   const bgSvc = new sandbox.globalThis.GmcBackgroundService();
   bgSvc.nativeHelper.fetchSessionToken = async () => "fresh-tok";
   assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "stale-tok")).ok, true);
-  assert.deepEqual(savedObj, { watcherApiToken: "fresh-tok" });
+  assert.equal(savedJson, JSON.stringify({ watcherApiToken: "fresh-tok" }));
   bgSvc.nativeHelper.fetchSessionToken = async () => null;
   assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "old-tok")).ok, true);
   assert.equal(removedKey, "watcherApiToken");

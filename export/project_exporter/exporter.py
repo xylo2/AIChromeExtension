@@ -1,47 +1,50 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import fnmatch
 import logging
 import os
 from pathlib import Path
-from typing import List, Tuple
+import subprocess
+from typing import List, Optional, Set, Tuple
 from project_exporter.config import ExporterConfig
 from project_exporter.gitignore import GitignoreManager
 
 
 class ProjectExporter:
-    """
-    Parcourt récursivement un répertoire projet et consolide les fichiers cibles dans un export unique,
-    précédé d'un manifeste listant les fichiers, leur nombre de lignes et une estimation de tokens.
-    """
+    """Consolide un répertoire projet en mode full, code, tests, modified ou skeleton."""
 
     MODE_LABELS: dict[str, str] = {
         "full": "COMPLET (code + tests)",
-        "code": "PARTIEL — CODE UNIQUEMENT (sans fichiers de tests)",
+        "code": "PARTIEL — CODE UNIQUEMENT (sans tests)",
         "tests": "PARTIEL — TESTS UNIQUEMENT",
+        "modified": "PARTIEL — MODIFIÉS GIT UNIQUEMENT",
+        "skeleton": "PARTIEL — SQUELETTE / SIGNATURES",
     }
 
-    def __init__(
-        self,
-        root_dir: Path,
-        config: ExporterConfig,
-        output_file: Path,
-        script_path: Path,
-        logger: logging.Logger,
-        export_mode: str = "full",
-    ) -> None:
-        self.root_dir: Path = root_dir.resolve()
-        self.config: ExporterConfig = config
-        self.output_file: Path = output_file.resolve()
-        self.script_path: Path = script_path.resolve()
-        self.logger: logging.Logger = logger
+    def __init__(self, root_dir: Path, config: ExporterConfig, output_file: Path, script_path: Path, logger: logging.Logger, export_mode: str = "full", include_subpaths: Optional[List[str]] = None) -> None:
+        self.root_dir, self.config, self.output_file, self.script_path, self.logger = root_dir.resolve(), config, output_file.resolve(), script_path.resolve(), logger
         clean_mode: str = (export_mode or "full").strip().lower()
         self.export_mode: str = clean_mode if clean_mode in self.MODE_LABELS else "full"
-        self.gitignore_mgr: GitignoreManager = GitignoreManager(
-            root_dir=self.root_dir,
-            logger=self.logger,
-            enabled=self.config.respect_gitignore,
-        )
+        self.include_subpaths: List[str] = [p.strip().replace("\\", "/").strip("/") for p in (include_subpaths or []) if p.strip()]
+        self._git_modified_rel: Optional[Set[str]] = self._detect_git_modified_files() if self.export_mode == "modified" else None
+        self.gitignore_mgr: GitignoreManager = GitignoreManager(root_dir=self.root_dir, logger=self.logger, enabled=self.config.respect_gitignore)
+
+    def _detect_git_modified_files(self) -> Set[str]:
+        try:
+            top_p = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(self.root_dir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False)
+            if top_p.returncode != 0 or not top_p.stdout.strip():
+                return set()
+            git_root = Path(top_p.stdout.strip()).resolve()
+            st_p = subprocess.run(["git", "-c", "core.quotePath=false", "status", "--porcelain", "-uall"], cwd=str(git_root), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
+            modified: Set[str] = set()
+            for raw_ln in st_p.stdout.splitlines():
+                if len(raw_ln) >= 4:
+                    full_p = (git_root / raw_ln[3:].strip().strip('"').split(" -> ")[-1].replace("\\", "/")).resolve()
+                    try:
+                        modified.add(full_p.relative_to(self.root_dir).as_posix().lower())
+                    except ValueError:
+                        continue
+            return modified
+        except Exception:
+            return set()
 
     @staticmethod
     def is_test_rel_path(rel_posix: str) -> bool:
@@ -52,71 +55,50 @@ class ProjectExporter:
         return fname.startswith("test_") or fname.endswith(("_test.py", ".test.js", ".spec.js", ".test.ts", ".spec.ts"))
 
     def should_exclude_dir(self, dir_path: Path) -> bool:
-        """
-        Vérifie si un dossier doit être ignoré selon les exclusions fixes et .gitignore.
-        Les dossiers cachés (ex: .github) sont conservés s'ils ne figurent pas dans excluded_dirs.
-        """
         dir_name: str = dir_path.name
-        rel_dir: str = dir_path.relative_to(self.root_dir).as_posix()
-
         if dir_name in self.config.excluded_dirs or dir_name.endswith(".egg-info"):
-            self.logger.debug("Dossier ignoré (règle fixe) : %s/", rel_dir)
             return True
-
         if self.export_mode == "code" and dir_name.lower() in ("tests", "test", "__tests__"):
             return True
+        return self.gitignore_mgr.is_ignored(dir_path, is_dir=True)
 
-        if self.gitignore_mgr.is_ignored(dir_path, is_dir=True):
-            self.logger.debug("Dossier ignoré (.gitignore) : %s/", rel_dir)
-            return True
-
-        return False
     def _matches_exclusion(self, file_path: Path) -> bool:
         rel_posix: str = file_path.relative_to(self.root_dir).as_posix().lower()
-        name_low: str = file_path.name.lower()
-        suf_low: str = file_path.suffix.lower()
-
-        for pattern in self.config.excluded_patterns:
-            pat_low: str = pattern.lower()
-            if pat_low.startswith(".") and not pat_low.startswith("*"):
-                if suf_low == pat_low:
-                    return True
-            elif fnmatch.fnmatch(name_low, pat_low) or fnmatch.fnmatch(rel_posix, pat_low):
+        name_low, suf_low = file_path.name.lower(), file_path.suffix.lower()
+        for pat in self.config.excluded_patterns:
+            pat_low: str = pat.lower()
+            if (pat_low.startswith(".") and not pat_low.startswith("*") and suf_low == pat_low) or fnmatch.fnmatch(name_low, pat_low) or fnmatch.fnmatch(rel_posix, pat_low):
                 return True
         return False
-
     def is_target_file(self, file_path: Path) -> bool:
         try:
             resolved: Path = file_path.resolve()
             resolved.relative_to(self.root_dir)
         except (OSError, ValueError):
             return False
-
-        if resolved == self.output_file or resolved == self.script_path:
-            return False
-        if self.gitignore_mgr.is_ignored(file_path, is_dir=False):
-            return False
-        if self._matches_exclusion(file_path):
+        if resolved in (self.output_file, self.script_path) or self.gitignore_mgr.is_ignored(file_path, is_dir=False) or self._matches_exclusion(file_path):
             return False
         rel_posix: str = file_path.relative_to(self.root_dir).as_posix()
+        if self.include_subpaths and not any(rel_posix == sp or rel_posix.startswith(f"{sp}/") for sp in self.include_subpaths):
+            return False
+        if self.export_mode == "modified" and self._git_modified_rel is not None and rel_posix.lower() not in self._git_modified_rel:
+            return False
         is_test: bool = self.is_test_rel_path(rel_posix)
-        if self.export_mode == "code" and is_test:
+        if (self.export_mode == "code" and is_test) or (self.export_mode == "tests" and not is_test):
             return False
-        if self.export_mode == "tests" and not is_test:
-            return False
-        if file_path.name in self.config.included_exact_names:
-            return True
-        if file_path.suffix.lower() in self.config.included_extensions:
-            return True
-        return False
+        return file_path.name in self.config.included_exact_names or file_path.suffix.lower() in self.config.included_extensions
 
     def _read_file_content(self, file_path: Path) -> str:
         try:
-            return file_path.read_text(encoding=self.config.primary_encoding)
+            raw: str = file_path.read_text(encoding=self.config.primary_encoding)
         except UnicodeDecodeError:
-            return file_path.read_text(encoding=self.config.fallback_encoding)
+            raw = file_path.read_text(encoding=self.config.fallback_encoding)
         except Exception as exc:
             return f"[ERREUR DE LECTURE : {exc}]"
+        if self.export_mode == "skeleton":
+            from project_exporter.skeleton import extract_skeleton
+            return extract_skeleton(file_path.suffix.lower(), raw)
+        return raw
 
     def _prepare_output_file(self) -> None:
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -128,43 +110,41 @@ class ProjectExporter:
         return max(1, (len(text) + 3) // 4) if text else 0
 
     @classmethod
-    def build_manifest(cls, entries: List[Tuple[str, str, int]], export_mode: str = "full") -> str:
-        sep: str = "=" * 80
+    def build_manifest(cls, entries: List[Tuple[str, str, int]], export_mode: str = "full", all_files: Optional[List[str]] = None) -> str:
         mode_label: str = cls.MODE_LABELS.get(export_mode, cls.MODE_LABELS["full"])
         total_lines: int = sum(ln_cnt for _, _, ln_cnt in entries)
         total_tokens: int = sum(cls.estimate_tokens(body) for _, body, _ in entries)
-        header_lines: List[str] = [
-            sep,
-            f"TYPE D'EXPORT : {mode_label}",
-            f"MANIFESTE DU PROJET : {len(entries)} fichier(s) | {total_lines} lignes | ~{total_tokens:,} tokens".replace(",", " "),
-            sep,
-        ]
+        header_lines: List[str] = [f"=== EXPORT : {mode_label} | {len(entries)} fichier(s) | {total_lines} lignes | ~{total_tokens:,} tok ===".replace(",", " ")]
         for rel, body, ln_cnt in entries:
-            tok_est: int = cls.estimate_tokens(body)
-            split_hint: str = " [>75l -> FILE_PART]" if ln_cnt > 75 else ""
-            header_lines.append(f"- {rel} ({ln_cnt} lignes, ~{tok_est} tok){split_hint}")
+            header_lines.append(f"- {rel} ({ln_cnt}l, ~{cls.estimate_tokens(body)}t){' [>75l]' if ln_cnt > 75 else ''}")
+        if all_files and len(all_files) > len(entries):
+            included_set = {rel for rel, _, _ in entries}
+            omitted = [f for f in all_files if f not in included_set]
+            header_lines.append(f"--- Arborescence omise ({len(omitted)} fichier(s)) : {', '.join(omitted)} ---")
         return "\n".join(header_lines) + "\n\n"
 
     def export(self) -> int:
         self._prepare_output_file()
-        sep: str = "=" * 80 + "\n"
         entries: List[Tuple[str, str, int]] = []
-
+        all_files: List[str] = []
         for current_root, dirs, files in os.walk(self.root_dir):
             curr_path: Path = Path(current_root)
             self.gitignore_mgr.register_directory(curr_path)
             dirs[:] = sorted(d for d in dirs if not self.should_exclude_dir(curr_path / d))
             for file_name in sorted(files):
                 file_path: Path = curr_path / file_name
+                rel: str = file_path.relative_to(self.root_dir).as_posix()
+                is_valid = file_path.suffix.lower() in self.config.included_extensions or file_path.name in self.config.included_exact_names
+                if is_valid and not self.gitignore_mgr.is_ignored(file_path, is_dir=False) and not self._matches_exclusion(file_path):
+                    all_files.append(rel)
                 if not self.is_target_file(file_path):
                     continue
-                rel: str = file_path.relative_to(self.root_dir).as_posix()
                 content: str = self._read_file_content(file_path)
-                normalized: str = content if content.endswith("\n") else content + "\n"
+                cleaned = [ln for ln in content.splitlines() if not ln.startswith("# Commandes pip à exécuter :")]
+                normalized: str = "\n".join(cleaned).rstrip() + "\n"
                 entries.append((rel, normalized, len(normalized.splitlines())))
-
         with self.output_file.open("w", encoding="utf-8") as out:
-            out.write(self.build_manifest(entries, export_mode=self.export_mode))
+            out.write(self.build_manifest(entries, export_mode=self.export_mode, all_files=all_files))
             for rel, normalized, _ in entries:
-                out.write(f"{sep}FICHIER : {rel}\n{sep}{normalized}\n")
+                out.write(f"--- {rel} ---\n{normalized}\n")
         return len(entries)

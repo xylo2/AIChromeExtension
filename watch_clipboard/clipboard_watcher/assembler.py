@@ -26,6 +26,7 @@ class FileAssembler:
             temp_sub = ".watch_clipboard"
         self.temp_dir: str = os.path.realpath(os.path.join(self.base_dir, temp_sub))
         self.last_event: Optional[str] = None
+        self.recent_events: List[str] = []
         self.last_syntax_error: Optional[Dict[str, object]] = None
 
     def _strip_redundant_base_prefix(self, rel_clean: str) -> str:
@@ -50,6 +51,7 @@ class FileAssembler:
         if common != root_dir or candidate == root_dir:
             raise UnsafePathError(f"Tentative de traversée de répertoire bloquée : '{rel_path}'")
         return candidate
+
     def has_file_tags(self, raw: str) -> bool:
         clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         return bool(re.search(self.FILE_HEADER_PATTERN, clean_raw))
@@ -73,10 +75,15 @@ class FileAssembler:
             lines = lines[:-1]
         return "\n".join(lines).rstrip()
 
+    def _push_history(self, event_text: str) -> None:
+        self.last_event = event_text
+        if not self.recent_events or self.recent_events[-1] != event_text:
+            self.recent_events = [*self.recent_events[-4:], event_text]
+
     def _record_event(self, tag: str, target_path: str, detail: str = "") -> None:
         rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
         suffix: str = f" ({detail})" if detail else ""
-        self.last_event = f"[{tag}] {rel_display}{suffix}"
+        self._push_history(f"[{tag}] {rel_display}{suffix}")
 
     def _verify_written_syntax(self, target_path: str, ok_tag: str = "OK", ok_detail: str = "") -> None:
         rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
@@ -114,7 +121,7 @@ class FileAssembler:
                 updated += 1
             except (UnsafePathError, ValueError) as exc:
                 blocked_event = f"[BLOQUÉ] {exc}"
-                self.last_event = blocked_event
+                self._push_history(blocked_event)
                 print(blocked_event)
         if blocked_event is not None:
             self.last_event = blocked_event

@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover -s export/tests -t export)
-
 import logging
 import tempfile
 import unittest
@@ -12,8 +10,7 @@ from project_exporter.gitignore import GitignoreRule
 class TestProjectExporter(unittest.TestCase):
     """
     Tests unitaires vérifiant le filtrage .gitignore (classes [...], négations, sous-dossiers),
-    les surcharges CLI, le repli d'encodage latin-1, le manifeste avec compteur de lignes
-    et estimation de tokens, ainsi que la consolidation finale.
+    les surcharges CLI, le repli d'encodage latin-1, le manifeste compact et la consolidation.
     """
 
     def setUp(self) -> None:
@@ -61,11 +58,9 @@ class TestProjectExporter(unittest.TestCase):
             (root / "debug.log").write_text("ignored trace\n", encoding="utf-8")
             (root / "important.log").write_text("kept trace\n", encoding="utf-8")
 
-            # Fichier encodé en latin-1 (non UTF-8 valide)
             latin_file = root / "legacy_latin1.py"
             latin_file.write_bytes("# Commentaire café résumé\nx = 1\n".encode("latin-1"))
 
-            # Sous-répertoire avec son propre .gitignore et un fichier long (> 75 lignes)
             sub_dir = root / "subpkg"
             sub_dir.mkdir()
             (sub_dir / ".gitignore").write_text("local_secret.py\n", encoding="utf-8")
@@ -89,15 +84,15 @@ class TestProjectExporter(unittest.TestCase):
             self.assertEqual(count, 3)
 
             exported_text: str = out_file.read_text(encoding="utf-8")
-            self.assertIn("MANIFESTE DU PROJET : 3 fichier(s) | 83 lignes | ~", exported_text)
-            self.assertIn("- important.log (1 lignes, ~", exported_text)
-            self.assertIn("- legacy_latin1.py (2 lignes, ~", exported_text)
-            self.assertIn("- subpkg/public.py (80 lignes, ~", exported_text)
-            self.assertIn("[>75l -> FILE_PART]", exported_text)
-            self.assertIn("FICHIER : important.log", exported_text)
-            self.assertIn("FICHIER : legacy_latin1.py", exported_text)
+            self.assertIn("=== EXPORT : COMPLET (code + tests) | 3 fichier(s) | 83 lignes | ~", exported_text)
+            self.assertIn("- important.log (1l, ~", exported_text)
+            self.assertIn("- legacy_latin1.py (2l, ~", exported_text)
+            self.assertIn("- subpkg/public.py (80l, ~", exported_text)
+            self.assertIn("[>75l]", exported_text)
+            self.assertIn("--- important.log ---", exported_text)
+            self.assertIn("--- legacy_latin1.py ---", exported_text)
             self.assertIn("café résumé", exported_text)
-            self.assertIn("FICHIER : subpkg/public.py", exported_text)
+            self.assertIn("--- subpkg/public.py ---", exported_text)
             self.assertNotIn("debug.log", exported_text)
             self.assertNotIn("local_secret.py", exported_text)
 

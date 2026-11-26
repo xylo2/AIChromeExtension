@@ -23,6 +23,7 @@ const JS_MODULES = [
   "block_verifier.js",
   "block_controls_ui.js",
   "block_manager.js",
+  "content_events.js",
   "content.js"
 ];
 
@@ -48,11 +49,13 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(stylesCss.includes("max-width: calc(100vw - 32px)"));
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
   assert.equal((contentJs.match(/const setBtnState\s*=/g) || []).length, 1);
-  assert.ok(contentJs.includes('insertPrompt("Oui", true)'));
-  assert.ok(contentJs.includes('insertPrompt("Suite", true)'));
-  assert.ok(contentJs.includes("composerUi.pickExcuse()"));
-  assert.ok(contentJs.includes("exportMenu.toggle"));
+  assert.ok(contentJs.includes("GmcContentEventsController"));
   assert.ok(contentJs.includes("checkPendingFreshExport"));
+  const eventsJs = fs.readFileSync(path.join(EXTENSION_DIR, "content_events.js"), "utf-8");
+  assert.ok(eventsJs.includes('insertPrompt("Oui", true)'));
+  assert.ok(eventsJs.includes('insertPrompt("Suite", true)'));
+  assert.ok(eventsJs.includes("composerUi.pickExcuse()"));
+  assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
 test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherPopupController fonctionnent", async () => {
   const scrollCalls = [];
@@ -89,7 +92,7 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
 });
 
-test("GitCommitUiHelper et ExportMenuManager gèrent session vierge et choix du type d'export", () => {
+test("GitCommitUiHelper et ExportMenuManager gèrent session vierge, modes et sous-dossiers", () => {
   let storedPayload = null;
   const appended = [];
   const baseUrl = ["https://www", "google", "com"].join(".");
@@ -97,14 +100,14 @@ test("GitCommitUiHelper et ExportMenuManager gèrent session vierge et choix du 
   const appHref = new URL("/app/session-12345?hl=fr#top", baseUrl).toString();
   const locObj = { href: searchHref };
   const makeNode = () => ({
-    type: "", className: "", textContent: "", title: "", disabled: false, children: [], listeners: {}, removed: false,
+    type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, children: [], listeners: {}, removed: false,
     append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() { this.removed = true; }
   });
   const sandbox = {
     URL,
     window: { location: locObj },
-    document: { createElement: makeNode, body: { appendChild(n) { appended.push(n); } } },
+    document: { createElement: makeNode, createTextNode: (t) => ({ textContent: t }), body: { appendChild(n) { appended.push(n); } } },
     chrome: { storage: { local: { set(obj, cb) { storedPayload = obj; if (cb) cb(); } } } }
   };
   vm.createContext(sandbox);
@@ -121,12 +124,13 @@ test("GitCommitUiHelper et ExportMenuManager gèrent session vierge et choix du 
 
   const menu = new sandbox.window.GmcExportMenuManager();
   assert.ok(menu.buildExportPrompt("code", "proj_code_export.txt", 5, 2500).includes("CODE UNIQUEMENT"));
-  assert.ok(menu.buildExportPrompt("tests", "proj_tests_export.txt", 3, 1200).includes("TESTS UNIQUEMENT"));
+  assert.ok(menu.buildExportPrompt("modified", "proj_modified_export.txt", 2, 800, ["ChromeAI"]).includes("[Dossiers : ChromeAI]"));
+  assert.ok(menu.buildExportPrompt("skeleton", "proj_skeleton_export.txt", 4, 600).includes("SQUELETTE"));
   assert.ok(menu.buildExportPrompt("full", "proj_export.txt", 8, 3700).includes("COMPLET"));
-  let chosenMode = "";
-  menu.toggle((m) => { chosenMode = m; });
+  let chosen = null;
+  menu.toggle((m, sub) => { chosen = JSON.stringify({ m, sub }); }, ["ChromeAI", "export"]);
   assert.equal(appended.length, 1);
-  appended.at(0).children.at(1).children.at(1).listeners.click({ stopPropagation() {} });
-  assert.equal(chosenMode, "code");
+  appended.at(0).children.at(2).children.at(1).listeners.click({ stopPropagation() {} });
+  assert.equal(chosen, JSON.stringify({ m: "code", sub: [] }));
   assert.equal(menu.menuEl, null);
 });
