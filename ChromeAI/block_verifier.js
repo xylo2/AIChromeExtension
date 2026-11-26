@@ -1,5 +1,5 @@
 /**
- * Vérification IA des blocs FILE/FILE_PART, bannière auto-Suite et détection de fin de tour.
+ * Vérification IA des blocs FILE/FILE_PART (unitaire ou groupée par tour), bannière auto-Suite et détection de fin de tour.
  */
 class BlockVerificationHelper {
   constructor(chatInjector, spillDetector) {
@@ -21,7 +21,7 @@ class BlockVerificationHelper {
     return new Promise((resolve) => {
       const deadline = Date.now() + maxWaitMs;
       const attempt = () => {
-        if (!chrome.runtime?.id) { resolve({ ok: false }); return; }
+        if (typeof chrome === "undefined" || !chrome.runtime?.id) { resolve({ ok: false }); return; }
         chrome.runtime.sendMessage({ type: "READ_SAVED_FILE", header: headerName }, (res) => {
           if (res?.ok && typeof res.content === "string") resolve(res);
           else if (Date.now() < deadline) setTimeout(attempt, 350);
@@ -32,23 +32,54 @@ class BlockVerificationHelper {
     });
   }
 
-  async verifyWithAi(item, getCombinedCodeFn) {
+  async resolveItemPayload(item, getSingleCodeFn) {
+    const combinedText = getSingleCodeFn(item);
+    let attachName = this.buildFallbackAttachmentName(item.headerName);
+    let attachContent = combinedText;
+    const res = await this.requestSavedFile(item.headerName, 1400);
+    if (res?.ok && typeof res.content === "string") {
+      attachName = res.filename || attachName;
+      attachContent = res.content;
+    }
+    return { attachName, attachContent };
+  }
+
+  async verifyGroupWithAi(leadItem, members, getSingleCodeFn) {
+    const sections = [];
+    const headersList = [];
+    for (const m of members) {
+      headersList.push(m.headerName);
+      const { attachContent } = await this.resolveItemPayload(m, getSingleCodeFn);
+      sections.push(`--- ${m.headerName} ---\n${attachContent}`);
+    }
+    const bundleName = "verification_tour.txt";
+    this.chat.dropFile(bundleName, sections.join("\n\n"), false);
+    this.chat.insertPrompt(
+      `Vérification groupée de récupération pour les ${members.length} blocs du tour (\x60${headersList.join("`, `")}\x60) : voici exactement le contenu récupéré dans la pièce jointe \x60${bundleName}\x60. Confirme simplement si chaque bloc correspond bien à l'intégralité de ce que tu voulais produire (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère uniquement les blocs concernés découpés en \x60FILE_PART\x60 de moins de 75 lignes chacun.`,
+      { minDelayMs: 900, maxWaitMs: 4500, waitForFile: bundleName }
+    );
+  }
+  async verifyWithAi(item, getSingleCodeFn) {
     if (!item || !item.headerName || item.isVerifyingSpill) return;
     item.isVerifyingSpill = true;
     const btn = item.verifyBtn;
     if (btn) btn.disabled = true;
-    const combinedText = getCombinedCodeFn(item);
-    let attachName = this.buildFallbackAttachmentName(item.headerName);
-    let attachContent = combinedText;
-    const res = await this.requestSavedFile(item.headerName, 1400);
-    if (res?.ok && typeof res.content === "string") { attachName = res.filename || attachName; attachContent = res.content; }
-    item.isVerifyingSpill = false;
-    this.chat.dropFile(attachName, attachContent, false);
-    this.chat.insertPrompt(
-      `Vérification de récupération pour \x60${item.headerName}\x60 : voici exactement le contenu récupéré dans la pièce jointe \x60${attachName}\x60. Confirme simplement si ce code correspond bien à l'intégralité de ce que tu voulais produire pour ce bloc (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère-le découpé en plusieurs blocs \x60FILE_PART\x60 de moins de 75 lignes chacun.`,
-      { minDelayMs: 900, maxWaitMs: 4500, waitForFile: attachName }
-    );
-    if (btn) { btn.innerHTML = this.DONE_SVG; btn.classList.add("gmc-verified-btn"); btn.disabled = true; }
+    try {
+      const members = Array.isArray(item.groupItems) && item.groupItems.length > 1 ? item.groupItems : [item];
+      if (members.length > 1) {
+        await this.verifyGroupWithAi(item, members, getSingleCodeFn);
+      } else {
+        const { attachName, attachContent } = await this.resolveItemPayload(item, getSingleCodeFn);
+        this.chat.dropFile(attachName, attachContent, false);
+        this.chat.insertPrompt(
+          `Vérification de récupération pour \x60${item.headerName}\x60 : voici exactement le contenu récupéré dans la pièce jointe \x60${attachName}\x60. Confirme simplement si ce code correspond bien à l'intégralité de ce que tu voulais produire pour ce bloc (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère-le découpé en plusieurs blocs \x60FILE_PART\x60 de moins de 75 lignes chacun.`,
+          { minDelayMs: 900, maxWaitMs: 4500, waitForFile: attachName }
+        );
+      }
+      if (btn) { btn.innerHTML = this.DONE_SVG; btn.classList.add("gmc-verified-btn"); btn.disabled = true; }
+    } finally {
+      item.isVerifyingSpill = false;
+    }
   }
 
   findTurnContainer(el) {
@@ -93,9 +124,21 @@ class BlockVerificationHelper {
     if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; }
   }
 
+  mountSuiteBannerUnderComposer(banner) {
+    const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
+    const composerBox = inputEl && typeof this.chat?.findComposerContainer === "function" ? this.chat.findComposerContainer(inputEl) : inputEl?.parentElement;
+    if (composerBox && composerBox !== document.body && composerBox.parentElement && typeof composerBox.parentElement.insertBefore === "function") {
+      banner.classList.add("gmc-autosuite-inline");
+      composerBox.parentElement.insertBefore(banner, composerBox.nextSibling);
+      return true;
+    }
+    if (document.body?.appendChild) { document.body.appendChild(banner); return true; }
+    return false;
+  }
+
   showSuiteBanner(delayMs, onCancel) {
     this.hideSuiteBanner();
-    if (typeof document === "undefined" || !document.createElement || !document.body?.appendChild) return;
+    if (typeof document === "undefined" || !document.createElement) return;
     const banner = document.createElement("div");
     banner.className = "gmc-autosuite-banner";
     const label = document.createElement("span");
@@ -103,7 +146,7 @@ class BlockVerificationHelper {
     cancelBtn.type = "button"; cancelBtn.className = "gmc-autosuite-cancel"; cancelBtn.textContent = "Annuler";
     cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); onCancel(); });
     banner.append(label, cancelBtn);
-    document.body.appendChild(banner);
+    if (!this.mountSuiteBannerUnderComposer(banner)) return;
     this.suiteBannerEl = banner;
     const deadline = Date.now() + delayMs;
     const updateLabel = () => { label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`; };

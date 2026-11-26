@@ -4,7 +4,7 @@
 class ContentEventsController {
   constructor(ctx) {
     this.ctx = ctx;
-    this.autoFixEnabled = false;
+    this.autoFixEnabled = true;
     this.autoTestEnabled = false;
     this.lastAutoSyntaxSig = "";
     this.autoSyntaxAttemptsByFile = new Map();
@@ -13,6 +13,7 @@ class ContentEventsController {
   }
 
   loadPrefs() {
+    this.syncToggleButtons();
     chrome.storage?.local?.get?.(["gmcAutoFix", "gmcAutoTest"], (res) => {
       if (typeof res?.gmcAutoFix === "boolean") this.autoFixEnabled = res.gmcAutoFix;
       if (typeof res?.gmcAutoTest === "boolean") this.autoTestEnabled = res.gmcAutoTest;
@@ -51,12 +52,8 @@ class ContentEventsController {
 
   executeGuidedAction() {
     const actionId = typeof this.ctx.getGuidedActionId === "function" ? this.ctx.getGuidedActionId() : "";
-    const { els, blockManager, chatInjector, gitManager, testActions, tokenBudget, updateIndicators } = this.ctx;
+    const { els, blockManager, chatInjector, gitManager, tokenBudget } = this.ctx;
     if (actionId === "fix_syntax") { this.resetSyntaxAttemptsForEvent(this.ctx.getWatcherState()?.lastEvent || ""); this.sendSyntaxErrorToAi(); return; }
-    if (actionId === "fix_tests" && testActions?.lastFailureReport) {
-      const compact = testActions.truncateReportForPrompt(testActions.lastFailureReport);
-      tokenBudget?.recordPayload(compact); chatInjector.insertTestResults(compact, true); updateIndicators?.(); return;
-    }
     if (actionId === "copy_suite") { blockManager.copyAndPurgeAll(); return; }
     if (actionId === "commit_msg") {
       const msgPrompt = gitManager.buildCommitMessageOnlyPrompt();

@@ -8,7 +8,7 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("ContentEventsController gère Auto-fix syntaxe, raccourcis Alt+P/S/T et export dossiers", () => {
+test("ContentEventsController active Auto-fix par défaut, gère Alt+P/S/T et export dossiers", () => {
   const docListeners = {};
   const prompts = [];
   const bgCalls = [];
@@ -25,7 +25,7 @@ test("ContentEventsController gère Auto-fix syntaxe, raccourcis Alt+P/S/T et ex
   const sandbox = {
     window: {},
     document: { addEventListener(ev, fn) { docListeners[ev] = fn; } },
-    chrome: { storage: { local: { get: (_k, cb) => cb({}) } } },
+    chrome: { storage: { local: { get: (_k, cb) => cb({}), set() {} } } },
     setTimeout: () => {}
   };
   vm.createContext(sandbox);
@@ -62,11 +62,13 @@ test("ContentEventsController gère Auto-fix syntaxe, raccourcis Alt+P/S/T et ex
   });
   ctrl.bindAll();
 
-  els.autoSyntaxBtn.listeners.click();
   assert.equal(ctrl.autoFixEnabled, true);
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] app.py (ligne 1)" });
   assert.equal(prompts.length, 1);
   assert.ok(prompts.at(0).txt.includes("app.py"));
+
+  els.autoSyntaxBtn.listeners.click();
+  assert.equal(ctrl.autoFixEnabled, false);
 
   els.exportBtn.listeners.click();
   assert.deepEqual(exportArgs, { m: "modified", sub: ["ChromeAI"] });

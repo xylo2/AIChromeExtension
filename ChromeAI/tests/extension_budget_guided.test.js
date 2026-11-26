@@ -84,9 +84,8 @@ test("TokenBudgetManager, ExportMenuManager (confirm export lourd), TestActionsC
   assert.equal(endMarkerNode.classList.contains("gmc-spilled-hidden"), true);
 
   const composerUi = new sandbox.window.GmcComposerQuickButtonsManager(fakeChat, makeNode(), makeNode());
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: true }, unpurgedCount: 2, hasTestFailure: true, canCommitMsg: true }).id, "fix_syntax");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, unpurgedCount: 2, hasTestFailure: true, canCommitMsg: true }).id, "fix_tests");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, unpurgedCount: 2, hasTestFailure: false, canCommitMsg: true }).id, "copy_suite");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, unpurgedCount: 0, hasTestFailure: false, canCommitMsg: true }).id, "commit_msg");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, unpurgedCount: 0, hasTestFailure: false, canCommitMsg: false }).id, "run_tests");
+  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: true }, canCommitMsg: true }).id, "fix_syntax");
+  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: false }), null);
+  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: true }).id, "commit_msg");
+  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false }).id, "run_tests");
 });

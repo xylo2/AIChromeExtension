@@ -48,17 +48,19 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(popupHtml.includes('src="popup_view.js"'));
   const stylesCss = fs.readFileSync(path.join(EXTENSION_DIR, "styles.css"), "utf-8");
   assert.ok(stylesCss.includes("max-width: calc(100vw - 32px)"));
+  assert.ok(stylesCss.includes(".gmc-code-header-btn"));
+  assert.ok(/\.gmc-global-status-pill\s*\{[^}]*margin-right:\s*auto/s.test(stylesCss));
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
   assert.equal((contentJs.match(/const setBtnState\s*=/g) || []).length, 1);
   assert.ok(contentJs.includes("GmcContentEventsController"));
   assert.ok(contentJs.includes("checkPendingFreshExport"));
+  assert.ok(contentJs.includes('statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, bottomRow)'));
   const eventsJs = fs.readFileSync(path.join(EXTENSION_DIR, "content_events.js"), "utf-8");
   assert.ok(eventsJs.includes('insertPrompt("Oui", true)'));
   assert.ok(eventsJs.includes('insertPrompt("Suite", true)'));
   assert.ok(eventsJs.includes("composerUi.pickExcuse()"));
   assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
-
 test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherPopupController fonctionnent", async () => {
   const scrollCalls = [];
   const winObj = { scrollX: 0, scrollY: 420, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollCalls.push({ x, y }); }, scrollBy() {} };
@@ -66,18 +68,21 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
     window: winObj,
     Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async () => { winObj.scrollY = 0; } } },
-    document: { getElementById: () => null, addEventListener() {} },
+    document: { getElementById: () => null, addEventListener() {}, querySelectorAll: () => [{ textContent: "x".repeat(400) }] },
     chrome: { runtime: { id: "test-ext-id" }, storage: { local: { get: (_k, cb) => cb({}) } } }
   };
   vm.createContext(sandbox);
-  for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "git_commit_ui.js", "git_panel.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "popup_view.js", "popup.js"]) {
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "token_budget.js", "git_commit_ui.js", "git_panel.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "popup_view.js", "popup.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
+  const budget = new sandbox.window.GmcTokenBudgetManager();
+  assert.equal(budget.getTotalEstimatedTokens(), 100);
   const spill = new sandbox.window.GmcSpillDetector();
   assert.equal(spill.looksLikeSpilledCode("const x = 42;"), true);
   assert.equal(spill.isBoundaryTag("=== END_FILE ==="), true);
   let purgeNotified = 0;
   const blockMgr = new sandbox.window.GmcCodeBlockManager(spill, null, () => { purgeNotified += 1; });
+  assert.equal(blockMgr.MAX_SAFE_LINES, 75);
   assert.equal(blockMgr.buildFallbackAttachmentName("tools/ChromeAI/content.js | 2/4"), "content.js.part2.txt");
   const fakePre = { tagName: "PRE", textContent: "print(1)", attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector() { return null; }, classList: { add() {} } };
   await blockMgr.copyAndPurge({ el: fakePre, headerName: "a.py", spilledNodes: [], purgeButtons: [] });
