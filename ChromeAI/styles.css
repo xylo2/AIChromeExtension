@@ -73,12 +73,12 @@ pre.gmc-collapsed-code, code.gmc-collapsed-code, .gmc-spilled-hidden, .gmc-colla
 .gmc-composer-btn.gmc-composer-primary:hover { background: #0369a1; }
 .gmc-composer-btn.gmc-composer-muted { background: transparent; border-color: #334155; color: #94a3b8; font-weight: 500; }
 .gmc-composer-btn.gmc-composer-muted:hover { background: #1e293b; color: #f8fafc; }
-.gmc-git-panel { position: fixed; bottom: 132px; right: 18px; width: 440px; max-width: calc(100vw - 36px); max-height: 360px; z-index: 2147483647; display: flex; flex-direction: column; background: #1e293b; color: #f8fafc; border: 1px solid #475569; border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; }
+.gmc-git-panel { position: fixed; bottom: 168px; right: 18px; width: 440px; max-width: calc(100vw - 36px); max-height: 360px; z-index: 2147483647; display: flex; flex-direction: column; background: #1e293b; color: #f8fafc; border: 1px solid #475569; border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); font-family: 'Google Sans', Roboto, Arial, sans-serif; font-size: 12px; }
 .gmc-export-menu-panel { width: 320px; }
 .gmc-export-mode-btn { width: 100%; text-align: left; border: 1px solid #334155; color: #f8fafc; font-size: 12px; font-weight: 600; padding: 8px 10px; }
 .gmc-test-output-panel { width: 580px; max-height: 440px; }
 .gmc-test-output-pre { margin: 0 0 10px 0; padding: 8px 10px; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; overflow-y: auto; flex: 1; user-select: text; }
-.gmc-git-panel-header { font-weight: 600; margin-bottom: 8px; color: #e2e8f0; }
+.gmc-git-panel-header { font-weight: 600; margin-bottom: 8px; color: #e2e8f0; cursor: move; user-select: none; }
 .gmc-git-panel-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .gmc-git-item-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; background: #0f172a; }
 .gmc-git-item-row:hover { background: #334155; }

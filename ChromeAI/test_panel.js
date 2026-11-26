@@ -1,5 +1,5 @@
 /**
- * Panneau d'affichage en direct et complet de la sortie des tests unitaires.
+ * Panneau d'affichage en direct et complet des sorties (tests et build) déplaçable à la souris.
  */
 class TestOutputPanelManager {
   constructor(chatInjector, onStopCallback = null, onSendCallback = null) {
@@ -13,6 +13,7 @@ class TestOutputPanelManager {
     this.fullReport = "";
     this.passed = false;
     this.isRunning = false;
+    this.savedPosition = null;
   }
 
   close() {
@@ -25,6 +26,41 @@ class TestOutputPanelManager {
     }
   }
 
+  makeDraggable(panel, handle) {
+    if (!panel || !handle || typeof handle.addEventListener !== "function") return;
+    if (this.savedPosition) {
+      panel.style.left = `${this.savedPosition.left}px`;
+      panel.style.top = `${this.savedPosition.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+    }
+    handle.addEventListener("mousedown", (ev) => {
+      if (ev.button !== 0 || typeof panel.getBoundingClientRect !== "function") return;
+      ev.preventDefault();
+      const rect = panel.getBoundingClientRect();
+      const offsetX = ev.clientX - rect.left;
+      const offsetY = ev.clientY - rect.top;
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      const onMove = (moveEv) => {
+        const maxLeft = Math.max(8, (window.innerWidth || 1200) - (rect.width || 320) - 8);
+        const maxTop = Math.max(8, (window.innerHeight || 800) - 48);
+        const nextLeft = Math.min(maxLeft, Math.max(8, moveEv.clientX - offsetX));
+        const nextTop = Math.min(maxTop, Math.max(8, moveEv.clientY - offsetY));
+        panel.style.left = `${nextLeft}px`;
+        panel.style.top = `${nextTop}px`;
+        this.savedPosition = { left: nextLeft, top: nextTop };
+      };
+      const onUp = () => {
+        document.removeEventListener?.("mousemove", onMove);
+        document.removeEventListener?.("mouseup", onUp);
+      };
+      document.addEventListener?.("mousemove", onMove);
+      document.addEventListener?.("mouseup", onUp);
+    });
+  }
   open(titleText = "⏳ Exécution des tests en cours...", initialText = "", running = false) {
     this.close();
     this.isRunning = Boolean(running);
@@ -32,6 +68,7 @@ class TestOutputPanelManager {
     panel.className = "gmc-git-panel gmc-test-output-panel";
     const header = document.createElement("div");
     header.className = "gmc-git-panel-header";
+    header.title = "Cliquer-glisser pour déplacer cette fenêtre";
     header.textContent = titleText;
     const pre = document.createElement("pre");
     pre.className = "gmc-test-output-pre";
@@ -42,7 +79,7 @@ class TestOutputPanelManager {
     stopBtn.type = "button";
     stopBtn.className = "gmc-git-btn-stop";
     stopBtn.textContent = "⏹️ Arrêter";
-    stopBtn.title = "Interrompre l'exécution des tests en cours";
+    stopBtn.title = "Interrompre l'exécution en cours";
     stopBtn.style.display = this.isRunning ? "inline-flex" : "none";
     stopBtn.addEventListener("click", () => {
       if (!this.isRunning) return;
@@ -84,6 +121,7 @@ class TestOutputPanelManager {
     this.headerEl = header;
     this.preEl = pre;
     this.stopBtnEl = stopBtn;
+    this.makeDraggable(panel, header);
   }
 
   appendChunk(chunk) {
@@ -101,9 +139,7 @@ class TestOutputPanelManager {
     if (finalText) this.fullReport = finalText;
     if (this.stopBtnEl) this.stopBtnEl.style.display = "none";
     if (this.headerEl) {
-      this.headerEl.textContent = stopped
-        ? "⏹️ Exécution des tests arrêtée"
-        : (this.passed ? "✅ Rapport complet des tests" : "⚠️ Rapport complet des échecs");
+      this.headerEl.textContent = stopped ? "⏹️ Exécution arrêtée" : (this.passed ? "✅ Rapport complet" : "⚠️ Rapport complet des échecs");
     }
     if (this.preEl && finalText) {
       this.preEl.textContent = finalText;
@@ -114,9 +150,7 @@ class TestOutputPanelManager {
   toggle() {
     if (this.panelEl) { this.close(); return; }
     if (!this.fullReport && !this.isRunning) return;
-    const title = this.isRunning
-      ? "⏳ Exécution des tests en cours..."
-      : (this.passed ? "✅ Rapport complet des tests" : "⚠️ Rapport complet des échecs");
+    const title = this.isRunning ? "⏳ Exécution en cours..." : (this.passed ? "✅ Rapport complet" : "⚠️ Rapport complet des échecs");
     this.open(title, this.fullReport, this.isRunning);
   }
 }

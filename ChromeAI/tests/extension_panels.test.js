@@ -8,15 +8,21 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("TestOutputPanelManager streame, arrête, copie, envoie à l'IA et ferme le panneau", () => {
+test("TestOutputPanelManager streame, se déplace à la souris, arrête, copie, envoie à l'IA et ferme le panneau", () => {
   const appended = []; let copiedText = ""; let sentPayload = null; let stopCalls = 0; let sendCalls = 0;
+  const docListeners = {};
   const makeDomNode = (tag) => ({
     tagName: tag, className: "", textContent: "", title: "", type: "", disabled: false, style: {}, scrollTop: 0, scrollHeight: 150, children: [], listeners: {}, removed: false,
+    getBoundingClientRect: () => ({ left: 600, top: 200, width: 580, height: 240 }),
     append(...items) { this.children.push(...items); }, addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() { this.removed = true; }
   });
   const sandbox = {
-    window: {}, navigator: { clipboard: { writeText: async (t) => { copiedText = t; } } },
-    document: { createElement: makeDomNode, body: { appendChild(n) { appended.push(n); } } }, setTimeout: () => {}
+    window: { innerWidth: 1280, innerHeight: 800 }, navigator: { clipboard: { writeText: async (t) => { copiedText = t; } } },
+    document: {
+      createElement: makeDomNode, body: { appendChild(n) { appended.push(n); } },
+      addEventListener(ev, fn) { docListeners[ev] = fn; },
+      removeEventListener(ev, fn) { if (docListeners[ev] === fn) delete docListeners[ev]; }
+    }, setTimeout: () => {}
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "test_panel.js"), "utf-8"), sandbox);
@@ -26,6 +32,14 @@ test("TestOutputPanelManager streame, arrête, copie, envoie à l'IA et ferme le
     () => { sendCalls += 1; }
   );
   mgr.open("⏳ Exécution...", "", true);
+  mgr.headerEl.listeners.mousedown({ button: 0, clientX: 650, clientY: 220, preventDefault() {} });
+  docListeners.mousemove({ clientX: 450, clientY: 120 });
+  docListeners.mouseup();
+  assert.equal(mgr.panelEl.style.left, "400px");
+  assert.equal(mgr.panelEl.style.top, "100px");
+  assert.equal(mgr.savedPosition.left, 400);
+  assert.equal(mgr.savedPosition.top, 100);
+
   assert.equal(mgr.stopBtnEl.style.display, "inline-flex");
   mgr.stopBtnEl.listeners.click();
   assert.equal(stopCalls, 1);
@@ -39,8 +53,11 @@ test("TestOutputPanelManager streame, arrête, copie, envoie à l'IA et ferme le
   assert.equal(sentPayload.auto, true);
   assert.equal(sendCalls, 1);
   assert.equal(mgr.panelEl, null);
-});
 
+  mgr.open("Nouveau rapport", "OK", false);
+  assert.equal(mgr.panelEl.style.left, "400px");
+  assert.equal(mgr.panelEl.style.top, "100px");
+});
 test("TestActionsController.preserveWindowScroll et ChatInjector.insertPrompt figent le scroll", () => {
   const rafCallbacks = [];
   const scrollHistory = [];
@@ -80,6 +97,7 @@ test("TestActionsController.preserveWindowScroll et ChatInjector.insertPrompt fi
   assert.equal(sandbox.window.scrollY, 350);
   assert.ok(scrollHistory.length >= 2);
 });
+
 test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton sur <pre> autonome", () => {
   const appended = []; const downloaded = [];
   const makeNode = (tag) => ({
