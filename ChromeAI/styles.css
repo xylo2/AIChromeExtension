@@ -18,8 +18,10 @@
   pointer-events: auto;
 }
 
+.gmc-floating-bar.gmc-offline-bar { padding: 4px 6px; gap: 0; border-radius: 999px; }
 .gmc-floating-row { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; }
-.gmc-floating-row-actions, .gmc-floating-row-tests { padding-top: 5px; border-top: 1px solid rgba(71, 85, 105, 0.45); }
+.gmc-floating-row:empty { display: none !important; }
+.gmc-floating-row-actions, .gmc-floating-row-tests, .gmc-floating-row-dom { padding-top: 5px; border-top: 1px solid rgba(71, 85, 105, 0.45); }
 .gmc-global-status-pill { margin-right: auto; }
 .gmc-global-event-pill { margin-right: auto; }
 .gmc-code-header-btn {

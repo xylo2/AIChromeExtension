@@ -48,13 +48,18 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(popupHtml.includes('src="popup_view.js"'));
   const stylesCss = fs.readFileSync(path.join(EXTENSION_DIR, "styles.css"), "utf-8");
   assert.ok(stylesCss.includes("max-width: calc(100vw - 32px)"));
+  assert.ok(stylesCss.includes(".gmc-offline-bar"));
+  assert.ok(stylesCss.includes(".gmc-floating-row:empty"));
   assert.ok(stylesCss.includes(".gmc-code-header-btn"));
   assert.ok(/\.gmc-global-status-pill\s*\{[^}]*margin-right:\s*auto/s.test(stylesCss));
+  assert.ok(/\.gmc-global-event-pill\s*\{[^}]*margin-right:\s*auto/s.test(stylesCss));
   const contentJs = fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8");
   assert.equal((contentJs.match(/const setBtnState\s*=/g) || []).length, 1);
   assert.ok(contentJs.includes("GmcContentEventsController"));
   assert.ok(contentJs.includes("checkPendingFreshExport"));
-  assert.ok(contentJs.includes('statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, bottomRow)'));
+  assert.ok(contentJs.includes('floatingBar.classList.toggle("gmc-offline-bar", !running)'));
+  assert.ok(contentJs.includes('statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, serviceRow)'));
+  assert.equal(contentJs.includes("copyPurgeAllBtn"), false);
   const eventsJs = fs.readFileSync(path.join(EXTENSION_DIR, "content_events.js"), "utf-8");
   assert.ok(eventsJs.includes('insertPrompt("Oui", true)'));
   assert.ok(eventsJs.includes('insertPrompt("Suite", true)'));
@@ -77,7 +82,7 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) 
     chrome: { runtime: { id: "test-ext-id" }, storage: { local: { get: (_k, cb) => cb({}) } } }
   };
   vm.createContext(sandbox);
-  for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "token_budget.js", "git_commit_ui.js", "git_panel.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "popup_view.js", "popup.js"]) {
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "token_budget.js", "git_commit_ui.js", "git_panel.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "content_events.js", "popup_view.js", "popup.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const budget = new sandbox.window.GmcTokenBudgetManager();
@@ -92,6 +97,15 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) 
   const fakePre = { tagName: "PRE", textContent: "print(1)", attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector() { return null; }, classList: { add() {} } };
   await blockMgr.copyAndPurge({ el: fakePre, headerName: "a.py", spilledNodes: [], purgeButtons: [] });
   assert.equal(purgeNotified, 1);
+  const btnStub = () => ({ textContent: "", disabled: false, classList: { toggle() {} }, addEventListener() {} });
+  const eventsCtrl = new sandbox.window.GmcContentEventsController({
+    els: { statusPill: btnStub(), purgeBtn: btnStub(), eventPill: btnStub(), commitMsgBtn: btnStub(), gitBtn: btnStub(), exportBtn: btnStub(), testsBtn: btnStub(), testLogBtn: btnStub(), yesBtn: btnStub(), nextBtn: btnStub(), excuseBtn: btnStub() },
+    blockManager: blockMgr, chatInjector: { insertPrompt() {} }, gitManager: { panelEl: null }, exportMenu: null,
+    testActions: { panel: { toggle() {} } }, composerUi: { pickExcuse: () => "x" }, sendBgMessage() {}, setBtnState() {},
+    triggerProjectExport() {}, updateIndicators() {}, getWatcherState: () => ({ running: false }), setWatcherState() {},
+    isStarting: () => false, setStarting() {}, clearCommitMsgFlag() {}
+  });
+  eventsCtrl.bindAll();
   winObj.scrollY = 420;
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
   gitMgr.open([{ status: "M", path: "app.py" }]);

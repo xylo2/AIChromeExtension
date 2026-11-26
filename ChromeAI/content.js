@@ -1,19 +1,19 @@
 /**
- * Point d'entrée léger de l'extension ChromeAI (barre flottante, budget tokens et orchestration).
+ * Point d'entrée léger de l'extension ChromeAI (barre flottante typologique 4 lignes et orchestration).
  */
 if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcInitialized = true;
   if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
   if (window.__gmcStreamTimer) clearInterval(window.__gmcStreamTimer);
-  document.querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn, .gmc-quick-commit-btn, .gmc-quick-guided-btn").forEach((el) => el.remove());
+  document.querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn, .gmc-quick-commit-btn, .gmc-quick-guided-btn, .gmc-global-copypurge-btn").forEach((el) => el.remove());
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
   const tokenBudget = window.GmcTokenBudgetManager ? new window.GmcTokenBudgetManager() : null;
   const exportMenu = window.GmcExportMenuManager ? new window.GmcExportMenuManager(tokenBudget) : null;
   let canRequestCommitMsg = false, scanTimer = null, isStartingWatcher = false, isTriggeringFreshExport = false;
-  let lastBudgetKey = tokenBudget ? tokenBudget.getConversationKey() : "", guidedActionId = "", exportBadgeTimer = null;
+  let lastBudgetKey = tokenBudget ? tokenBudget.getConversationKey() : "", guidedActionId = "", exportBadgeTimer = null, eventsCtrl = null;
   let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, lastEvent: null, recentEvents: [] };
   let updateIndicators = () => {};
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector, (isVerify) => { canRequestCommitMsg = Boolean(isVerify); updateIndicators(); });
@@ -26,34 +26,31 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (!row) { row = document.createElement("div"); row.className = `gmc-floating-row ${cls}`; floatingBar.appendChild(row); }
     return row;
   };
-  const topRow = ensureRow("gmc-floating-row-status"), bottomRow = ensureRow("gmc-floating-row-actions"), testsRow = ensureRow("gmc-floating-row-tests");
-  const makeBtn = (cls, text, title = "", hidden = false, parent = bottomRow) => {
+  const serviceRow = ensureRow("gmc-floating-row-status");
+  const projectRow = ensureRow("gmc-floating-row-actions");
+  const testsRow = ensureRow("gmc-floating-row-tests");
+  const domRow = ensureRow("gmc-floating-row-dom");
+  const makeBtn = (cls, text, title = "", hidden = false, parent = projectRow) => {
     let el = floatingBar.querySelector(`.${cls.split(" ").at(0)}`) || parent.querySelector(`.${cls.split(" ").at(0)}`);
-    if (!el) {
-      el = document.createElement("button"); el.type = "button"; el.className = cls; el.textContent = text;
-      if (title) el.title = title;
-      if (hidden) el.style.display = "none";
-    }
+    if (!el) { el = document.createElement("button"); el.type = "button"; el.className = cls; el.textContent = text; if (title) el.title = title; if (hidden) el.style.display = "none"; }
     if (el.parentElement !== parent) parent.appendChild(el);
     return el;
   };
-
   const els = {
-    budgetPill: makeBtn("gmc-global-budget-pill", "📊 0 tok", "Estimation cumulée des tokens envoyés (cliquer pour remettre à zéro)", false, topRow),
-    autoSyntaxBtn: makeBtn("gmc-global-autosyntax-btn", "⚡ Auto-fix: OFF", "Envoyer automatiquement les erreurs de syntaxe à l'IA", true, topRow),
-    autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture", true, topRow),
-    statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, bottomRow),
-    exportBtn: makeBtn("gmc-global-export-btn", "📦 Exporter", "Exporter le projet et l'envoyer dans le chat", true, bottomRow),
-    gitBtn: makeBtn("gmc-global-git-btn", "🔀 Git", "Afficher les fichiers modifiés (git status)", true, bottomRow),
-    eventPill: makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, testsRow),
+    statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, serviceRow),
+    autoSyntaxBtn: makeBtn("gmc-global-autosyntax-btn", "⚡ Auto-fix: OFF", "Envoyer automatiquement les erreurs de syntaxe à l'IA", true, serviceRow),
+    autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture", true, serviceRow),
+    budgetPill: makeBtn("gmc-global-budget-pill", "📊 0 tok", "Estimation cumulée des tokens envoyés (cliquer pour remettre à zéro)", true, projectRow),
+    exportBtn: makeBtn("gmc-global-export-btn", "📦 Exporter", "Exporter le projet et l'envoyer dans le chat", true, projectRow),
+    gitBtn: makeBtn("gmc-global-git-btn", "🔀 Git", "Afficher les fichiers modifiés (git status)", true, projectRow),
+    commitMsgBtn: makeBtn("gmc-global-commitmsg-btn", "💬 Msg commit", "Demander le message de commit à l'IA", true, projectRow),
     testsBtn: makeBtn("gmc-global-tests-btn", "🧪 Tests", "Exécuter les tests unitaires (Alt+T)", true, testsRow),
     testLogBtn: makeBtn("gmc-global-testlog-btn", "📋 Logs", "Afficher ou masquer la sortie complète des tests", true, testsRow),
     coverageBtn: makeBtn("gmc-global-coverage-btn", "📊 Couv.", "Envoyer le rapport de couverture des tests à l'IA", true, testsRow),
-    purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 Purger DOM", "Alléger la page en purgeant tous les blocs", true, testsRow),
-    copyPurgeAllBtn: makeBtn("gmc-global-copypurge-btn", "📋 Tout copier", "Copier tous les blocs et purger le DOM (Alt+P)", true, testsRow),
-    commitMsgBtn: makeBtn("gmc-global-commitmsg-btn", "💬 Msg commit", "Demander le message de commit à l'IA", true, testsRow)
+    eventPill: makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, domRow),
+    purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 Purger DOM", "Alléger la page en purgeant tous les blocs", true, domRow)
   };
-  const composerUi = new window.GmcComposerQuickButtonsManager(chatInjector, bottomRow, els.exportBtn);
+  const composerUi = new window.GmcComposerQuickButtonsManager(chatInjector, projectRow, els.exportBtn);
   els.guidedBtn = makeBtn("gmc-quick-guided-btn gmc-composer-btn gmc-composer-primary", "", "", true, composerUi.groupEl);
   els.yesBtn = makeBtn("gmc-quick-yes-btn gmc-composer-btn", "Oui", "Envoyer « Oui » à l'IA", false, composerUi.groupEl);
   els.nextBtn = makeBtn("gmc-quick-next-btn gmc-composer-btn", "Suite", "Envoyer « Suite » à l'IA (Alt+S)", false, composerUi.groupEl);
@@ -69,12 +66,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     setBtnState(els.exportBtn, "running", "⏳ Export...");
     sendBgMessage({ type: "EXPORT_PROJECT", mode, subpaths }, (res) => {
       if (res?.ok && res.content) {
-        const fname = res.filename || "export.txt";
-        const estTok = Number(res.estimated_tokens || Math.ceil(String(res.content).length / 4));
+        const fname = res.filename || "export.txt", estTok = Number(res.estimated_tokens || Math.ceil(String(res.content).length / 4));
         const promptTxt = exportMenu ? exportMenu.buildExportPrompt(mode, fname, res.file_count, estTok, subpaths) : `Fichier joint (\x60${fname}\x60) :`;
-        tokenBudget?.recordPayload(res.content, estTok);
-        chatInjector.insertPrompt(promptTxt, false);
-        chatInjector.dropFile(fname, res.content, true);
+        tokenBudget?.recordPayload(res.content, estTok); chatInjector.insertPrompt(promptTxt, false); chatInjector.dropFile(fname, res.content, true);
         setBtnState(els.exportBtn, "pass", `✅ ${estTok >= 1000 ? `${(estTok / 1000).toFixed(1)}k` : estTok} tok`);
         exportBadgeTimer = setTimeout(() => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 4000);
         updateIndicators();
@@ -93,23 +87,22 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   };
   const testActions = new window.GmcTestActionsController(chatInjector, sendBgMessage, setBtnState, { testsBtn: els.testsBtn, coverageBtn: els.coverageBtn }, () => watcherState, () => updateIndicators(), tokenBudget);
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector, () => { updateIndicators(); setTimeout(() => composerUi.mount(), 80); }, svgPreview);
+  const toggleRowVisibility = (rowEl, btnList) => { rowEl.style.display = btnList.some((b) => b && b.style.display !== "none") ? "flex" : "none"; };
   updateIndicators = () => {
     testActions.invalidateOnNewFiles();
     const running = Boolean(watcherState?.running);
     if (running) isStartingWatcher = false;
+    floatingBar.classList.toggle("gmc-offline-bar", !running);
     els.statusPill.className = `gmc-global-status-pill ${running ? "online" : "offline"}`;
     const folder = watcherState.targetDir ? watcherState.targetDir.split(/[\\/]/).filter(Boolean).pop() : "";
     if (running) els.statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
     else if (!isStartingWatcher) els.statusPill.textContent = "🔴 Watcher OFF";
-    if (tokenBudget && els.budgetPill) {
-      const bState = tokenBudget.formatBadgeState();
-      setBtnState(els.budgetPill, bState.level, bState.label);
-      els.budgetPill.title = `${bState.title}\n(Cliquer pour remettre le compteur manuel à zéro)`;
+    if (els.budgetPill) {
+      els.budgetPill.style.display = running ? "inline-flex" : "none";
+      if (running && tokenBudget) { const bState = tokenBudget.formatBadgeState(); setBtnState(els.budgetPill, bState.level, bState.label); els.budgetPill.title = `${bState.title}\n(Cliquer pour remettre le compteur manuel à zéro)`; }
     }
     const unpurgedCount = blockManager.getUnpurgedCount();
-    els.copyPurgeAllBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
     els.purgeBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
-    if (unpurgedCount > 0) els.copyPurgeAllBtn.textContent = `📋 Copier (${unpurgedCount})`;
     els.autoSyntaxBtn.style.display = running ? "inline-flex" : "none";
     els.autoTestBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.commitMsgBtn.style.display = running && watcherState.hasGit && canRequestCommitMsg ? "inline-flex" : "none";
@@ -122,23 +115,23 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     testActions.renderCoverageIndicator();
     els.eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) {
-      const evStr = String(watcherState.lastEvent);
-      const isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
-      els.eventPill.classList.toggle("state-fail", isSyntaxErr);
-      els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
+      const evStr = String(watcherState.lastEvent), isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
+      els.eventPill.classList.toggle("state-fail", isSyntaxErr); els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
       const hist = Array.isArray(watcherState.recentEvents) && watcherState.recentEvents.length > 0 ? `\nHistorique :\n${watcherState.recentEvents.join("\n")}` : "";
       els.eventPill.title = (isSyntaxErr ? "Erreur de syntaxe détectée : cliquer pour renvoyer l'extrait à l'IA" : "Cliquer pour envoyer ce statut dans le chat") + hist;
     }
-    const hasTestsRowBtns = [els.eventPill, els.copyPurgeAllBtn, els.purgeBtn, els.testsBtn, els.testLogBtn, els.coverageBtn, els.commitMsgBtn].some((b) => b && b.style.display !== "none");
-    testsRow.style.display = hasTestsRowBtns ? "flex" : "none";
+    toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.gitBtn, els.commitMsgBtn]);
+    toggleRowVisibility(testsRow, [els.testsBtn, els.testLogBtn, els.coverageBtn]);
+    toggleRowVisibility(domRow, [els.eventPill, els.purgeBtn]);
     const testsPassedForCurrentEvent = Boolean(testActions.lastTestsPassed || testActions.panel.isRunning);
-    const guided = composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent });
+    const autoFixActive = Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.());
+    const guided = composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent, autoFixActive });
     guidedActionId = guided ? guided.id : "";
     els.guidedBtn.style.display = guided ? "inline-flex" : "none";
     if (guided) { els.guidedBtn.textContent = guided.label; els.guidedBtn.title = guided.title; }
     composerUi.mount(); checkPendingFreshExport();
   };
-  const eventsCtrl = new window.GmcContentEventsController({
+  eventsCtrl = new window.GmcContentEventsController({
     els, blockManager, chatInjector, gitManager, exportMenu, testActions, composerUi, tokenBudget, sendBgMessage, setBtnState, triggerProjectExport, updateIndicators,
     getWatcherState: () => watcherState, setWatcherState: (s) => { watcherState = s; }, isStarting: () => isStartingWatcher, setStarting: (v) => { isStartingWatcher = v; },
     canRequestCommitMsg: () => canRequestCommitMsg, clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); }, getGuidedActionId: () => guidedActionId
