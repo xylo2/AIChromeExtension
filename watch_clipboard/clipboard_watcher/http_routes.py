@@ -1,3 +1,5 @@
+# Routage des requêtes HTTP GET et POST du serveur local watch_clipboard.
+
 import os
 import shlex
 import signal
@@ -11,10 +13,12 @@ from clipboard_watcher.http_routes_tests import handle_run_tests_route
 
 
 def _build_runner(handler: Any) -> PackageBuildRunner:
+    """Instancie le gestionnaire de build de package pour la requête courante."""
     return PackageBuildRunner(handler.target_dir, handler._is_within_allowed_roots)
 
 
 def handle_get_request(handler: Any) -> None:
+    """Traite les routes HTTP GET (statut, relecture, aperçu export, git, flux)."""
     if not handler._is_authorized():
         handler._send_json(401, {"error": "unauthorized"})
         return
@@ -72,6 +76,7 @@ def handle_get_request(handler: Any) -> None:
 
 
 def handle_post_request(handler: Any) -> None:
+    """Traite les routes HTTP POST (arrêt, build, export, git et exécution de tests)."""
     if not handler._is_authorized():
         handler._drain_unread_body()
         handler._send_json(401, {"ok": False, "error": "unauthorized"})

@@ -1,11 +1,9 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Méthodes bas niveau HTTP (CORS, réponses JSON et exécution des tests en arrière-plan).
 
 import json
-import os
 import re
 import subprocess
-import threading
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 from clipboard_watcher.http_routes import handle_get_request, handle_post_request
 
 
@@ -13,6 +11,7 @@ class StatusHttpMixin:
     """Méthodes bas niveau HTTP (CORS, réponses JSON, streaming tests en arrière-plan)."""
 
     def _send_cors_headers(self: Any) -> None:
+        """Écrit les en-têtes CORS et Private Network Access sur la réponse courante."""
         origin: str = self.headers.get("Origin", "")
         cors_val: str = self.allowed_origin or (origin if origin.startswith("chrome-extension://") else "null")
         self.send_header("Access-Control-Allow-Origin", cors_val)
@@ -22,6 +21,7 @@ class StatusHttpMixin:
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def _send_json(self: Any, status_code: int, data: dict) -> None:
+        """Sérialise un dictionnaire en JSON UTF-8 et l'envoie avec le code HTTP donné."""
         payload: bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
         try:
             self.send_response(status_code)
@@ -34,6 +34,7 @@ class StatusHttpMixin:
             return
 
     def do_OPTIONS(self: Any) -> None:
+        """Répond aux requêtes de pré-vérification CORS (HTTP OPTIONS)."""
         try:
             self.send_response(204)
             self._send_cors_headers()
@@ -42,15 +43,19 @@ class StatusHttpMixin:
             return
 
     def do_GET(self: Any) -> None:
+        """Délègue le routage des requêtes HTTP GET."""
         handle_get_request(self)
 
     def do_POST(self: Any) -> None:
+        """Délègue le routage des requêtes HTTP POST."""
         handle_post_request(self)
 
     def _execute_tests_streaming(self: Any, test_script: str) -> Tuple[int, str, str]:
+        """Lance l'exécution en streaming d'un script de tests via LiveTestManager."""
         return self._test_mgr.execute_streaming(test_script, self.target_dir)
 
     def _run_tests_background(self: Any, test_script: str) -> None:
+        """Exécute les tests dans un thread dédié et met à jour l'état partagé."""
         try:
             rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
             with self._test_lock:
@@ -72,4 +77,5 @@ class StatusHttpMixin:
                 self._live_test_state.update({"running": False, "passed": False, "error": "" if was_stopped_exc else str(exc)})
 
     def log_message(self: Any, format: str, *args: object) -> None:
+        """Désactive la journalisation HTTP standard sur stderr."""
         return

@@ -2,6 +2,7 @@
  * Panneau d'affichage en direct et complet des sorties (tests et build) déplaçable à la souris.
  */
 class TestOutputPanelManager {
+  /** Initialise les rappels d'arrêt/envoi et l'état du panneau flottant de sortie. */
   constructor(chatInjector, onStopCallback = null, onSendCallback = null) {
     this.chat = chatInjector;
     this.onStop = onStopCallback;
@@ -16,6 +17,7 @@ class TestOutputPanelManager {
     this.savedPosition = null;
   }
 
+  /** Ferme le panneau de sortie et réinitialise les références aux éléments DOM. */
   close() {
     if (this.panelEl) {
       this.panelEl.remove();
@@ -26,6 +28,7 @@ class TestOutputPanelManager {
     }
   }
 
+  /** Rend le panneau déplaçable par glisser-déposer depuis sa barre d'en-tête. */
   makeDraggable(panel, handle) {
     if (!panel || !handle || typeof handle.addEventListener !== "function") return;
     if (this.savedPosition) {
@@ -61,6 +64,7 @@ class TestOutputPanelManager {
       document.addEventListener?.("mouseup", onUp);
     });
   }
+  /** Construit et affiche le panneau flottant avec boutons Arrêter, Copier, Envoyer et Fermer. */
   open(titleText = "⏳ Exécution des tests en cours...", initialText = "", running = false) {
     this.close();
     this.isRunning = Boolean(running);
@@ -124,6 +128,7 @@ class TestOutputPanelManager {
     this.makeDraggable(panel, header);
   }
 
+  /** Ajoute un segment de log en direct et fait défiler la sortie vers le bas. */
   appendChunk(chunk) {
     if (!chunk) return;
     this.fullReport += chunk;
@@ -133,6 +138,7 @@ class TestOutputPanelManager {
     }
   }
 
+  /** Clôture l'affichage de l'exécution avec le statut final (succès, échec ou arrêt). */
   finish(passed, finalText, stopped = false) {
     this.isRunning = false;
     this.passed = Boolean(passed) && !stopped;
@@ -147,6 +153,7 @@ class TestOutputPanelManager {
     }
   }
 
+  /** Ouvre ou ferme le panneau de sortie si un rapport ou une exécution existe. */
   toggle() {
     if (this.panelEl) { this.close(); return; }
     if (!this.fullReport && !this.isRunning) return;

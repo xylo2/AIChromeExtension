@@ -2,6 +2,7 @@
  * Suivi persistant du budget cumulé de tokens de la conversation et alertes anti-blocage.
  */
 class TokenBudgetManager {
+  /** Initialise les seuils d'alerte et l'état de session du compteur de tokens. */
   constructor() {
     this.WARN_THRESHOLD = 60000;
     this.CRITICAL_THRESHOLD = 90000;
@@ -12,11 +13,13 @@ class TokenBudgetManager {
     this.activeKey = "";
   }
 
+  /** Estime le nombre de tokens d'un texte à raison d'environ 4 caractères par token. */
   estimateTokens(text) {
     const clean = String(text || "");
     return clean ? Math.max(1, Math.ceil(clean.length / 4)) : 0;
   }
 
+  /** Calcule une clé unique identifiant le fil de discussion courant depuis l'URL. */
   getConversationKey() {
     const loc = (typeof window !== "undefined" && window?.location) ? window.location : (typeof location !== "undefined" ? location : null);
     if (!loc?.href) return "default";
@@ -39,10 +42,12 @@ class TokenBudgetManager {
     return afterProto || "default";
   }
 
+  /** Indique si la clé correspond à une page d'accueil sans identifiant de fil définitif. */
   isGenericKey(key) {
     const k = String(key || "");
     return !k || k === "default" || !k.includes("/search") || /:(?:ai|50|\d{1,3})$/.test(k);
   }
+  /** Synchronise le compteur de tokens de la conversation depuis chrome.storage.local. */
   syncFromStorage(onLoaded = null) {
     const key = this.getConversationKey();
     const prevKey = this.activeKey;
@@ -67,6 +72,7 @@ class TokenBudgetManager {
     });
   }
 
+  /** Sauvegarde le cumul de tokens de la conversation active dans le stockage local. */
   saveToStorage(pendingTokens = 0) {
     if (typeof chrome === "undefined" || !chrome.storage?.local?.get) return;
     const key = this.activeKey || this.getConversationKey();
@@ -82,6 +88,7 @@ class TokenBudgetManager {
     });
   }
 
+  /** Estime les tokens déjà affichés dans les tours visibles du DOM. */
   estimateConversationDomTokens() {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") return 0;
     const turns = Array.from(document.querySelectorAll(this.TURN_SELECTORS));
@@ -91,13 +98,25 @@ class TokenBudgetManager {
     return mainEl ? this.estimateTokens(mainEl.textContent || "") : 0;
   }
 
+  /** Retourne la somme des tokens envoyés en session et des tokens présents dans le DOM. */
   getTotalEstimatedTokens() { return this.sessionTokens + this.estimateConversationDomTokens(); }
+
+  /** Ajoute le coût d'un nouvel envoi (export, diff, test) et persiste le total. */
   recordPayload(text, explicitTokens = 0) { const added = Number(explicitTokens) > 0 ? Number(explicitTokens) : this.estimateTokens(text); this.sessionTokens += added; this.saveToStorage(added); return this.getTotalEstimatedTokens(); }
+
+  /** Remet à zéro le compteur manuel de tokens de la session active. */
   reset() { this.sessionTokens = 0; chrome.storage?.local?.remove?.("gmcPendingBudget"); this.saveToStorage(0); }
+
+  /** Compte le nombre de tours de conversation détectés dans la page. */
   getConversationTurnCount() { return typeof document?.querySelectorAll === "function" ? document.querySelectorAll(this.TURN_SELECTORS).length : 0; }
+
+  /** Recommande le mode d'export optimal selon l'avancement de la conversation. */
   getRecommendedExportMode() { return this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 15000 ? "modified" : "full"; }
+
+  /** Indique si un export volumineux nécessite une confirmation utilisateur explicite. */
   shouldConfirmHeavyExport(estimatedTokens) { return Number(estimatedTokens || 0) > this.HEAVY_EXPORT_LIMIT && (this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 25000); }
 
+  /** Prépare l'état visuel, le libellé et l'infobulle explicative de la pastille budget. */
   formatBadgeState() {
     const total = this.getTotalEstimatedTokens();
     const kStr = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : `${total}`;

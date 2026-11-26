@@ -1,3 +1,5 @@
+# Analyse, validation des chemins, nettoyage et assemblage des blocs du presse-papiers.
+
 import os
 import re
 from typing import Dict, List, Optional
@@ -17,6 +19,7 @@ class FileAssembler:
     END_FILE_PATTERN: str = r"(?m)^[ \t]*(?:#\s*)?=== END_FILE ===[ \t]*$"
 
     def __init__(self, base_dir: str, config: WatcherConfig) -> None:
+        """Initialise les répertoires racine et cache miroir de l'assembleur."""
         self.base_dir: str = os.path.realpath(base_dir)
         self.config: WatcherConfig = config
         temp_sub: str = (self.config.temp_dir_name or "").strip().strip("\\/")
@@ -28,6 +31,7 @@ class FileAssembler:
         self.last_syntax_error: Optional[Dict[str, object]] = None
 
     def _strip_redundant_base_prefix(self, rel_clean: str) -> str:
+        """Retire le préfixe redondant du dossier racine en tête de chemin relatif."""
         base_name: str = os.path.basename(self.base_dir)
         prefix: str = f"{base_name}/"
         if base_name and rel_clean.lower().startswith(prefix.lower()):
@@ -37,6 +41,7 @@ class FileAssembler:
         return rel_clean
 
     def _safe_join(self, root_dir: str, rel_path: str) -> str:
+        """Résout un chemin relatif en interdisant toute traversée hors de root_dir."""
         raw_clean: str = rel_path.strip().replace("\\", "/")
         if not raw_clean or raw_clean.startswith("/") or os.path.isabs(raw_clean):
             raise UnsafePathError(f"Chemin interdit (absolu ou vide) : '{rel_path}'")
@@ -51,18 +56,22 @@ class FileAssembler:
         return candidate
 
     def has_file_tags(self, raw: str) -> bool:
+        """Indique si le texte brut contient au moins une balise FILE ou FILE_PART."""
         clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         return bool(re.search(self.FILE_HEADER_PATTERN, clean_raw))
-
     def resolve_target_path(self, rel_path: str) -> str:
+        """Résout et valide le chemin de destination final sous base_dir."""
         return self._safe_join(self.base_dir, rel_path)
 
     def resolve_temp_path(self, rel_path: str) -> str:
+        """Résout et valide le chemin du fragment dans le cache miroir."""
         candidate: str = self._safe_join(self.temp_dir, rel_path)
         if os.path.dirname(candidate) == self.base_dir:
             raise UnsafePathError(f"Le cache partiel doit résider dans {self.temp_dir}")
         return candidate
+
     def _clean_block_lines(self, raw_block: str) -> str:
+        """Retire les marqueurs de fin, les clôtures Markdown et les espaces superflus."""
         truncated: str = next(iter(re.split(self.END_FILE_PATTERN, raw_block, maxsplit=1)), "")
         lines: List[str] = truncated.strip("\n").splitlines()
         first: str = next(iter(lines), "")
@@ -74,16 +83,19 @@ class FileAssembler:
         return "\n".join(cleaned).rstrip()
 
     def _push_history(self, event_text: str) -> None:
+        """Enregistre l'événement courant dans l'historique glissant récent."""
         self.last_event = event_text
         if not self.recent_events or self.recent_events[-1] != event_text:
             self.recent_events = [*self.recent_events[-4:], event_text]
 
     def _record_event(self, tag: str, target_path: str, detail: str = "") -> None:
+        """Formate et mémorise un événement horodaté pour un fichier cible."""
         rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
         suffix: str = f" ({detail})" if detail else ""
         self._push_history(f"[{tag}] {rel_display}{suffix}")
 
     def _verify_written_syntax(self, target_path: str, ok_tag: str = "OK", ok_detail: str = "") -> None:
+        """Contrôle la syntaxe du fichier écrit et met à jour l'état d'alerte."""
         rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
         err = SyntaxChecker.check_file(target_path, rel_display, encoding=self.config.encoding)
         if err is not None:
@@ -98,6 +110,7 @@ class FileAssembler:
             print(f"[{ok_tag}] {target_path}{suffix}")
 
     def process_text(self, raw: str) -> int:
+        """Découpe le texte du presse-papiers en blocs FILE/FILE_PART et écrit les fichiers."""
         clean_raw: str = raw.replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
         parts: List[str] = re.split(self.FILE_HEADER_PATTERN, clean_raw)
         if len(parts) < 3:

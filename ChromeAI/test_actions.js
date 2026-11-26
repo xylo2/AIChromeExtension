@@ -2,6 +2,7 @@
  * Gestion du cycle d'exécution des tests unitaires, troncature anti-tokens et couverture.
  */
 class TestActionsController {
+  /** Initialise les contrôles de tests, le panneau de logs et les écouteurs d'événements. */
   constructor(chatInjector, sendBgMessage, setBtnState, buttons, getWatcherState, onRefreshUi, budgetManager = null) {
     this.chat = chatInjector; this.sendBgMessage = sendBgMessage; this.setBtnState = setBtnState;
     this.testsBtn = buttons.testsBtn; this.coverageBtn = buttons.coverageBtn;
@@ -14,10 +15,16 @@ class TestActionsController {
     this.bindEvents();
   }
 
+  /** Réinitialise le libellé et l'état visuel du bouton principal des tests. */
   resetTestsButton() { this.setBtnState(this.testsBtn, null, "🧪 Lancer les tests"); }
+
+  /** Calcule une empreinte normalisée d'un rapport d'échec pour éviter les doublons. */
   computeFailureSignature(reportText) { return String(reportText || "").replace(/\s+/g, " ").trim().slice(0, 400); }
+
+  /** Indique si un échec de tests non encore résolu est mémorisé. */
   hasPendingFailure() { return Boolean(this.lastFailureReport && !this.lastTestsPassed); }
 
+  /** Tronque un rapport volumineux avant insertion dans le prompt pour économiser les tokens. */
   truncateReportForPrompt(reportText) {
     const clean = String(reportText || "").trim();
     if (clean.length <= this.MAX_PROMPT_REPORT_CHARS) return clean;
@@ -25,6 +32,7 @@ class TestActionsController {
     return `${clean.slice(0, this.MAX_PROMPT_REPORT_CHARS).trim()}\n[... ${omitted} caractères tronqués — voir panneau Sortie tests ...]`;
   }
 
+  /** Réinitialise les statuts de tests et couverture lorsqu'un nouveau fichier est assemblé. */
   invalidateOnNewFiles() {
     const curEv = this.getWatcherState()?.lastEvent ?? null;
     if (this.lastTestsPassed && curEv !== this.lastPassedEventSnapshot) {
@@ -36,8 +44,10 @@ class TestActionsController {
     }
   }
 
+  /** Extrait le pourcentage numérique global depuis le rapport de couverture. */
   parseCoveragePercent(reportText) { const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i); return m ? Number.parseFloat(m.at(1)) : null; }
 
+  /** Met à jour la visibilité, la couleur et le texte de la pastille de couverture. */
   renderCoverageIndicator() {
     const st = this.getWatcherState();
     if (!st?.running || !st.hasRunTestsClip || !this.lastTestsPassed || !this.lastUncoveredReport) { this.coverageBtn.style.display = "none"; return; }
@@ -48,6 +58,7 @@ class TestActionsController {
     this.coverageBtn.textContent = isFull ? "✅ Couv. 100.0%" : `📊 Couverture${pct !== null ? ` (${pct.toFixed(1)}%)` : ""}`;
     this.coverageBtn.title = isFull ? "Toutes les lignes exécutables mesurées sont couvertes par les tests" : "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
   }
+  /** Traite le résultat final des tests (succès, arrêt manuel ou envoi des échecs à l'IA). */
   async finalizeTestRun(res) {
     this.testsBtn.disabled = false;
     if (this.autoClosePanelTimer) { clearTimeout(this.autoClosePanelTimer); this.autoClosePanelTimer = null; }
@@ -79,6 +90,7 @@ class TestActionsController {
     this.onRefreshUi();
   }
 
+  /** Interroge périodiquement le flux de logs des tests jusqu'à la fin de l'exécution. */
   startPollingStream(initialOffset = 0) {
     let offset = initialOffset;
     if (window.__gmcStreamTimer) clearInterval(window.__gmcStreamTimer);
@@ -92,6 +104,7 @@ class TestActionsController {
     }, 300);
   }
 
+  /** Attache les gestionnaires de clic sur les boutons de tests et de couverture. */
   bindEvents() {
     this.coverageBtn.addEventListener("click", () => {
       if (!this.lastUncoveredReport) return;

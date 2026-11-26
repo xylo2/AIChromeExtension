@@ -2,16 +2,22 @@
  * Injection de prompts et délégation des pièces jointes dans la zone de saisie du chat.
  */
 class ChatInjector {
+  /** Initialise le marqueur triple backtick et le gestionnaire de pièces jointes. */
   constructor() {
     this.TRIPLE_BACKTICK = "\x60\x60\x60";
     this.attacher = window.GmcChatFileAttacher ? new window.GmcChatFileAttacher(this) : null;
   }
 
+  /** Retourne le nom de la pièce jointe en attente de validation dans le DOM. */
   get pendingAttachmentName() { return this.attacher ? this.attacher.pendingAttachmentName : ""; }
+  /** Définit le nom de la pièce jointe en attente de chargement. */
   set pendingAttachmentName(v) { if (this.attacher) this.attacher.pendingAttachmentName = v; }
+  /** Retourne le nombre initial de puces de fichiers avant l'ajout courant. */
   get baselineAttachmentCount() { return this.attacher ? this.attacher.baselineAttachmentCount : 0; }
+  /** Mémorise le compteur initial de puces de fichiers dans le compositeur. */
   set baselineAttachmentCount(v) { if (this.attacher) this.attacher.baselineAttachmentCount = v; }
 
+  /** Vérifie qu'un élément DOM est connecté, visible et possède une surface non nulle. */
   isElementVisible(el) {
     if (!el || !el.isConnected) return false;
     const rect = el.getBoundingClientRect();
@@ -20,6 +26,7 @@ class ChatInjector {
     return style.display !== "none" && style.visibility !== "hidden";
   }
 
+  /** Recherche tous les nœuds correspondant au sélecteur, y compris dans les Shadow DOM. */
   queryDeepAll(selector, root = document) {
     const results = Array.from(root.querySelectorAll(selector));
     for (const host of root.querySelectorAll("*")) {
@@ -28,6 +35,7 @@ class ChatInjector {
     return results;
   }
 
+  /** Localise la zone de saisie active du chat en privilégiant le compositeur inférieur. */
   findChatInputElement() {
     const selectors = [
       'rich-textarea div[contenteditable="true"]', 'div[contenteditable="true"][role="textbox"]',
@@ -48,7 +56,7 @@ class ChatInjector {
     }
     return fallbackEl;
   }
-
+  /** Recherche le bouton d'envoi actif associé à la zone de saisie. */
   findSubmitButton(inputEl) {
     const keywords = ["envoyer", "send", "submit", "valider", "ask", "poser", "rechercher"];
     const matchesBtn = (btn) => {
@@ -67,14 +75,23 @@ class ChatInjector {
     for (let idx = allButtons.length - 1; idx >= 0; idx--) { if (matchesBtn(allButtons.at(idx))) return allButtons.at(idx); }
     return null;
   }
+
+  /** Délègue la détection du conteneur du compositeur. */
   findComposerContainer(inputEl) { return this.attacher ? this.attacher.findComposerContainer(inputEl) : document.body; }
+  /** Délègue le comptage des puces de pièces jointes. */
   countAttachmentChips(container) { return this.attacher ? this.attacher.countAttachmentChips(container) : 0; }
+  /** Délègue la vérification de disponibilité d'une pièce jointe. */
   isAttachmentReady(inputEl, filename) { return this.attacher ? this.attacher.isAttachmentReady(inputEl, filename) : true; }
+  /** Délègue la sélection d'un champ input[type="file"] compatible texte. */
   selectCompatibleFileInput(fileInputs) { return this.attacher ? this.attacher.selectCompatibleFileInput(fileInputs) : null; }
+  /** Délègue l'ajout d'un fichier texte virtuel dans le compositeur. */
   dropFile(filename, textContent, autoSubmit = true) { return this.attacher ? this.attacher.dropFile(filename, textContent, autoSubmit) : false; }
+  /** Extrait le texte nettoyé actuellement saisi dans le champ de chat. */
   getInputText(inputEl) { return !inputEl ? "" : (inputEl.tagName === "TEXTAREA" ? inputEl.value : inputEl.textContent || "").trim(); }
+  /** Donne le focus à l'élément sans provoquer de défilement automatique de la page. */
   focusWithoutScroll(el) { if (el && typeof el.focus === "function") { try { el.focus({ preventScroll: true }); } catch (_e) { el.focus(); } } }
 
+  /** Soumet le message via le bouton d'envoi ou l'événement clavier Entrée. */
   submitChatBox(inputEl) {
     const targetInput = inputEl || this.findChatInputElement();
     if (!targetInput) return false;
@@ -89,6 +106,7 @@ class ChatInjector {
     return true;
   }
 
+  /** Attend l'activation du bouton d'envoi et le chargement de la pièce jointe avant soumission. */
   waitAndSubmit(inputEl, minDelayMs = 600, maxWaitMs = 4000, waitForFile = "") {
     const startedAt = Date.now();
     const expectedFile = waitForFile || this.pendingAttachmentName;
@@ -107,6 +125,7 @@ class ChatInjector {
     setTimeout(trySubmit, Math.min(minDelayMs, 250));
   }
 
+  /** Insère un texte dans le compositeur et déclenche optionnellement son envoi différé. */
   insertPrompt(promptText, autoSubmit = false) {
     const inputEl = this.findChatInputElement();
     if (!inputEl || !promptText) return false;
@@ -132,6 +151,7 @@ class ChatInjector {
     return true;
   }
 
+  /** Encapsule un rapport de tests dans un bloc Markdown et l'insère dans le chat. */
   insertTestResults(textToInsert, autoSubmit = false) {
     return this.insertPrompt("Résultats des tests :\n" + this.TRIPLE_BACKTICK + "text\n" + textToInsert + "\n" + this.TRIPLE_BACKTICK + "\n", autoSubmit);
   }

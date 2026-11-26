@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Génération procédurale des icônes PNG (16x16, 48x48, 128x128) de l'extension ChromeAI.
 
 import math
 import os
@@ -11,9 +11,10 @@ DrawFn = Callable[[int, int, int], RGBA]
 
 
 def _make_png(size: int, draw_fn: DrawFn) -> bytes:
+    """Encode une image carrée RGBA en flux binaire PNG valide."""
     rows = []
     for y in range(size):
-        row = bytearray([0])
+        row = bytearray(b"\x00")
         for x in range(size):
             r, g, b, a = draw_fn(x, y, size)
             row.extend((r, g, b, a))
@@ -21,6 +22,7 @@ def _make_png(size: int, draw_fn: DrawFn) -> bytes:
     raw: bytes = b"".join(rows)
 
     def chunk(tag: bytes, data: bytes) -> bytes:
+        """Construit un bloc PNG (longueur, type, données, CRC32)."""
         crc: int = zlib.crc32(tag + data) & 0xFFFFFFFF
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
 
@@ -29,6 +31,7 @@ def _make_png(size: int, draw_fn: DrawFn) -> bytes:
 
 
 def _rounded_alpha(x: int, y: int, size: int, radius: float) -> int:
+    """Calcule la transparence anti-crénelée des coins arrondis de l'icône."""
     cx: float = min(max(x + 0.5, radius), size - radius)
     cy: float = min(max(y + 0.5, radius), size - radius)
     dist: float = math.hypot((x + 0.5) - cx, (y + 0.5) - cy)
@@ -40,6 +43,7 @@ def _rounded_alpha(x: int, y: int, size: int, radius: float) -> int:
 
 
 def _draw_chrome_ai(x: int, y: int, size: int) -> RGBA:
+    """Calcule la couleur RGBA du pixel (x, y) représentant le logo </>."""
     alpha: int = _rounded_alpha(x, y, size, size * 0.22)
     if alpha == 0:
         return (0, 0, 0, 0)
@@ -57,6 +61,7 @@ def _draw_chrome_ai(x: int, y: int, size: int) -> RGBA:
 
 
 def generate_all_icons(tools_dir: str) -> None:
+    """Génère les fichiers PNG 16, 48 et 128 pixels dans ChromeAI/icons."""
     folder: str = os.path.join(tools_dir, "ChromeAI", "icons")
     os.makedirs(folder, exist_ok=True)
     for sz in (16, 48, 128):

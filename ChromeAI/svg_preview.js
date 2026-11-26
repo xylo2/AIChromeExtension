@@ -2,6 +2,7 @@
  * Aperçu visuel flottant et téléchargement des blocs contenant une image SVG.
  */
 class SvgPreviewManager {
+  /** Initialise le détecteur de débordement, l'assainisseur SVG et les icônes. */
   constructor(spillDetector) {
     this.spill = spillDetector;
     this.sanitizer = window.GmcSvgSanitizerHelper ? new window.GmcSvgSanitizerHelper() : null;
@@ -11,6 +12,7 @@ class SvgPreviewManager {
     this.DONE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
   }
 
+  /** Crée ou retourne l'infobulle flottante dédiée à l'aperçu SVG. */
   ensureTooltip() {
     if (this.tooltipEl && this.tooltipEl.isConnected) return this.tooltipEl;
     const tip = document.createElement("div");
@@ -21,11 +23,19 @@ class SvgPreviewManager {
     return tip;
   }
 
+  /** Délègue l'assainissement d'un balisage SVG brut. */
   sanitizeSvgMarkup(rawSvg) { return this.sanitizer ? this.sanitizer.sanitizeSvgMarkup(rawSvg) : String(rawSvg || ""); }
+
+  /** Extrait le balisage SVG assaini depuis un texte source. */
   extractSvgMarkup(rawText) { return this.sanitizer ? this.sanitizer.extractSvgMarkup(rawText) : ""; }
+
+  /** Indique si le texte contient une balise SVG exploitable. */
   hasSvg(rawText) { return Boolean(this.extractSvgMarkup(rawText)); }
+
+  /** Télécharge le contenu SVG au format .svg. */
   downloadSvg(rawText, headerName = "image.svg") { return this.sanitizer ? this.sanitizer.downloadSvg(rawText, headerName) : false; }
 
+  /** Construit le conteneur d'aperçu DOM sécurisé à partir du code SVG assaini. */
   buildSvgPreviewNode(svgMarkup) {
     const stage = document.createElement("div");
     stage.className = "gmc-svg-preview-stage";
@@ -50,7 +60,7 @@ class SvgPreviewManager {
     stage.appendChild(img);
     return stage;
   }
-
+  /** Positionne l'infobulle d'aperçu près du curseur sans déborder de la fenêtre. */
   positionTooltip(event) {
     if (!this.tooltipEl || this.tooltipEl.style.display === "none") return;
     const margin = 14;
@@ -63,6 +73,7 @@ class SvgPreviewManager {
     this.tooltipEl.style.top = `${top}px`;
   }
 
+  /** Affiche l'aperçu SVG au survol de l'élément cible. */
   show(targetEl, getSourceText, event) {
     const svgMarkup = this.extractSvgMarkup(getSourceText());
     if (!svgMarkup) return this.hide();
@@ -77,8 +88,10 @@ class SvgPreviewManager {
     this.positionTooltip(event);
   }
 
+  /** Masque l'infobulle d'aperçu flottante. */
   hide() { this.activeTarget = null; if (this.tooltipEl) this.tooltipEl.style.display = "none"; }
 
+  /** Attache les écouteurs de survol souris sur un bloc contenant du SVG. */
   bindHoverTarget(targetEl, getSourceText) {
     if (!targetEl || targetEl.getAttribute("data-gmc-svg-bound") === "true") return;
     targetEl.setAttribute("data-gmc-svg-bound", "true");
@@ -87,6 +100,7 @@ class SvgPreviewManager {
     targetEl.addEventListener("mouseleave", () => { if (this.activeTarget === targetEl) this.hide(); });
   }
 
+  /** Ajoute un bouton de téléchargement .svg dans l'en-tête d'un bloc <pre> autonome. */
   attachStandaloneDownloadButton(pre, getSourceText) {
     const wrapper = this.spill.findCodeBlockWrapper(pre) || pre;
     if (wrapper.querySelector?.(".gmc-svg-standalone-dl")) return;
@@ -108,6 +122,7 @@ class SvgPreviewManager {
     else if (pre.parentNode) { const bar = document.createElement("div"); bar.className = "gmc-placeholder"; bar.appendChild(btn); pre.parentNode.insertBefore(bar, pre); }
   }
 
+  /** Détecte les blocs <pre> SVG sans balise FILE et leur associe aperçu et téléchargement. */
   scanStandaloneBlocks() {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-processed") === "true") continue;

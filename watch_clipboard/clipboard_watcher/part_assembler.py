@@ -1,10 +1,11 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Sauvegarde des fragments .partN et assemblage des fichiers multi-parties.
 
 import os
 from typing import Any, List, Optional, Tuple
 
 
 def parse_part_info(part_info: str) -> Tuple[int, Optional[int]]:
+    """Extrait l'indice de partie et le total éventuel depuis 'k/N' ou 'k'."""
     if "/" in part_info:
         num_str, tot_str = [x.strip() for x in part_info.split("/", 1)]
         return int(num_str), int(tot_str)
@@ -12,6 +13,7 @@ def parse_part_info(part_info: str) -> Tuple[int, Optional[int]]:
 
 
 def cleanup_excess_parts(temp_base_path: str, start: int, end: int) -> None:
+    """Supprime les anciens fragments résiduels au-delà de la borne attendue."""
     for n in range(start, end + 1):
         p_path: str = f"{temp_base_path}.part{n}"
         if os.path.exists(p_path):
@@ -19,6 +21,7 @@ def cleanup_excess_parts(temp_base_path: str, start: int, end: int) -> None:
 
 
 def assemble_partial_file(assembler: Any, header: str, clean_code: str) -> None:
+    """Enregistre un fragment dans le cache miroir et tente l'assemblage complet."""
     rel_path, part_info = [x.strip() for x in header.split("|", 1)]
     target_path: str = assembler.resolve_target_path(rel_path)
     temp_base_path: str = assembler.resolve_temp_path(rel_path)
@@ -48,6 +51,7 @@ def try_assemble_parts(
     part_num: int,
     total_parts: Optional[int],
 ) -> None:
+    """Vérifie la présence de tous les fragments et écrit le fichier cible assemblé."""
     max_check: int = total_parts if total_parts else assembler.config.max_parts
     assembled: List[str] = []
     missing: List[int] = []

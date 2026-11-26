@@ -1,10 +1,11 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Enregistrement du manifeste Native Messaging dans le registre Windows ou sur Unix.
 
 from pathlib import Path
 from typing import List
 
 
 def register_windows_host(host_name: str, manifest_path: Path) -> None:
+    """Inscrit le manifeste dans les clés HKCU et HKLM des navigateurs Chromium."""
     import winreg  # type: ignore[import-not-found]
 
     browser_keys: List[str] = [
@@ -38,6 +39,7 @@ def register_windows_host(host_name: str, manifest_path: Path) -> None:
 
 
 def register_unix_host(host_name: str, manifest_path: Path, system: str) -> None:
+    """Copie le manifeste JSON dans les répertoires NativeMessagingHosts sur macOS/Linux."""
     targets: List[Path] = (
         [
             Path.home() / "Library/Application Support/Google/Chrome/NativeMessagingHosts",

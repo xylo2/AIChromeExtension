@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Orchestrateur d'exécution des suites Python et Node.js avec couverture et presse-papiers.
 
 import os
 from pathlib import Path
@@ -24,19 +24,18 @@ from tools.suite_executor import (  # noqa: E402
 
 
 class ClipboardTestRunner:
-    """
-    Exécute les suites unittest et Node.js, détecte les warnings Python,
-    mesure la couverture de code et copie le rapport compact dans le presse-papiers.
-    """
+    """Exécute les suites unittest et Node.js, mesure la couverture et copie les erreurs."""
 
     WARNING_PATTERN = WARNING_PATTERN
 
     def __init__(self, project_root: str, use_clipboard: bool = True) -> None:
+        """Initialise la racine du projet et l'activation du presse-papiers."""
         self.project_root: str = os.path.abspath(project_root)
         self.use_clipboard: bool = use_clipboard
 
     @staticmethod
     def find_node_binary(search_root: Path) -> Optional[str]:
+        """Recherche l'exécutable Node.js dans l'environnement Python, les venv ou le PATH."""
         candidates: List[Path] = []
         py_dir: Path = Path(sys.executable).resolve().parent
         candidates.extend([py_dir / "node.exe", py_dir / "node"])
@@ -47,32 +46,39 @@ class ClipboardTestRunner:
             if cand.is_file():
                 return str(cand)
         return shutil.which("node.exe") or shutil.which("node")
-
     @classmethod
     def extract_warnings_and_console_errors(cls, raw_output: str) -> str:
+        """Délègue l'extraction des avertissements Python de la sortie de test."""
         return extract_warnings_and_console_errors(raw_output)
 
     @staticmethod
     def _format_line_ranges(lines: List[int]) -> str:
+        """Formate une liste de lignes en plages compactes."""
         return CoverageReporter.format_line_ranges(lines)
 
     @staticmethod
     def _executable_lines(file_path: str) -> Set[int]:
+        """Retourne l'ensemble des lignes exécutables d'un fichier Python."""
         return CoverageReporter.executable_lines(file_path)
 
     def _collect_source_files(self, top_dir: str) -> List[str]:
+        """Collecte les fichiers sources Python éligibles à la couverture."""
         return CoverageReporter.collect_source_files(top_dir)
 
     def format_coverage_report(self, rows: List[CoverageRow], total_tests: int = 0) -> Tuple[float, str]:
+        """Calcule la couverture globale et formate le tableau récapitulatif."""
         return CoverageReporter.format_report(rows, total_tests=total_tests)
 
     def compact_error_report(self, raw_output: str, top_dir: str = "") -> str:
+        """Compacte et déduplique les erreurs d'une sortie unittest."""
         return compact_error_report(raw_output, top_dir=top_dir)
 
     def _run_single_suite(self, suite_name: str, tests_dir: str, top_dir: str) -> Tuple[int, str, List[CoverageRow]]:
+        """Exécute une suite Python individuelle avec mesure de couverture."""
         return run_single_python_suite(suite_name, tests_dir, top_dir)
 
     def copy_to_clipboard(self, text: str) -> bool:
+        """Copie le rapport d'erreurs dans le presse-papiers système via Tkinter."""
         if not self.use_clipboard or not text:
             return False
         try:
@@ -86,8 +92,8 @@ class ClipboardTestRunner:
             return True
         except Exception:
             return False
-
     def _run_node_suite(self, chrome_ai_dir: Path) -> Tuple[int, str]:
+        """Exécute les fichiers *.test.js de ChromeAI via node --test si Node est présent."""
         test_files: List[Path] = sorted((chrome_ai_dir / "tests").glob("*.test.js"))
         if not test_files:
             return 0, ""
@@ -101,6 +107,7 @@ class ClipboardTestRunner:
         return 0, f"[ChromeAI] OK ({len(test_files)} fichier(s) de test)"
 
     def run(self, report_file: str = "", coverage_file: str = "") -> int:
+        """Exécute toutes les suites Python/JS, écrit les rapports et copie les échecs."""
         root_p: Path = Path(self.project_root).resolve()
         tools_parent: Path = root_p.parent if root_p.name == "watch_clipboard" else root_p
         if tools_parent.name == "tools":
@@ -141,6 +148,7 @@ class ClipboardTestRunner:
 
 
 def main() -> int:
+    """Analyse les arguments CLI et lance ClipboardTestRunner."""
     use_clip: bool = "--no-clipboard" not in sys.argv
     report_file: str = ""
     coverage_file: str = ""

@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Utilitaires d'arrêt d'arbre de processus et de lecture des rapports de tests.
 
 import os
 import re
@@ -8,6 +8,7 @@ from typing import Tuple
 
 
 def terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Termine un processus et l'ensemble de ses processus enfants."""
     pid: int = getattr(proc, "pid", 0) or 0
     if os.name == "nt" and pid > 0:
         try:
@@ -34,6 +35,7 @@ def read_runner_reports(
     report_path: str,
     coverage_path: str,
 ) -> Tuple[str, str]:
+    """Lit les fichiers de rapport et couverture générés par run_tests_clip.py."""
     compact_out: str = "".join(live_lines).strip()
     if is_clip_runner and os.path.isfile(report_path):
         with open(report_path, "r", encoding="utf-8", errors="replace") as f_rep:

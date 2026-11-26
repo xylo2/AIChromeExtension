@@ -2,6 +2,7 @@
  * Création des placeholders, boutons de contrôle (purge, batch, SVG, groupe multi-blocs) et synchronisation DOM.
  */
 class BlockControlsUiHelper {
+  /** Initialise les icônes SVG et la table de correspondance des langages de fichiers. */
   constructor(spillDetector, svgPreview = null) {
     this.spill = spillDetector; this.svgPreview = svgPreview;
     this.PURGE_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/><line x1="12" y1="13" x2="19" y2="20"/><line x1="19" y1="13" x2="12" y2="20"/></svg>';
@@ -10,12 +11,16 @@ class BlockControlsUiHelper {
     this.DONE_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
     this.LANG_NAMES = { JS: "javascript", PY: "python", CSS: "css", HTML: "html", JSON: "json", MD: "markdown", INI: "ini", SH: "bash", TXT: "text", SVG: "svg" };
   }
+  /** Masque la balise === END_FILE === lorsqu'elle a débordé juste après le bloc <pre>. */
   hideTrailingEndMarker(pre) { const edge = this.spill.findEdgeSibling(pre, "next"); if (edge?.nodeType === 1 && this.spill.END_FILE_REGEX.test(String(edge.textContent || "").trim())) edge.classList?.add("gmc-spilled-hidden"); }
+  /** Extrait l'extension en majuscules depuis l'en-tête FILE ou FILE_PART. */
   detectFileTypeBadge(headerName) { const p = String(headerName || "").split("|").at(0).trim(); return (p.includes(".") ? p.split(".").pop().toUpperCase() : "TXT") || "TXT"; }
+  /** Formate la liste des langages d'un groupe multi-blocs (ex: "javascript et css"). */
   formatCombinedLanguages(badges) {
     const u = Array.from(new Set(badges.map((b) => this.LANG_NAMES[b] || b.toLowerCase())));
     return u.length <= 1 ? (u.at(0) || "") : (u.length === 2 ? `${u.at(0)} et ${u.at(1)}` : `${u.slice(0, -1).join(", ")} et ${u.at(-1)}`);
   }
+  /** Localise le nœud texte affichant le nom du langage dans l'en-tête natif du bloc. */
   findHeaderLanguageNode(wrapper) {
     if (!wrapper) return null;
     for (const root of [wrapper, wrapper.parentElement].filter((r) => r && typeof r.querySelectorAll === "function")) {
@@ -26,7 +31,9 @@ class BlockControlsUiHelper {
     }
     return null;
   }
+  /** Met à jour le libellé de langage affiché dans la barre d'en-tête de la carte. */
   updateHeaderLanguageLabel(wrapper, labelText) { const n = this.findHeaderLanguageNode(wrapper); if (n && labelText) { if (n.dataset && !n.dataset.gmcOrigLang) n.dataset.gmcOrigLang = String(n.textContent || "").trim(); n.textContent = labelText; } }
+  /** Masque la mention native "Utilisez le code avec précaution" sous la carte regroupée. */
   hideNativeFooterCaution(wrapper) {
     if (!wrapper || typeof wrapper.querySelectorAll !== "function") return;
     for (const node of Array.from(wrapper.querySelectorAll("div, p, span"))) {
@@ -36,18 +43,21 @@ class BlockControlsUiHelper {
       }
     }
   }
+  /** Crée un bouton de copie et purge DOM pour un bloc ou un tour regroupé. */
   createPurgeBtn(item, onCopyAndPurge) {
     const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-purge-btn";
     btn.title = "Copier l'intégralité du bloc (ou du tour) et purger le DOM"; btn.innerHTML = this.PURGE_SVG;
     btn.addEventListener("click", (e) => { e.stopPropagation(); btn.classList.add("gmc-used-btn"); onCopyAndPurge(item); });
     item.purgeButtons.push(btn); return btn;
   }
+  /** Crée le bouton permettant de télécharger le fichier .svg associé au bloc. */
   createDownloadBtn(item, getCodeFn) {
     const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-verify-btn gmc-svg-download-btn";
     btn.title = "Télécharger le fichier .svg"; btn.innerHTML = this.DOWNLOAD_SVG; btn.style.display = "none";
     btn.addEventListener("click", (e) => { e.stopPropagation(); if (this.svgPreview?.downloadSvg(getCodeFn(item), item.headerName)) { btn.innerHTML = this.DONE_SVG; btn.classList.add("gmc-verified-btn"); setTimeout(() => { btn.innerHTML = this.DOWNLOAD_SVG; btn.classList.remove("gmc-verified-btn"); }, 1400); } });
     return btn;
   }
+  /** Construit la carte de remplacement d'un bloc <pre> et ses boutons d'action. */
   buildTrackedBlockItem(pre, headerName, preExisting, manager) {
     const wrapper = document.createElement("div"); wrapper.className = "gmc-block-slot";
     const placeholder = document.createElement("div"); placeholder.className = "gmc-placeholder";
@@ -68,6 +78,7 @@ class BlockControlsUiHelper {
     toggleBtn.addEventListener("click", () => { manager.toggleBlockDisplay(item); });
     actionsBox.append(toggleBtn, item.downloadBtn, verifyBtn, item.placeholderPurgeBtn); row.append(labelEl, actionsBox); placeholder.append(row); wrapper.append(batchRow, placeholder); return item;
   }
+  /** Détache les contrôles injectés dans l'en-tête natif et restaure les boutons du placeholder. */
   detachHeaderControls(pre, item) {
     const wrapper = this.spill.findCodeBlockWrapper(pre);
     if (wrapper) { wrapper.removeAttribute("data-gmc-has-purge"); wrapper.querySelector?.(".gmc-hidden-native-copy")?.classList.remove("gmc-hidden-native-copy"); wrapper.querySelector?.(".gmc-hidden-native-footer")?.classList.remove("gmc-hidden-native-footer"); }
@@ -77,6 +88,7 @@ class BlockControlsUiHelper {
     if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "inline-flex";
     if (item.placeholderRow && item.verifyBtn && !item.verifyBtn.isConnected) item.placeholderRow.insertBefore(item.verifyBtn, item.placeholderPurgeBtn);
   }
+  /** Synchronise l'affichage groupé des blocs d'un même tour dans une carte unique. */
   syncGroupLeadVisuals(item, members, manager) {
     const cardTarget = item.cardEl || item.placeholderEl;
     cardTarget.classList.add("gmc-group-card"); cardTarget.classList.remove("gmc-spilled", "gmc-oversized");
@@ -108,6 +120,7 @@ class BlockControlsUiHelper {
     this.updateHeaderLanguageLabel(leadWrapper, this.formatCombinedLanguages(badges)); this.hideNativeFooterCaution(leadWrapper);
     if (item.downloadBtn) item.downloadBtn.style.display = anySvg ? "inline-flex" : "none";
   }
+  /** Met à jour l'état visuel, les alertes et les boutons d'un bloc suivi dans le DOM. */
   syncItemVisuals(item, manager) {
     this.hideTrailingEndMarker(item.el);
     if (item.isSecondaryInGroup) {
@@ -141,6 +154,7 @@ class BlockControlsUiHelper {
     item.labelEl.textContent = manager.formatLabel(`[${badge}] ${item.headerName}`, lineCount, hasSpill, hasSvg);
     cardTarget.classList.toggle("gmc-spilled", hasSpill); cardTarget.classList.toggle("gmc-oversized", !hasSpill && lineCount > manager.MAX_SAFE_LINES);
   }
+  /** Injecte les boutons purge, vérification IA et batch directement dans l'en-tête du bloc. */
   attachHeaderControls(pre, item, onCopyAndPurge, getCodeFn) {
     if (item.isSecondaryInGroup) { this.detachHeaderControls(pre, item); return; }
     const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;

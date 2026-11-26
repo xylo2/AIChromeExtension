@@ -2,10 +2,12 @@
  * Rendu des erreurs Git et boutons commit / push / nouveau chat.
  */
 class GitCommitUiHelper {
+  /** Initialise l'assistant UI avec l'injecteur de chat pour l'envoi d'erreurs. */
   constructor(chatInjector) {
     this.chat = chatInjector;
   }
 
+  /** Affiche un encadré d'erreur Git détaillé avec boutons de copie et d'envoi à l'IA. */
   renderErrorBox(bar, titleText, fullErrorText) {
     let box = bar.querySelector(".gmc-git-error-box");
     if (!box) { box = document.createElement("div"); box.className = "gmc-git-error-box"; bar.appendChild(box); }
@@ -28,8 +30,9 @@ class GitCommitUiHelper {
     box.append(topRow, preDetail);
   }
 
+  /** Envoie un message au service worker avec gestion du délai d'expiration et de l'invalidation. */
   sendRuntimeSafe(payload, onDone, timeoutMs = 20000) {
-    if (!chrome.runtime?.id) { onDone({ ok: false, error: "Extension rechargée : actualise la page (F5) puis réessaie." }); return; }
+    if (!chrome.runtime?.id) { onDone({ ok: false, error: "Extension rechargée : actualisez la page (F5) puis réessaie." }); return; }
     let settled = false;
     const timer = setTimeout(() => { if (!settled) { settled = true; onDone({ ok: false, error: `Délai dépassé (${Math.round(timeoutMs / 1000)}s) sans réponse de l'extension.` }); } }, timeoutMs);
     try {
@@ -43,6 +46,7 @@ class GitCommitUiHelper {
       if (!settled) { settled = true; clearTimeout(timer); onDone({ ok: false, error: err?.message || "Contexte d'extension invalidé (F5 requis)." }); }
     }
   }
+  /** Construit l'URL d'une nouvelle conversation AI vierge en conservant le mode udm/hl. */
   buildFreshChatUrl(currentHref) {
     const url = new URL(currentHref);
     if (url.pathname.startsWith("/search")) {
@@ -58,6 +62,7 @@ class GitCommitUiHelper {
     return url.toString();
   }
 
+  /** Crée le bouton ouvrant un nouveau chat vierge avec déclenchement automatique d'export. */
   createFreshExportButton() {
     const freshBtn = document.createElement("button"); freshBtn.type = "button"; freshBtn.className = "gmc-git-btn-verify";
     freshBtn.textContent = "🆕 Nouveau chat & Exporter"; freshBtn.title = "Ouvre une nouvelle conversation vierge et y réexporte le projet à jour";
@@ -72,6 +77,7 @@ class GitCommitUiHelper {
     return freshBtn;
   }
 
+  /** Crée le bouton d'envoi de la branche courante vers le dépôt distant origin. */
   createPushButton(bar, manager) {
     const pushBtn = document.createElement("button"); pushBtn.type = "button"; pushBtn.className = "gmc-git-push-btn";
     pushBtn.textContent = "🚀 git push origin HEAD"; pushBtn.title = "Pousse la branche courante vers origin";

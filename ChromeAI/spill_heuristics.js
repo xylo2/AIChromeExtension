@@ -2,6 +2,7 @@
  * Règles heuristiques de classification du texte et des balises de débordement.
  */
 class SpillTextHeuristics {
+  /** Initialise les expressions régulières de détection de balises FILE et COMMIT. */
   constructor() {
     this.FILE_TAG_REGEX = /^(?:#\s*)?=== FILE(?:_PART)?:\s*(.+?)\s*===\s*$/;
     this.END_FILE_REGEX = /^(?:#\s*)?=== END_FILE ===\s*$/;
@@ -9,10 +10,12 @@ class SpillTextHeuristics {
     this.TRIPLE_BACKTICK = "\x60\x60\x60";
   }
 
+  /** Remplace les espaces insécables et uniformise les sauts de ligne en LF. */
   normalizeText(raw) {
     return (raw || "").replace(/\u00a0/g, " ").replace(/\r\n?/g, "\n");
   }
 
+  /** Retourne la première ligne non vide après nettoyage des espaces latéraux. */
   findFirstNonEmptyLine(rawText) {
     for (const line of this.normalizeText(rawText).split("\n")) {
       const trimmed = line.trim();
@@ -21,11 +24,13 @@ class SpillTextHeuristics {
     return "";
   }
 
+  /** Indique si la première ligne correspond à une balise de début/fin de fichier ou commit. */
   isBoundaryTag(text) {
     const first = this.findFirstNonEmptyLine(text);
     return this.FILE_TAG_REGEX.test(first) || this.END_FILE_REGEX.test(first) || this.COMMIT_TAG_REGEX.test(first);
   }
 
+  /** Détecte les balises internes FollowUp à exclure de la récupération de code. */
   isFollowUpArtifact(text) {
     const t = (text || "").trim();
     const open = "<" + "FollowUp>";
@@ -33,6 +38,7 @@ class SpillTextHeuristics {
     return t.startsWith(open) || t.startsWith(close) || t.includes(close) || t.includes(open);
   }
 
+  /** Identifie les libellés de langage ou mentions d'interface Google AI à ignorer. */
   isUiOrLangNoise(text) {
     const t = (text || "").trim();
     if (!t) return true;
@@ -46,6 +52,7 @@ class SpillTextHeuristics {
     );
   }
 
+  /** Détermine heuristiquement si un paragraphe hors <pre> contient du code débordé. */
   looksLikeSpilledCode(text) {
     const trimmed = (text || "").trim();
     if (!trimmed || this.isFollowUpArtifact(trimmed) || this.isUiOrLangNoise(trimmed)) return false;

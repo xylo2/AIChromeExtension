@@ -22,15 +22,14 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   let floatingBar = document.querySelector(".gmc-floating-bar");
   if (!floatingBar) { floatingBar = document.createElement("div"); floatingBar.className = "gmc-floating-bar"; document.body.appendChild(floatingBar); }
+  /** Crée ou récupère une ligne typologique de la barre flottante. */
   const ensureRow = (cls) => {
     let row = floatingBar.querySelector(`.${cls}`);
     if (!row) { row = document.createElement("div"); row.className = `gmc-floating-row ${cls}`; floatingBar.appendChild(row); }
     return row;
   };
-  const serviceRow = ensureRow("gmc-floating-row-status");
-  const projectRow = ensureRow("gmc-floating-row-actions");
-  const testsRow = ensureRow("gmc-floating-row-tests");
-  const domRow = ensureRow("gmc-floating-row-dom");
+  const serviceRow = ensureRow("gmc-floating-row-status"), projectRow = ensureRow("gmc-floating-row-actions"), testsRow = ensureRow("gmc-floating-row-tests"), domRow = ensureRow("gmc-floating-row-dom");
+  /** Crée ou rattache un bouton de contrôle dans sa ligne cible. */
   const makeBtn = (cls, text, title = "", hidden = false, parent = projectRow) => {
     let el = floatingBar.querySelector(`.${cls.split(" ").at(0)}`) || parent.querySelector(`.${cls.split(" ").at(0)}`);
     if (!el) { el = document.createElement("button"); el.type = "button"; el.className = cls; el.textContent = text; if (title) el.title = title; if (hidden) el.style.display = "none"; }
@@ -59,11 +58,14 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   els.nextBtn = makeBtn("gmc-quick-next-btn gmc-composer-btn", "Suite", "Envoyer « Suite » à l'IA (Alt+S)", false, composerUi.groupEl);
   els.composerCommitBtn = makeBtn("gmc-quick-commit-btn gmc-composer-btn", "💬 Commit", "Générer le message de commit (ou vérifier le diff Git en 1 clic)", true, composerUi.groupEl);
   els.excuseBtn = makeBtn("gmc-quick-excuse-btn gmc-composer-btn gmc-composer-muted", "🎲 Excuse", "Insérer une excuse de développeur dans le chat", false, composerUi.groupEl);
+  /** Envoie un message au service worker en gérant l'invalidation éventuelle de l'extension. */
   const sendBgMessage = (payload, onReply) => {
     if (!chrome.runtime?.id) { alert("Extension rechargée : actualisez cette page (F5) pour reconnecter les boutons."); return; }
     chrome.runtime.sendMessage(payload, (res) => { onReply(chrome.runtime.lastError ? { ok: false, error: chrome.runtime.lastError.message || "Port fermé" } : res); });
   };
+  /** Applique une classe d'état visuel et un libellé à un bouton de la barre flottante. */
   const setBtnState = (btn, state, label) => { btn.classList.remove("state-running", "state-pass", "state-fail"); if (state) btn.classList.add(`state-${state}`); btn.textContent = label; };
+  /** Génère l'export du projet selon le mode et les sous-dossiers, puis l'envoie dans le chat. */
   const triggerProjectExport = (mode = "full", subpaths = []) => {
     if (exportBadgeTimer) { clearTimeout(exportBadgeTimer); exportBadgeTimer = null; }
     setBtnState(els.exportBtn, "running", "⏳ Export...");
@@ -78,6 +80,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       } else setBtnState(els.exportBtn, "fail", "❌ Erreur");
     });
   };
+  /** Déclenche automatiquement un export complet après ouverture d'un nouveau chat vierge. */
   const checkPendingFreshExport = () => {
     if (isTriggeringFreshExport || !watcherState?.running || !watcherState.hasExporter || !chrome.storage?.local) return;
     if (document.querySelectorAll("pre").length > 0 || !chatInjector.findChatInputElement()) return;
@@ -90,7 +93,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   };
   const testActions = new window.GmcTestActionsController(chatInjector, sendBgMessage, setBtnState, { testsBtn: els.testsBtn, coverageBtn: els.coverageBtn }, () => watcherState, () => updateIndicators(), tokenBudget);
   const blockManager = new window.GmcCodeBlockManager(spillDetector, chatInjector, () => { updateIndicators(); setTimeout(() => composerUi.mount(), 80); }, svgPreview);
+  /** Affiche une ligne de la barre flottante uniquement si au moins un bouton est visible. */
   const toggleRowVisibility = (rowEl, btnList) => { rowEl.style.display = btnList.some((b) => b && b.style.display !== "none") ? "flex" : "none"; };
+  /** Synchronise l'état visuel de la barre flottante, des pastilles et de l'action guidée. */
   updateIndicators = () => {
     testActions.invalidateOnNewFiles();
     const running = Boolean(watcherState?.running);
@@ -128,9 +133,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.buildBtn, els.buildLogBtn, els.gitBtn, els.commitMsgBtn]);
     toggleRowVisibility(testsRow, [els.testsBtn, els.testLogBtn, els.coverageBtn]);
     toggleRowVisibility(domRow, [els.eventPill, els.purgeBtn]);
-    const testsPassedForCurrentEvent = Boolean(testActions.lastTestsPassed || testActions.panel.isRunning);
-    const autoFixActive = Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.());
-    const guided = composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent, autoFixActive });
+    const guided = composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent: Boolean(testActions.lastTestsPassed || testActions.panel.isRunning), autoFixActive: Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.()) });
     guidedActionId = guided ? guided.id : "";
     els.guidedBtn.style.display = guided ? "inline-flex" : "none";
     if (guided) { els.guidedBtn.textContent = guided.label; els.guidedBtn.title = guided.title; }
@@ -142,22 +145,13 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     canRequestCommitMsg: () => canRequestCommitMsg, clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); }, getGuidedActionId: () => guidedActionId
   });
   eventsCtrl.bindAll();
-  const refreshState = () => {
-    if (!chrome.runtime?.id) return;
-    chrome.storage?.local?.get("watchClipboardState", (res) => { if (res?.watchClipboardState) eventsCtrl.handleStateUpdate(res.watchClipboardState); });
-    chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (st) => { if (!chrome.runtime.lastError && st) eventsCtrl.handleStateUpdate(st); });
-  };
+  /** Demande au service worker l'état courant du serveur local. */
+  const refreshState = () => { if (!chrome.runtime?.id) return; chrome.storage?.local?.get("watchClipboardState", (res) => { if (res?.watchClipboardState) eventsCtrl.handleStateUpdate(res.watchClipboardState); }); chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (st) => { if (!chrome.runtime.lastError && st) eventsCtrl.handleStateUpdate(st); }); };
   chrome.storage?.onChanged?.addListener((changes, area) => { if (area === "local" && changes.watchClipboardState?.newValue) eventsCtrl.handleStateUpdate(changes.watchClipboardState.newValue); });
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.type === "WATCHER_STATE_CHANGED" && msg.state) eventsCtrl.handleStateUpdate(msg.state);
-    if (msg?.type === "INSERT_TEST_RESULT" && msg.output) sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) });
-  });
-  const isExternalMutation = (records) => records.some((r) => {
-    const t = r.target;
-    if (t && t.nodeType === 1 && (String(t.className || "").includes("gmc-") || t.closest?.(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-git-panel, .gmc-svg-preview-tooltip, .gmc-autosuite-banner"))) return false;
-    const nodes = [...(r.addedNodes || []), ...(r.removedNodes || [])];
-    return nodes.length === 0 || nodes.some((n) => n.nodeType !== 1 || !String(n.className || "").includes("gmc-"));
-  });
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => { if (msg?.type === "WATCHER_STATE_CHANGED" && msg.state) eventsCtrl.handleStateUpdate(msg.state); if (msg?.type === "INSERT_TEST_RESULT" && msg.output) sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) }); });
+  /** Filtre les mutations DOM externes pour éviter de déclencher un scan sur nos propres composants. */
+  const isExternalMutation = (records) => records.some((r) => { const t = r.target; if (t && t.nodeType === 1 && (String(t.className || "").includes("gmc-") || t.closest?.(".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-git-panel, .gmc-svg-preview-tooltip, .gmc-autosuite-banner"))) return false; const nodes = [...(r.addedNodes || []), ...(r.removedNodes || [])]; return nodes.length === 0 || nodes.some((n) => n.nodeType !== 1 || !String(n.className || "").includes("gmc-")); });
+  /** Lance un balayage complet des boutons compositeur, blocs commit, blocs FILE et aperçus SVG. */
   const scanAll = (preExisting = false) => { composerUi.mount(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); svgPreview.scanStandaloneBlocks(); updateIndicators(); };
   window.__gmcObserver = new MutationObserver((records) => { if (!isExternalMutation(records)) return; clearTimeout(scanTimer); scanTimer = setTimeout(() => scanAll(false), 300); });
   window.__gmcObserver.observe(document.body, { childList: true, subtree: true });

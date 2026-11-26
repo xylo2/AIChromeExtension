@@ -2,6 +2,7 @@
  * Menu de sélection du type d'export, filtrage par dossiers et garde-fou de tokens.
  */
 class ExportMenuManager {
+  /** Initialise les modes d'export disponibles et le gestionnaire de budget associé. */
   constructor(budgetManager = null) {
     this.budget = budgetManager;
     this.menuEl = null;
@@ -14,11 +15,15 @@ class ExportMenuManager {
       { id: "full", label: "📦 Export complet (code + tests) 🔴", hint: "Tous les fichiers sources et les tests (à réserver aux nouveaux chats)" }
     ];
   }
+
+  /** Formate le badge de volume estimé en tokens et nombre de fichiers pour un mode. */
   formatTokenBadge(info) {
     if (!info || typeof info.tokens !== "number") return "";
     const tokStr = info.tokens >= 1000 ? `~${(info.tokens / 1000).toFixed(1)}k tok` : `~${info.tokens} tok`;
     return ` (${tokStr}${typeof info.files === "number" ? `, ${info.files} fic.` : ""})`;
   }
+
+  /** Construit le message d'accompagnement envoyé avec le fichier d'export joint. */
   buildExportPrompt(mode, filename, fileCount, estTokens, subpaths = []) {
     const cleanMode = ["full", "code", "tests", "modified", "skeleton"].includes(mode) ? mode : "full";
     const tokInfo = estTokens > 0 ? ` (~${estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : estTokens} tokens)` : "";
@@ -31,7 +36,10 @@ class ExportMenuManager {
     };
     return `Fichier joint (\x60${filename}\x60${countInfo}${tokInfo})${subInfo} — **${labels[cleanMode]}** :${budgetWarn}\nRappel : appliquer strictement INSTRUCTIONS_IA.md (<= 75 lignes/bloc, max 2 blocs/réponse, tests sans warning).`;
   }
+
+  /** Ferme et détruit le panneau du menu d'export s'il est ouvert. */
   close() { if (this.menuEl) { this.menuEl.remove(); this.menuEl = null; } }
+  /** Interroge EXPORT_PREVIEW pour mettre à jour dynamiquement les estimations de tokens. */
   refreshDynamicEstimates(modeBtnsById, folderCheckboxes) {
     if (typeof chrome === "undefined" || !chrome.runtime?.id || typeof chrome.runtime.sendMessage !== "function") return;
     const checked = folderCheckboxes.filter((c) => c.checked).map((c) => c.dataset.folder);
@@ -48,6 +56,8 @@ class ExportMenuManager {
       });
     } catch (_err) {}
   }
+
+  /** Ouvre ou ferme le panneau de choix du périmètre et du mode d'export. */
   toggle(onSelectMode, folders = []) {
     if (this.menuEl) { this.close(); return; }
     const panel = document.createElement("div"); panel.className = "gmc-git-panel gmc-export-menu-panel";

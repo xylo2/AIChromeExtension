@@ -4,6 +4,7 @@ try { if (typeof importScripts === "function") importScripts("bg_native_helper.j
  * Service Worker orienté objet pilotant watch_clipboard et la réinjection des onglets.
  */
 class WatcherBackgroundService {
+  /** Initialise les URLs locales, les délais de scrutin et l'assistant Native Messaging. */
   constructor() {
     this.HOST_LOOPBACK = ["127", "0", "0", "1"].join(".");
     this.BASE_URL = `http://${this.HOST_LOOPBACK}:18765`;
@@ -13,32 +14,29 @@ class WatcherBackgroundService {
     this.DEFAULT_ROOT_DIR = "C:\\git";
     this.DEFAULT_TEST_RUNNER = "tools/run_tests_clip.py";
     this.nativeHelper = globalThis.GmcBgNativeHelper ? new globalThis.GmcBgNativeHelper(this.NATIVE_HOST_NAME, this.DEFAULT_ROOT_DIR) : null;
-    this.lastKnownSignature = "";
-    this.isChecking = false;
-    this.activeStartPromise = null;
+    this.lastKnownSignature = ""; this.isChecking = false; this.activeStartPromise = null;
   }
-
+  /** Déduit la racine du workspace parent à partir du chemin cible actif du watcher. */
   extractWorkspaceRoot(fullPath) {
     if (!fullPath || typeof fullPath !== "string") return null;
-    const normalized = fullPath.replace(/[\\/]+$/, "");
-    const toolsIdx = normalized.search(/[\\/]tools(?:[\\/]|$)/i);
+    const normalized = fullPath.replace(/[\\/]+$/, ""), toolsIdx = normalized.search(/[\\/]tools(?:[\\/]|$)/i);
     if (toolsIdx > 0) return normalized.slice(0, toolsIdx);
     const lastSep = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
     return lastSep <= 0 ? null : (lastSep === 2 && normalized.charAt(1) === ":" ? normalized.slice(0, 3) : normalized.slice(0, lastSep));
   }
-
+  /** Lit le jeton d'authentification HTTP stocké localement par l'extension. */
   async getApiToken() { return (await chrome.storage.local.get("watcherApiToken")).watcherApiToken || ""; }
+  /** Diffuse le nouvel état du watcher à tous les onglets ouverts du navigateur. */
   async broadcastStateToTabs(state) { try { for (const tab of await chrome.tabs.query({})) { if (tab.id) chrome.tabs.sendMessage(tab.id, { type: "WATCHER_STATE_CHANGED", state }).catch(() => {}); } } catch (_err) {} }
-
+  /** Resynchronise le jeton API depuis l'hôte natif lorsqu'un décalage est détecté. */
   async resyncApiToken(currentToken) {
     if (!this.nativeHelper || typeof this.nativeHelper.fetchSessionToken !== "function") return null;
     const nativeTok = await this.nativeHelper.fetchSessionToken();
     if (nativeTok === null || nativeTok === currentToken) return null;
-    if (nativeTok) await chrome.storage.local.set({ watcherApiToken: nativeTok });
-    else await chrome.storage.local.remove("watcherApiToken");
+    if (nativeTok) await chrome.storage.local.set({ watcherApiToken: nativeTok }); else await chrome.storage.local.remove("watcherApiToken");
     return nativeTok;
   }
-
+  /** Exécute une requête HTTP locale avec resynchronisation automatique du jeton sur HTTP 401. */
   async fetchWithTokenFallback(url, options, apiToken) {
     const sendWith = (tok) => fetch(url, { ...options, headers: { ...(options.headers || {}), ...(tok ? { "X-Watcher-Token": tok } : {}) } });
     let response = await sendWith(apiToken);
@@ -48,8 +46,9 @@ class WatcherBackgroundService {
     if (apiToken) { response = await sendWith(""); if (response.ok) await chrome.storage.local.remove("watcherApiToken"); }
     return response;
   }
-
+  /** Met à jour le texte (ON/OFF) et la couleur du badge de l'icône d'extension. */
   updateBadge(isRunning) { chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" }); chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" }); }
+  /** Interroge /status sur le serveur local, persiste l'état et notifie les onglets si modifié. */
   async checkStatus(forceBroadcast = false) {
     if (this.isChecking) return (await chrome.storage.local.get("watchClipboardState")).watchClipboardState || { running: false };
     this.isChecking = true;
@@ -75,13 +74,14 @@ class WatcherBackgroundService {
     if (forceBroadcast || this.lastKnownSignature !== signature) { this.lastKnownSignature = signature; await this.broadcastStateToTabs(state); }
     return state;
   }
+  /** Attend jusqu'à maxWaitMs que le serveur local atteigne l'état attendu. */
   async waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
     const deadline = Date.now() + maxWaitMs;
     let state = await this.checkStatus(true);
     while (state.running !== expectedRunning && Date.now() < deadline) { await new Promise((r) => setTimeout(r, 250)); state = await this.checkStatus(true); }
     return state;
   }
-
+  /** Démarre watch_clipboard via Native Messaging en générant un nouveau jeton de session. */
   startWatcher(targetDir, extraArgs) {
     if (this.activeStartPromise) return this.activeStartPromise;
     this.activeStartPromise = (async () => {
@@ -91,50 +91,39 @@ class WatcherBackgroundService {
         const apiToken = this.nativeHelper ? this.nativeHelper.generateSessionToken() : "";
         await chrome.storage.local.set({ watcherApiToken: apiToken });
         return await new Promise((resolve) => {
-          this.nativeHelper.sendStartNativeMessage(targetDir, extraArgs, apiToken, async (res) => {
-            if (!res.ok) { resolve(res); return; }
-            resolve({ ok: true, response: res.response, state: await this.waitForExpectedState(true, 4500) });
-          });
+          this.nativeHelper.sendStartNativeMessage(targetDir, extraArgs, apiToken, async (res) => { resolve(res.ok ? { ok: true, response: res.response, state: await this.waitForExpectedState(true, 4500) } : res); });
         });
       } finally { this.activeStartPromise = null; }
     })();
     return this.activeStartPromise;
   }
-
-  async stopWatcher() {
-    try { await this.fetchWithTokenFallback(`${this.BASE_URL}/shutdown`, { method: "POST", signal: AbortSignal.timeout(1500) }, await this.getApiToken()); } catch (_err) {}
-    await chrome.storage.local.remove("watcherApiToken");
-    return this.waitForExpectedState(false, 2000);
-  }
-
+  /** Demande l'arrêt propre du serveur local et nettoie le jeton de session. */
+  async stopWatcher() { try { await this.fetchWithTokenFallback(`${this.BASE_URL}/shutdown`, { method: "POST", signal: AbortSignal.timeout(1500) }, await this.getApiToken()); } catch (_err) {} await chrome.storage.local.remove("watcherApiToken"); return this.waitForExpectedState(false, 2000); }
+  /** Exécute une requête HTTP POST JSON authentifiée vers le serveur local. */
   async postJson(endpoint, bodyObj, timeoutMs = 15000, errFallback = "Erreur serveur.") {
-    try {
-      const opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) };
-      return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, opts, await this.getApiToken())).json();
-    } catch (err) { return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` }; }
+    try { return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(timeoutMs) }, await this.getApiToken())).json(); }
+    catch (err) { return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` }; }
   }
+  /** Exécute une requête HTTP GET JSON authentifiée vers le serveur local. */
   async getJson(endpoint, timeoutMs = 10000, errFallback = "Erreur lecture.") {
     try { return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, await this.getApiToken())).json(); }
     catch (_err) { return { ok: false, error: errFallback }; }
   }
-
+  /** Exécute les tests du projet en maintenant le Service Worker actif et injecte le résultat si demandé. */
   async runTests(injectIntoActiveTab = true) {
     const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
     try {
       const stored = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
-      const opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) };
-      const result = await (await this.fetchWithTokenFallback(`${this.BASE_URL}/run-tests`, opts, stored.watcherApiToken || "")).json();
+      const result = await (await this.fetchWithTokenFallback(`${this.BASE_URL}/run-tests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) }, stored.watcherApiToken || "")).json();
       if (result?.ok && result.output && injectIntoActiveTab) {
         const activeTab = (await chrome.tabs.query({ active: true, currentWindow: true }))?.at(0);
-        if (activeTab?.id) {
-          try { result.insertedInPage = Boolean((await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) }))?.inserted); }
-          catch (_err) { result.insertedInPage = false; }
-        }
+        if (activeTab?.id) { try { result.insertedInPage = Boolean((await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) }))?.inserted); } catch (_err) { result.insertedInPage = false; } }
       }
       return result;
     } catch (err) { return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` }; }
     finally { clearInterval(keepAlive); }
   }
+  /** Route les messages internes provenant de la popup et des content scripts. */
   handleMessage(message, sendResponse) {
     if (!message) return false;
     const enc = encodeURIComponent;
@@ -162,7 +151,7 @@ class WatcherBackgroundService {
     if (message.type === "GIT_PUSH") { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); this.postJson("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(ka)); return true; }
     return false;
   }
-
+  /** Démarre la surveillance périodique et enregistre les écouteurs du cycle de vie Chrome. */
   start() {
     setInterval(() => this.checkStatus(), this.FAST_POLL_INTERVAL_MS);
     this.checkStatus(true);

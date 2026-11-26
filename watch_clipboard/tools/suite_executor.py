@@ -1,3 +1,5 @@
+# Exécution d'une suite unittest avec interception des warnings et compactage des erreurs.
+
 import io
 import os
 import re
@@ -16,6 +18,7 @@ MAX_COMPACT_REPORT_CHARS: int = 3200
 
 
 def extract_warnings_and_console_errors(raw_output: str) -> str:
+    """Extrait et déduplique les lignes d'avertissement Python de la sortie brute."""
     seen: Set[str] = set()
     unique_lines: List[str] = []
     for match in WARNING_PATTERN.finditer(raw_output or ""):
@@ -27,6 +30,7 @@ def extract_warnings_and_console_errors(raw_output: str) -> str:
 
 
 def _extract_location_and_snippet(lines: List[str], top_dir: str) -> Tuple[str, str]:
+    """Repère le fichier source, le numéro de ligne et l'instruction en échec."""
     loc_hint, code_hint = "", ""
     for idx, ln in enumerate(lines):
         stripped = ln.lstrip()
@@ -38,9 +42,8 @@ def _extract_location_and_snippet(lines: List[str], top_dir: str) -> Tuple[str, 
             if idx + 1 < len(lines) and not lines[idx + 1].lstrip().startswith(('File "', "---", "===")):
                 code_hint = f"CODE: {lines[idx + 1].strip()}"
     return loc_hint, code_hint
-
-
 def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MAX_COMPACT_REPORT_CHARS) -> str:
+    """Condense et déduplique les tracebacks unittest en respectant max_chars."""
     sections: List[str] = re.split(r"(?m)^={60,}\s*$", raw_output)
     kept_blocks: List[str] = []
     seen_sigs: Set[str] = set()
@@ -76,6 +79,7 @@ def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MA
 
 
 def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tuple[int, str, List[CoverageRow]]:
+    """Exécute une suite unittest isolée sous trace.Trace et calcule la couverture."""
     if not os.path.isdir(tests_dir):
         return 1, f"[{suite_name}] Dossier de tests introuvable : {tests_dir}", []
     saved_test_mods = {k: sys.modules.pop(k) for k in list(sys.modules) if k == "tests" or k.startswith("tests.")}
@@ -88,12 +92,14 @@ def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tu
     orig_warn, prev_trace = warnings.warn, sys.gettrace()
 
     def _intercept_warn(message: object, category: type = UserWarning, stacklevel: int = 1, source: object = None) -> None:
+        """Capture les avertissements Python émis pendant l'exécution des tests."""
         cat = message.__class__ if isinstance(message, Warning) else category
         if not (issubclass(cat, ResourceWarning) and "socket" in str(message).lower()):
             frame = sys._getframe(min(stacklevel, 4))
             captured_warnings.append(f"{frame.f_code.co_filename}:{frame.f_lineno}: {cat.__name__}: {message}")
 
     def _discover_and_run() -> unittest.TestResult:
+        """Découvre et exécute l'ensemble des fichiers test_*.py du répertoire."""
         return unittest.TextTestRunner(stream=stream, verbosity=2).run(unittest.TestLoader().discover(start_dir=tests_dir, pattern="test_*.py", top_level_dir=top_dir))
 
     try:

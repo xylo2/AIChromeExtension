@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Lanceur global exécutant l'ensemble des suites Python et Node.js du dossier tools.
 
 import os
 import sys
@@ -12,6 +12,7 @@ from tools.run_tests_clip import ClipboardTestRunner
 
 
 def main() -> int:
+    """Analyse les arguments CLI et exécute le lanceur de tests avec couverture."""
     use_clip: bool = "--no-clipboard" not in sys.argv
     report_file: str = ""
     coverage_file: str = ""

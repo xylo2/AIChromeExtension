@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Utilitaires Win32 pour résoudre Python réel et détecter le navigateur parent.
 
 import ctypes
 from ctypes import wintypes
@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Tuple
 
 
 class _PROCESSENTRY32W(ctypes.Structure):
+    """Structure Win32 décrivant une entrée de processus dans un instantané Toolhelp32."""
+
     _fields_ = [
         ("dwSize", wintypes.DWORD),
         ("cntUsage", wintypes.DWORD),
@@ -25,11 +27,13 @@ class _PROCESSENTRY32W(ctypes.Structure):
 
 
 def is_bare_windowsapps_alias(exe_path: str) -> bool:
+    """Indique si le chemin pointe vers un alias brut du dossier WindowsApps."""
     norm: str = os.path.normcase(os.path.normpath(exe_path))
     return os.path.basename(os.path.dirname(norm)) == "windowsapps"
 
 
 def resolve_python_executable() -> str:
+    """Résout le chemin vers un exécutable Python console fonctionnel sous Windows/Unix."""
     if os.name != "nt":
         return sys.executable
     candidates: List[str] = []
@@ -69,6 +73,7 @@ def resolve_python_executable() -> str:
 
 
 def detect_parent_browser_executable(browser_names: Tuple[str, ...]) -> str:
+    """Remonte l'arbre des processus parents Win32 pour identifier le navigateur hôte."""
     if os.name != "nt":
         return ""
     try:

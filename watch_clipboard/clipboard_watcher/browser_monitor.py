@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Vérification de l'activité du processus navigateur parent (Windows et Unix).
 
 import ctypes
 from ctypes import wintypes
@@ -7,6 +7,8 @@ import subprocess
 
 
 class _PROCESSENTRY32W(ctypes.Structure):
+    """Structure Win32 décrivant une entrée de processus dans un instantané Toolhelp32."""
+
     _fields_ = [
         ("dwSize", wintypes.DWORD),
         ("cntUsage", wintypes.DWORD),
@@ -22,6 +24,7 @@ class _PROCESSENTRY32W(ctypes.Structure):
 
 
 def is_process_running(process_name: str) -> bool:
+    """Vérifie si au moins un processus portant process_name est actif."""
     if not process_name:
         return True
     if os.name == "nt":

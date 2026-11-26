@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Relecture sécurisée des fichiers cibles ou des fragments mis en cache.
 
 import os
 from typing import Any, Callable, List, Tuple
@@ -13,11 +13,13 @@ class SavedFileReader:
         assembler_ref: Any,
         is_within_roots_fn: Callable[[str, List[str]], bool],
     ) -> None:
+        """Initialise le lecteur avec le répertoire cible et la fonction de garde."""
         self.target_dir: str = target_dir
         self.assembler_ref: Any = assembler_ref
         self._is_within_allowed_roots = is_within_roots_fn
 
     def normalize_rel_path(self, raw_rel: str, base_real: str) -> str:
+        """Retire l'éventuel préfixe redondant du dossier racine en tête de chemin."""
         rel_norm: str = raw_rel.replace("\\", "/")
         if self.assembler_ref is not None and hasattr(self.assembler_ref, "_strip_redundant_base_prefix"):
             return str(self.assembler_ref._strip_redundant_base_prefix(rel_norm))
@@ -30,6 +32,7 @@ class SavedFileReader:
         return rel_norm
 
     def read_from_header(self, header: str) -> Tuple[bool, str, str]:
+        """Lit le fichier ou fragment désigné par une balise FILE ou FILE_PART."""
         clean_header: str = header.strip()
         if not clean_header:
             return False, "", "En-tête de fichier vide."

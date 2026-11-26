@@ -1,3 +1,5 @@
+# Opérations Git locales : status, diff compact, nettoyage pré-commit, commit et push.
+
 import fnmatch
 import os
 from pathlib import Path
@@ -24,15 +26,18 @@ class GitOperations:
         find_git_root_fn: Optional[Callable[[], Optional[str]]] = None,
         run_fn: Callable[..., Any] = subprocess.run,
     ) -> None:
+        """Initialise les opérations Git sur le répertoire cible."""
         self.target_dir: str = target_dir
         self._is_within_allowed_roots = is_within_roots_fn
         self._find_git_root_override = find_git_root_fn
         self._run = run_fn
 
     def _resolve_root(self) -> Optional[str]:
+        """Résout la racine du dépôt Git en utilisant la surcharge éventuelle."""
         return self._find_git_root_override() if self._find_git_root_override is not None else self.find_git_root()
 
     def find_git_root(self) -> Optional[str]:
+        """Détecte la racine du dépôt Git parent via git rev-parse."""
         base_real: str = os.path.realpath(self.target_dir)
         try:
             proc = self._run(
@@ -44,8 +49,8 @@ class GitOperations:
         except Exception:
             pass
         return None
-
     def status_entries(self) -> Tuple[bool, List[Dict[str, str]], str]:
+        """Retourne la liste des fichiers modifiés ou non suivis dans le dépôt."""
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
             return False, [], "Aucun dépôt Git détecté."
@@ -68,11 +73,13 @@ class GitOperations:
 
     @classmethod
     def _is_noisy_diff_file(cls, rel: str) -> bool:
+        """Indique si un fichier binaire ou verrou généré doit être exclu du diff textuel."""
         bname: str = os.path.basename(rel).lower()
         return any(fnmatch.fnmatch(bname, pat) for pat in cls.NOISY_DIFF_PATTERNS)
 
     @staticmethod
     def _summarize_untracked_test(rel: str, content: str) -> str:
+        """Condense les nouveaux fichiers de tests volumineux en signatures de tests."""
         low = rel.lower()
         is_test = "/tests/" in f"/{low}" or os.path.basename(low).startswith("test_") or low.endswith((".test.js", ".spec.js"))
         if is_test or len(content) <= 3500:
@@ -80,7 +87,9 @@ class GitOperations:
         test_defs = [ln.strip() for ln in content.splitlines() if re.match(r"^\s*(?:async\s+)?(?:def\s+test_|test\(|it\()", ln)]
         summary = "\n".join(test_defs[:40]) or content[:2500]
         return f"[Résumé nouveau fichier de tests ({len(content.splitlines())} lignes)]\n{summary}"
+
     def diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
+        """Génère le diff unifié compact (-U2) et le contenu des nouveaux fichiers choisis."""
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
             return False, "", "Aucun dépôt Git détecté."
@@ -113,9 +122,9 @@ class GitOperations:
                 with open(full_p, "r", encoding="utf-8", errors="replace") as f_ut:
                     chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + self._summarize_untracked_test(rel, f_ut.read()))
         return True, ("\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."), ""
-
     @staticmethod
     def format_push_error(raw_output: str) -> str:
+        """Extrait le diagnostic principal et un conseil d'authentification d'un échec push."""
         lines: List[str] = [ln.strip() for ln in raw_output.splitlines() if ln.strip()]
         if not lines:
             return "Échec de git push (sortie vide)."
@@ -127,6 +136,7 @@ class GitOperations:
         return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}" if len(lines) > 1 else summary
 
     def _normalize_modified_text_files(self, git_root: str, target_files: Optional[List[str]] = None) -> int:
+        """Normalise les fins de ligne LF et supprime les espaces traînants avant commit."""
         candidates: List[str] = list(target_files) if target_files else []
         if not candidates:
             st_p = self._run(["git", "-c", "core.quotePath=false", "status", "--porcelain", "-uall"], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
@@ -156,6 +166,7 @@ class GitOperations:
         return cleaned_count
 
     def _run_precommit_cleanup(self, git_root: str, target_files: Optional[List[str]] = None) -> None:
+        """Répare les URLs tronquées et nettoie les fichiers texte avant l'indexation Git."""
         try:
             from tools.fix_urls import repair_tools_urls
             for root_cand in {Path(git_root).resolve(), Path(self.target_dir).resolve()}:
@@ -166,6 +177,7 @@ class GitOperations:
         self._normalize_modified_text_files(git_root, target_files)
 
     def commit_and_push(self, action: str, message: str = "", files: Optional[List[str]] = None, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
+        """Exécute git add/commit ciblé ou git push vers le dépôt distant configuré."""
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
             return False, "Aucun dépôt Git détecté."

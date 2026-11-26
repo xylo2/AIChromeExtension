@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Réparation des URLs tronquées par l'affichage web et purge des artefacts temporaires.
 
 import os
 from pathlib import Path
@@ -15,6 +15,7 @@ TEMP_ARTIFACTS: Tuple[str, ...] = ("iaexport", "verification_liens.txt")
 
 
 def get_canonical_segments() -> Tuple[str, str, str]:
+    """Retourne le schéma HTTPS et les URLs canoniques de référence."""
     scheme: str = "https"
     google_base: str = scheme + "://" + "www." + "google" + ".com"
     github_base: str = scheme + "://" + "github" + ".com"
@@ -22,6 +23,7 @@ def get_canonical_segments() -> Tuple[str, str, str]:
 
 
 def cleanup_temp_files(root_dir: Path = TOOLS_ROOT) -> int:
+    """Supprime les fichiers temporaires résiduels à la racine du dossier cible."""
     removed: int = 0
     for name in TEMP_ARTIFACTS:
         candidate: Path = root_dir / name
@@ -32,6 +34,7 @@ def cleanup_temp_files(root_dir: Path = TOOLS_ROOT) -> int:
 
 
 def _repair_content(text: str) -> Tuple[str, int]:
+    """Corrige les préfixes d'URL altérés et normalise les domaines cibles."""
     scheme, google_base, github_base = get_canonical_segments()
     total_fixes: int = 0
 
@@ -50,6 +53,7 @@ def _repair_content(text: str) -> Tuple[str, int]:
 
 
 def repair_tools_urls(root_dir: Path = TOOLS_ROOT) -> Dict[str, int]:
+    """Parcourt l'arborescence et répare les URLs altérées dans les fichiers texte."""
     cleanup_temp_files(root_dir)
     results: Dict[str, int] = {}
     for curr_root, dirs, files in os.walk(root_dir):

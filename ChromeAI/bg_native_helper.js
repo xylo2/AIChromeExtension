@@ -2,22 +2,26 @@
  * Assistant Native Messaging et réinjection des content scripts pour le Service Worker.
  */
 class BgNativeHelper {
+  /** Initialise le nom de l'hôte natif et le répertoire racine par défaut. */
   constructor(nativeHostName, defaultRootDir) {
     this.NATIVE_HOST_NAME = nativeHostName;
     this.DEFAULT_ROOT_DIR = defaultRootDir;
   }
 
+  /** Détecte les erreurs indiquant que le manifeste Native Messaging n'est pas enregistré. */
   isMissingHostError(errorMessage) {
     const lower = (errorMessage || "").toLowerCase();
     return ["native messaging host not found", "forbidden", "host has exited", "communicating with the native messaging host"].some((k) => lower.includes(k));
   }
 
+  /** Génère un jeton aléatoire cryptographique de 48 caractères hexadécimaux. */
   generateSessionToken() {
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
 
+  /** Récupère le jeton de session actif auprès de l'hôte natif local. */
   fetchSessionToken() {
     return new Promise((resolve) => {
       if (!chrome.runtime?.sendNativeMessage) { resolve(null); return; }
@@ -30,6 +34,7 @@ class BgNativeHelper {
     });
   }
 
+  /** Liste les sous-dossiers projets présents sous rootDir via Native Messaging. */
   listWorkspaceFolders(rootDir) {
     return new Promise((resolve) => {
       if (!chrome.runtime?.sendNativeMessage) { resolve({ ok: false, folders: [], error: "API Native Messaging indisponible." }); return; }
@@ -45,7 +50,7 @@ class BgNativeHelper {
       } catch (err) { resolve({ ok: false, folders: [], error: err?.message || "Erreur lecture dossiers." }); }
     });
   }
-
+  /** Envoie la commande de démarrage de watch_clipboard à l'hôte natif. */
   sendStartNativeMessage(targetDir, extraArgs, apiToken, onDone) {
     chrome.runtime.sendNativeMessage(
       this.NATIVE_HOST_NAME,
@@ -63,6 +68,7 @@ class BgNativeHelper {
     );
   }
 
+  /** Réinjecte dynamiquement les scripts et styles sur les onglets Google ouverts après rechargement. */
   async reinjectContentScripts() {
     if (!chrome.scripting) return;
     try {

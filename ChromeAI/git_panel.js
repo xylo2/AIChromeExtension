@@ -1,32 +1,48 @@
 /** Panneau de sélection Git status, génération du diff, commit et push origin HEAD. */
 class GitPanelManager {
+  /** Initialise le détecteur de balises, l'injecteur de chat et l'assistant UI commit. */
   constructor(spillDetector, chatInjector, onVerifySubmitted = null) {
     this.spill = spillDetector; this.chat = chatInjector; this.onVerifySubmitted = onVerifySubmitted;
     this.uiHelper = window.GmcGitCommitUiHelper ? new window.GmcGitCommitUiHelper(chatInjector) : null;
     this.panelEl = null; this.lastValidatedFiles = [];
   }
+
+  /** Construit le prompt demandant à l'IA d'analyser le diff joint puis de proposer un commit. */
   buildVerifyPrompt(selectedFiles, diffFilename) {
     const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
     return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable).\n2. **Action selon le résultat** :\n   - **S'il y a un problème** : signale l'anomalie et fournis directement la **correction** (blocs \x60=== FILE: ... ===\x60 <= 75 lignes), sans générer de message de commit.\n   - **S'il n'y a pas un problème** : précise en une phrase que **tout va bien** et propose uniquement un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
   }
+
+  /** Construit le prompt demandant uniquement le bloc COMMIT_MESSAGE après validation. */
   buildCommitMessageOnlyPrompt() {
     return "Génère maintenant uniquement le **message de commit** correspondant aux modifications vérifiées ci-dessus, dans un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne (sans balise \x60=== FILE ===\x60), structuré avec un **Titre** Conventional Commits en français (apport fonctionnel) et un **Corps** décrivant l'apport fonctionnel puis les détails techniques (tests unitaires).";
   }
+
+  /** Retourne le prompt unifié de vérification de diff et génération de message de commit. */
   buildCommitPrompt(selectedFiles, diffFilename) {
     return this.buildVerifyPrompt(selectedFiles, diffFilename);
   }
+
+  /** Extrait le texte brut du message de commit en retirant les balises d'encadrement. */
   extractCommitMessage(pre) {
     const lines = this.spill.extractRawCode(pre).split("\n");
     if (lines.length > 0 && this.spill.COMMIT_TAG_REGEX.test(lines.at(0).trim())) lines.shift();
     if (lines.length > 0 && this.spill.END_FILE_REGEX.test(lines.at(-1).trim())) lines.pop();
     return lines.join("\n").trim();
   }
+
+  /** Extrait la ligne d'erreur principale d'une sortie brute de git push. */
   extractPushErrorSummary(rawError) {
     const lines = String(rawError || "").split("\n").map((l) => l.trim()).filter(Boolean);
     return lines.find((l) => /^(?:! \[|fatal:|error:|remote: error)/i.test(l)) || lines.at(0) || "Erreur git push";
   }
+
+  /** Ferme et retire le panneau de sélection Git du DOM. */
   close() { if (this.panelEl) { this.panelEl.remove(); this.panelEl = null; } }
+
+  /** Ouvre ou ferme le panneau de sélection Git selon son état courant. */
   toggle(entries) { if (this.panelEl) { this.close(); return; } this.open(entries); }
+  /** Affiche la liste des fichiers modifiés avec cases à cocher et bouton d'envoi. */
   open(entries) {
     this.close();
     const panel = document.createElement("div"); panel.className = "gmc-git-panel";
@@ -45,6 +61,8 @@ class GitPanelManager {
     sendBtn.addEventListener("click", () => this.submitSelection(checkboxes, sendBtn, [sendBtn], "commit"));
     actions.append(closeBtn, sendBtn); panel.append(header, list, actions); document.body.appendChild(panel); this.panelEl = panel;
   }
+
+  /** Génère le diff des fichiers cochés, le joint au chat et insère la consigne d'analyse. */
   submitSelection(checkboxes, triggerBtn, actionBtns, mode) {
     const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path); if (selected.length === 0) return;
     this.lastValidatedFiles = [...selected]; if (chrome.storage?.local?.set) chrome.storage.local.set({ savedGitSelectedFiles: this.lastValidatedFiles });
@@ -57,6 +75,8 @@ class GitPanelManager {
       if (typeof this.onVerifySubmitted === "function") this.onVerifySubmitted(mode === "verify"); this.close();
     });
   }
+
+  /** Détecte les blocs COMMIT_MESSAGE dans la page et leur attache les boutons Commit/Push. */
   scanCommitBlocks() {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-commit-processed") === "true" || pre.getAttribute("data-gmc-purged") === "true") continue;

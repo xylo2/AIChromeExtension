@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Calcul des lignes exécutables Python via AST/tokenize et formatage du rapport.
 
 import ast
 import io
@@ -14,6 +14,7 @@ class CoverageReporter:
 
     @staticmethod
     def format_line_ranges(lines: List[int]) -> str:
+        """Regroupe les numéros de lignes contigus en intervalles lisibles (ex: 2-4, 8)."""
         if not lines:
             return ""
         sorted_lines: List[int] = sorted(set(lines))
@@ -31,6 +32,7 @@ class CoverageReporter:
 
     @staticmethod
     def executable_lines(file_path: str) -> Set[int]:
+        """Identifie l'ensemble des numéros de lignes exécutables d'un fichier Python."""
         try:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f_src:
                 source: str = f_src.read()
@@ -56,6 +58,7 @@ class CoverageReporter:
 
     @staticmethod
     def collect_source_files(top_dir: str) -> List[str]:
+        """Liste les fichiers Python applicatifs du projet en excluant tests et caches."""
         sources: List[str] = []
         skip_dirs: Set[str] = {"tests", "__pycache__", ".venv", "venv", ".git", ".watch_clipboard", "node_modules"}
         for curr_root, dirs, files in os.walk(top_dir):
@@ -67,6 +70,7 @@ class CoverageReporter:
 
     @classmethod
     def format_report(cls, rows: List[CoverageRow], total_tests: int = 0) -> Tuple[float, str]:
+        """Calcule le pourcentage global de couverture et génère le tableau synthétique."""
         if not rows:
             return 100.0, "COUVERTURE GLOBALE : 100.0% (0/0 lignes)"
         tot_cov: int = sum(cov for _, cov, _, _ in rows)
@@ -74,7 +78,7 @@ class CoverageReporter:
         pct: float = (tot_cov * 100.0 / tot_all) if tot_all else 100.0
         lines: List[str] = [f"COUVERTURE GLOBALE : {pct:.1f}% ({tot_cov}/{tot_all} lignes) ({total_tests} tests unitaires)"]
         full_count: int = 0
-        for rel_name, cov, total, missing in sorted(rows, key=lambda x: ((x[1] / x[2]) if x[2] else 1.0, x[0])):
+        for rel_name, cov, total, missing in sorted(rows, key=lambda r: ((r.at(1) if hasattr(r, "at") else next(iter(r[1:2]), 0)) / (next(iter(r[2:3]), 1) or 1), next(iter(r), ""))):
             if not missing:
                 full_count += 1
                 continue

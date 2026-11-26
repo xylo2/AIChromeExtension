@@ -2,6 +2,7 @@
  * Détection et récupération du code ayant débordé avant ou après un bloc <pre>.
  */
 class SpillDetector {
+  /** Initialise les expressions régulières et le moteur heuristique associé. */
   constructor() {
     this.heuristics = window.GmcSpillTextHeuristics ? new window.GmcSpillTextHeuristics() : null;
     this.FILE_TAG_REGEX = /^(?:#\s*)?=== FILE(?:_PART)?:\s*(.+?)\s*===\s*$/;
@@ -10,14 +11,28 @@ class SpillDetector {
     this.TRIPLE_BACKTICK = "\x60\x60\x60";
   }
 
+  /** Uniformise les espaces insécables et les fins de ligne en LF. */
   normalizeText(raw) { return (raw || "").replace(/\u00a0/g, " ").replace(/\r\n?/g, "\n"); }
+
+  /** Extrait le texte brut normalisé de la balise <code> interne ou du <pre>. */
   extractRawCode(el) { const c = el.tagName === "CODE" ? el : (el.querySelector("code") || el); return this.normalizeText(c.textContent).trim(); }
+
+  /** Retourne la première ligne non vide du bloc. */
   findFirstNonEmptyLine(rawText) { return this.heuristics ? this.heuristics.findFirstNonEmptyLine(rawText) : (this.normalizeText(rawText).split("\n").map((l) => l.trim()).find(Boolean) || ""); }
+
+  /** Indique si la ligne correspond à une balise FILE, END_FILE ou COMMIT_MESSAGE. */
   isBoundaryTag(text) { return this.heuristics ? this.heuristics.isBoundaryTag(text) : false; }
+
+  /** Détecte les artefacts internes FollowUp à exclure du code. */
   isFollowUpArtifact(text) { return this.heuristics ? this.heuristics.isFollowUpArtifact(text) : false; }
+
+  /** Identifie les textes d'interface Google AI ou noms de langages isolés. */
   isUiOrLangNoise(text) { return this.heuristics ? this.heuristics.isUiOrLangNoise(text) : false; }
+
+  /** Évalue heuristiquement si un paragraphe contient du code débordé. */
   looksLikeSpilledCode(text) { return this.heuristics ? this.heuristics.looksLikeSpilledCode(text) : false; }
 
+  /** Remonte les ancêtres d'un <pre> jusqu'à son conteneur de carte de code unique. */
   findCodeBlockWrapper(el) {
     let curr = el;
     for (let depth = 0; depth < 6 && curr && curr.parentElement; depth++) {
@@ -27,7 +42,7 @@ class SpillDetector {
     }
     return curr;
   }
-
+  /** Convertit récursivement un nœud DOM en texte brut en préservant les sauts de ligne. */
   extractFormattedText(node) {
     if (!node) return "";
     if (node.nodeType === Node.TEXT_NODE) return this.normalizeText(node.textContent);
@@ -38,6 +53,7 @@ class SpillDetector {
     return /^(DIV|P|LI|PRE|BLOCKQUOTE|TR)$/.test(node.tagName) ? `${inner}\n` : inner;
   }
 
+  /** Trouve le nœud frère précédent ou suivant le conteneur du bloc de code. */
   findEdgeSibling(el, direction) {
     let curr = this.findCodeBlockWrapper(el);
     const prop = direction === "prev" ? "previousSibling" : "nextSibling";
@@ -49,6 +65,7 @@ class SpillDetector {
     return curr ? curr[prop] : null;
   }
 
+  /** Parcourt les frères adjacents dans une direction pour récupérer le code débordé. */
   scanDirection(startNode, direction) {
     const nodes = [], chunks = [];
     const fenceRe = new RegExp("^" + this.TRIPLE_BACKTICK + "[a-zA-Z0-9_-]*$");
@@ -97,6 +114,7 @@ class SpillDetector {
     return { nodes, chunks };
   }
 
+  /** Collecte et assemble les fragments débordés avant et après l'élément <pre>. */
   collect(el) {
     if (!el || el.getAttribute("data-gmc-purged") === "true") return { nodes: [], text: "", beforeText: "", afterText: "" };
     const before = this.scanDirection(this.findEdgeSibling(el, "prev"), "prev");

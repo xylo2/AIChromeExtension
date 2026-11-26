@@ -1,21 +1,28 @@
-# Instructions de génération de code pour le projet `tools`
+# Instructions de génération de code (`ChromeAI` & `watch_clipboard`)
 
-Ces règles garantissent une récupération fiable par le presse-papiers (`watch_clipboard`), l'extension `ChromeAI` et l'interface web Google AI (sans débordement hors des blocs `<pre>` ni perte d'indentation).
+Respecte **impérativement** ces règles pour un assemblage fiable sans troncature ni blocage.
 
-## 1. Format obligatoire des blocs de code
-- Utilise **uniquement** des blocs de code clôturés par des triples backticks (` ```langage ... ``` `).
-- La **première ligne à l'intérieur** de chaque bloc doit impérativement être l'une de ces balises :
-  - Fichier complet : `=== FILE: chemin/relatif/fichier.ext ===`
-  - Fichier découpé : `=== FILE_PART: chemin/relatif/fichier.ext | N/TOTAL ===`
-- Clôture chaque livraison de fichiers par la ligne `=== END_FILE ===` hors bloc de code.
-- **Interdiction absolue** d'utiliser des ellipses (`...`, `// reste inchangé`, `# etc.`) : chaque bloc `FILE` ou `FILE_PART` doit contenir le code complet et exécutable de sa section.
+## 0. Communication & collaboration
+* **Explications légères** : va directement au code ou au diagnostic court, sans théorie superflue.
+* **Demande explicite** : indique clairement quand j'ai besoin de te fournir une trace, un `git diff` ou d'exécuter une commande / recharger l'extension.
+* **Relecture des `git diff`** : relis systématiquement tout `git diff` fourni pour détecter toute régression ou altération avant de valider.
 
-## 2. Prévention stricte des débordements (taille et volume)
-- **Limite stricte de 75 lignes par bloc** : ne dépasse jamais **75 lignes** dans un seul bloc de code (vise 60–70 lignes pour garder une marge de sécurité face au seuil de rupture de l'interface web).
-- **Maximum 2 blocs de code par réponse** : si une tâche nécessite plus de 2 blocs, livre les 2 premiers puis indique **uniquement en fin de réponse** la partie suivante attendue avant d'attendre que l'utilisateur réponde « Suite » (sans répéter cette annonce deux fois).
-- **Fichiers courts et modulaires** : privilégie des fichiers sources et des fichiers de tests de **moins de 100 lignes** afin d'éviter le recours à `FILE_PART`.
+## 1. Format & limites des blocs
+* **Balise en 1re ligne à l'intérieur du bloc** :
+  * Fichier complet (≤ 65 lignes) : `=== FILE: chemin/relatif/fichier.ext ===`
+  * Fichier long (> 65 lignes, `N` fixe calculé avant `1/N`) : `=== FILE_PART: chemin/relatif/fichier.ext | 1/N ===`
+* **Chemins & clôture** : chemins relatifs à la racine sans préfixe ni `..` ; termine chaque livraison par `=== END_FILE ===` hors bloc.
+* **Anti-virtualisation** : **≤ 65 lignes/bloc** (viser 45–62), **≤ 88 car./ligne**, **max 2 à 3 blocs/réponse** (annonce la suite et attends « Suite » si besoin).
+* **Zéro ellipse** : toujours livrer le code intégral de chaque bloc (`...` ou diffs interdits). Fournis `1/N` à `N/N` à la création, puis uniquement les parties modifiées si `N` ne change pas.
 
-## 3. Contraintes techniques du dépôt
-- **Dépendances externes interdites** : bibliothèque standard Python et JavaScript natif (Manifest V3) uniquement.
-- **Qualité des tests** : toute nouvelle fonctionnalité ou correction doit être accompagnée de ses tests unitaires (`unittest` côté Python, `node:test` côté `ChromeAI`) sans aucun avertissement (`ResourceWarning`, `DeprecationWarning`, etc.).
-- **Sécurité** : n'écris jamais de triples backticks littéraux dans une chaîne JavaScript (utilise `\x60\x60\x60`) ni d'URL complètes susceptibles d'être tronquées par le rendu web.
+## 2. Pièges d'affichage web & confidentialité
+* **Triples backticks** : construis-les dynamiquement (`chr(96) * 3` en Python, `String.fromCharCode(96).repeat(3)` en JS), jamais en littéral dans le code.
+* **URLs & `tools/fix_urls.py`** : concatène les URLs avec sous-domaine dans le code (`"sub." + "domain.tld"`). Le script `tools/fix_urls.py` répare les URLs tronquées par le web et purge `iaexport` / `verification_liens.txt`.
+* **Crochets & LaTeX** : évite les index numériques entre crochets (préfère le déballage, `next(iter(...))` ou `.at(0)`) ainsi que `$` ou `\` non échappés.
+* **Données abstraites** : aucun nom, téléphone, e-mail ou chemin réel (`Utilisateur_A`, `06 00 00 00 01`, `test1@exemple.invalid`).
+
+## 3. Architecture, licence & qualité
+* **Licence GNU GPL v3** : en-tête **GNU GPL v3** obligatoire sur chaque fichier source ; bibliothèques compatibles uniquement (MIT, BSD, Apache 2.0, stdlib) en import paresseux.
+* **Modularité & typage** : modules légers (< ~250 lignes), extraction systématique des classes pertinentes dans des fichiers dédiés, typage `typing` et validation `os.path.realpath`.
+* **Tests & couverture (`tools/run_tests_clip.py`)** : tout projet inclut `tools/run_tests_clip.py` (`unittest` + `tempfile.mkdtemp` / `node:test`) qui échoue sur tout warning Python, mesure la couverture (`--report-file`, `--coverage-file`) et copie les erreurs compactées au presse-papiers (`--no-clipboard` pour désactiver).
+* **Langues & docstrings** : identifiants et fichiers en **anglais** ; commentaires, docstrings et commits en **français**. **Chaque méthode et fonction doit obligatoirement avoir une docstring ou un commentaire en français.**

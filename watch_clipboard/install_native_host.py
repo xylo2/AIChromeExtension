@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Installeur de l'hôte Native Messaging pour les navigateurs Chromium.
 
 import glob
 import json
@@ -18,14 +18,12 @@ from clipboard_watcher.host_registry import register_unix_host, register_windows
 
 
 class NativeHostInstaller:
-    """
-    Génère le lanceur natif compatible stdio, le manifeste JSON et enregistre l'hôte auprès des
-    navigateurs Chromium (Chrome, Edge, Brave) sur Windows, Linux et macOS.
-    """
+    """Génère le lanceur natif stdio, le manifeste JSON et enregistre l'hôte."""
 
     HOST_NAME: str = "com.watch_clipboard.host"
 
     def __init__(self, extension_id: str) -> None:
+        """Initialise les chemins de l'hôte natif pour l'ID d'extension fourni."""
         self.extension_id: str = extension_id.strip()
         self.project_dir: Path = Path(__file__).resolve().parent
         self.native_dir: Path = self.project_dir / ".native_host"
@@ -33,10 +31,12 @@ class NativeHostInstaller:
 
     @staticmethod
     def _is_windowsapps_path(exe_path: str) -> bool:
+        """Détecte les alias Python du Microsoft Store incompatibles avec stdio."""
         return "microsoft\\windowsapps" in os.path.normcase(os.path.normpath(exe_path))
 
     @classmethod
     def find_real_windows_python(cls, current_exe: str, project_dir: Optional[Path] = None) -> str:
+        """Résout un exécutable python.exe réel en évitant les alias WindowsApps."""
         search_dirs: List[Path] = (
             [project_dir / ".venv", project_dir.parent / ".venv", project_dir.parent.parent / ".venv"]
             if project_dir is not None else []
@@ -65,9 +65,11 @@ class NativeHostInstaller:
                     return match
         return shutil.which("python.exe") or shutil.which("python") or str(Path(current_exe))
     def _resolve_console_python(self) -> str:
+        """Retourne le chemin vers l'interpréteur Python console adapté au système."""
         return self.find_real_windows_python(sys.executable, project_dir=self.project_dir) if os.name == "nt" else str(Path(sys.executable))
 
     def _create_wrapper(self) -> Path:
+        """Génère le script lanceur (.bat ou .sh) définissant PYTHONPATH."""
         self.native_dir.mkdir(parents=True, exist_ok=True)
         py_exe: str = self._resolve_console_python()
         host_py: str = str(self.host_script.resolve())
@@ -84,6 +86,7 @@ class NativeHostInstaller:
         return wrapper_path
 
     def _write_manifest(self, wrapper_path: Path) -> Path:
+        """Écrit le manifeste JSON Native Messaging autorisant l'extension."""
         manifest: Dict[str, Any] = {
             "name": self.HOST_NAME,
             "description": "Lanceur natif pour watch_clipboard",
@@ -96,12 +99,15 @@ class NativeHostInstaller:
         return manifest_path
 
     def _install_windows(self, manifest_path: Path) -> None:
+        """Enregistre le manifeste dans le registre Windows."""
         register_windows_host(self.HOST_NAME, manifest_path)
 
     def _install_unix(self, manifest_path: Path, system: str) -> None:
+        """Copie le manifeste dans les dossiers NativeMessagingHosts Unix."""
         register_unix_host(self.HOST_NAME, manifest_path, system)
 
     def install(self) -> None:
+        """Exécute la création du lanceur, du manifeste et l'enregistrement système."""
         if not self.host_script.is_file():
             print(f"[ERREUR] Script hôte introuvable : {self.host_script}")
             sys.exit(1)
@@ -111,6 +117,7 @@ class NativeHostInstaller:
 
 
 def main() -> None:
+    """Point d'entrée CLI récupérant l'identifiant d'extension Chrome."""
     args_iter = iter(sys.argv)
     next(args_iter, None)
     ext_id: str = next(args_iter, "")

@@ -2,48 +2,44 @@
  * Écouteurs DOM, raccourcis clavier (Alt+P/S/T), auto-fix syntaxique, auto-tests et build package.
  */
 class ContentEventsController {
+  /** Initialise l'état des automatisations (auto-fix, auto-tests) et compteurs de tentatives. */
   constructor(ctx) {
     this.ctx = ctx; this.autoFixEnabled = true; this.autoTestEnabled = false;
     this.lastAutoSyntaxSig = ""; this.autoSyntaxAttemptsByFile = new Map();
     this.MAX_AUTO_SYNTAX_PER_FILE = 2; this.lastAutoTestEventSig = ""; this.wasWatcherRunning = false;
     this.autoFixNoticeTimer = null; this.autoFixNoticeLabel = "";
   }
-  enableAutoFixOnServiceStart() {
-    this.autoFixEnabled = true; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = "";
-    this.clearAutoFixNotice(); chrome.storage?.local?.set?.({ gmcAutoFix: true }); this.syncToggleButtons();
-  }
-  loadPrefs() {
-    this.autoFixEnabled = true; this.syncToggleButtons(); chrome.storage?.local?.set?.({ gmcAutoFix: true });
-    chrome.storage?.local?.get?.(["gmcAutoTest"], (res) => { if (typeof res?.gmcAutoTest === "boolean") this.autoTestEnabled = res.gmcAutoTest; this.syncToggleButtons(); });
-  }
+  /** Réactive et réinitialise le compteur auto-fix lors du démarrage du watcher. */
+  enableAutoFixOnServiceStart() { this.autoFixEnabled = true; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); chrome.storage?.local?.set?.({ gmcAutoFix: true }); this.syncToggleButtons(); }
+  /** Charge les préférences d'automatisation persistées dans chrome.storage.local. */
+  loadPrefs() { this.autoFixEnabled = true; this.syncToggleButtons(); chrome.storage?.local?.set?.({ gmcAutoFix: true }); chrome.storage?.local?.get?.(["gmcAutoTest"], (res) => { if (typeof res?.gmcAutoTest === "boolean") this.autoTestEnabled = res.gmcAutoTest; this.syncToggleButtons(); }); }
+  /** Annule le minuteur de notification visuelle d'envoi auto-fix. */
   clearAutoFixNotice() { if (this.autoFixNoticeTimer) { clearTimeout(this.autoFixNoticeTimer); this.autoFixNoticeTimer = null; } this.autoFixNoticeLabel = ""; }
+  /** Affiche temporairement sur le bouton Auto-fix le fichier et le numéro d'essai envoyé. */
   notifyAutoFixTriggered(fileKey, attemptNum) {
     const shortName = String(fileKey || "fichier").split(/[\\/]/).pop();
     this.clearAutoFixNotice(); this.autoFixNoticeLabel = `⚡ Auto-fix envoyé (${shortName} ${attemptNum}/${this.MAX_AUTO_SYNTAX_PER_FILE})`;
     this.syncToggleButtons();
     this.autoFixNoticeTimer = setTimeout(() => { this.autoFixNoticeTimer = null; this.autoFixNoticeLabel = ""; this.syncToggleButtons(); }, 6500);
   }
+  /** Indique si l'auto-fix prend déjà en charge l'erreur de syntaxe courante. */
   isAutoFixHandlingCurrentError() {
     const st = this.ctx.getWatcherState?.();
     if (!this.autoFixEnabled || !st?.hasSyntaxError) return false;
     const fileKey = this.extractSyntaxEventFile(st.lastEvent || "") || "__default__";
     return (this.autoSyntaxAttemptsByFile.get(fileKey) || 0) < this.MAX_AUTO_SYNTAX_PER_FILE || Boolean(this.autoFixNoticeLabel);
   }
+  /** Synchronise le texte et les classes CSS des boutons Auto-fix et Auto-tests. */
   syncToggleButtons() {
     const { els } = this.ctx;
-    if (els.autoSyntaxBtn) {
-      els.autoSyntaxBtn.classList.toggle("state-running", Boolean(this.autoFixNoticeLabel));
-      els.autoSyntaxBtn.classList.toggle("state-pass", this.autoFixEnabled && !this.autoFixNoticeLabel);
-      els.autoSyntaxBtn.textContent = this.autoFixNoticeLabel || (this.autoFixEnabled ? "⚡ Auto-fix: ON" : "⚡ Auto-fix: OFF");
-    }
+    if (els.autoSyntaxBtn) { els.autoSyntaxBtn.classList.toggle("state-running", Boolean(this.autoFixNoticeLabel)); els.autoSyntaxBtn.classList.toggle("state-pass", this.autoFixEnabled && !this.autoFixNoticeLabel); els.autoSyntaxBtn.textContent = this.autoFixNoticeLabel || (this.autoFixEnabled ? "⚡ Auto-fix: ON" : "⚡ Auto-fix: OFF"); }
     if (els.autoTestBtn) { els.autoTestBtn.textContent = this.autoTestEnabled ? "🧪 Auto-tests: ON" : "🧪 Auto-tests: OFF"; els.autoTestBtn.classList.toggle("state-pass", this.autoTestEnabled); }
   }
+  /** Extrait le nom de fichier depuis un événement de type [SYNTAXE]. */
   extractSyntaxEventFile(evSig) { const m = String(evSig || "").match(/^\[SYNTAXE\]\s+([^\s(]+)/); return m ? m.at(1) : ""; }
-  resetSyntaxAttemptsForEvent(evSig) {
-    const fileKey = this.extractSyntaxEventFile(evSig);
-    if (fileKey) this.autoSyntaxAttemptsByFile.delete(fileKey); else this.autoSyntaxAttemptsByFile.clear();
-    this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); this.syncToggleButtons();
-  }
+  /** Remet à zéro le compteur d'essais auto-fix pour un fichier donné. */
+  resetSyntaxAttemptsForEvent(evSig) { const fk = this.extractSyntaxEventFile(evSig); if (fk) this.autoSyntaxAttemptsByFile.delete(fk); else this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); this.syncToggleButtons(); }
+  /** Récupère le détail de l'erreur de syntaxe auprès du watcher et l'insère dans le chat. */
   sendSyntaxErrorToAi(fallbackText = "", onSent = null) {
     const { blockManager, sendBgMessage, chatInjector, tokenBudget, updateIndicators } = this.ctx;
     blockManager.resetAutoSuiteQuota();
@@ -56,6 +52,7 @@ class ContentEventsController {
       updateIndicators?.();
     });
   }
+  /** Exécute l'action contextuelle prioritaire affichée près du compositeur. */
   executeGuidedAction() {
     const actionId = typeof this.ctx.getGuidedActionId === "function" ? this.ctx.getGuidedActionId() : "";
     const { els, blockManager, chatInjector, gitManager, tokenBudget } = this.ctx;
@@ -64,7 +61,9 @@ class ContentEventsController {
     if (actionId === "commit_msg") { const msgPrompt = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(msgPrompt); chatInjector.insertPrompt(msgPrompt, true); this.ctx.clearCommitMsgFlag(); return; }
     if (actionId === "run_tests") els.testsBtn?.click();
   }
+  /** Crée ou retourne le panneau de sortie dédié au script build_package.py. */
   ensureBuildPanel() { if (!this.buildPanel && window.GmcTestOutputPanelManager) this.buildPanel = new window.GmcTestOutputPanelManager(this.ctx.chatInjector, () => this.ctx.sendBgMessage({ type: "STOP_BUILD_PACKAGE" }, () => {}), () => this.ctx.setBtnState(this.ctx.els.buildBtn, null, "🔨 Build")); return this.buildPanel; }
+  /** Finalise l'affichage de build_package.py (succès, arrêt ou envoi d'erreur à l'IA). */
   finalizeBuildPackage(res) {
     const { els, setBtnState, chatInjector, tokenBudget, updateIndicators } = this.ctx, panel = this.ensureBuildPanel();
     els.buildBtn.disabled = false;
@@ -79,6 +78,7 @@ class ContentEventsController {
     if (chatInjector?.insertPrompt?.(prompt, true)) tokenBudget?.recordPayload(prompt);
     updateIndicators?.();
   }
+  /** Démarre la génération du package en streaming et suit sa progression. */
   triggerBuildPackage() {
     const { els, sendBgMessage, setBtnState, updateIndicators } = this.ctx, panel = this.ensureBuildPanel();
     if (!els.buildBtn || els.buildBtn.disabled || panel?.isRunning) { if (panel?.isRunning && !panel.panelEl) panel.toggle(); return; }
@@ -93,6 +93,7 @@ class ContentEventsController {
       window.__gmcBuildStreamTimer = setInterval(() => { sendBgMessage({ type: "POLL_BUILD_STREAM", offset }, (snap) => { if (!snap?.ok) return; if (snap.chunk) panel?.appendChunk(snap.chunk); offset = Number(snap.offset || offset); if (!snap.running) { clearInterval(window.__gmcBuildStreamTimer); window.__gmcBuildStreamTimer = null; this.finalizeBuildPackage(snap); } }); }, 300);
     });
   }
+  /** Déclenche le flux Git en 1 clic (diff complet ou demande de message de commit). */
   triggerQuickCommitFlow() {
     const { els, blockManager, chatInjector, gitManager, sendBgMessage, setBtnState, tokenBudget, updateIndicators } = this.ctx;
     blockManager.resetAutoSuiteQuota();
@@ -116,6 +117,7 @@ class ContentEventsController {
       });
     });
   }
+  /** Met à jour l'état du watcher et déclenche automatiquement auto-fix ou auto-tests si actifs. */
   handleStateUpdate(nextState) {
     const isNowRunning = Boolean(nextState?.running);
     if (isNowRunning && !this.wasWatcherRunning) this.enableAutoFixOnServiceStart();
@@ -136,6 +138,7 @@ class ContentEventsController {
       if (evSig !== this.lastAutoTestEventSig && !this.ctx.testActions?.panel?.isRunning) { this.lastAutoTestEventSig = evSig; this.ctx.els.testsBtn?.click(); }
     }
   }
+  /** Attache tous les écouteurs de clics de la barre flottante et les raccourcis clavier Alt+P/S/T. */
   bindAll() {
     const { els, blockManager, chatInjector, gitManager, exportMenu, testActions, sendBgMessage, setBtnState, triggerProjectExport, tokenBudget, updateIndicators } = this.ctx;
     this.loadPrefs();
@@ -151,13 +154,13 @@ class ContentEventsController {
     els.yesBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
     els.nextBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); });
     els.excuseBtn?.addEventListener("click", () => chatInjector.insertPrompt(this.ctx.composerUi.pickExcuse(), false));
-els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
-els.buildBtn?.addEventListener("click", () => this.triggerBuildPackage());
-els.buildLogBtn?.addEventListener("click", () => this.ensureBuildPanel()?.toggle());
-els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
-els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
-els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
-document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
-}
+    els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
+    els.buildBtn?.addEventListener("click", () => this.triggerBuildPackage());
+    els.buildLogBtn?.addEventListener("click", () => this.ensureBuildPanel()?.toggle());
+    els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
+    els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
+    els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
+    document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
+  }
 }
 window.GmcContentEventsController = ContentEventsController;

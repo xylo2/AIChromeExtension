@@ -2,12 +2,14 @@
  * Dépôt de pièces jointes et vérification de leur disponibilité dans le compositeur.
  */
 class ChatFileAttacher {
+  /** Initialise l'état de suivi des pièces jointes en cours d'ajout. */
   constructor(injector) {
     this.injector = injector;
     this.pendingAttachmentName = "";
     this.baselineAttachmentCount = 0;
   }
 
+  /** Remonte le DOM autour du champ de saisie pour localiser la zone du compositeur. */
   findComposerContainer(inputEl) {
     let container = inputEl ? inputEl.parentElement : document.body;
     for (let depth = 0; depth < 6 && container?.parentElement; depth++) {
@@ -20,12 +22,14 @@ class ChatFileAttacher {
     return container || document.body;
   }
 
+  /** Compte le nombre de puces de fichiers actuellement affichées dans le compositeur. */
   countAttachmentChips(container) {
     if (!container) return 0;
     const sel = '[data-file-name], [data-testid*="file"], [data-testid*="attachment"], button[aria-label*="supprimer" i], button[aria-label*="retirer" i], button[aria-label*="remove" i]';
     return this.injector.queryDeepAll(sel, container).filter((n) => !String(n.className || "").includes("gmc-")).length;
   }
 
+  /** Vérifie que le chargement de la pièce jointe est terminé et visible dans l'interface. */
   isAttachmentReady(inputEl, filename) {
     if (!filename) return true;
     const container = this.findComposerContainer(inputEl);
@@ -42,6 +46,7 @@ class ChatFileAttacher {
     return this.countAttachmentChips(container) > this.baselineAttachmentCount;
   }
 
+  /** Sélectionne un champ input[type="file"] acceptant les fichiers texte. */
   selectCompatibleFileInput(fileInputs) {
     for (let idx = fileInputs.length - 1; idx >= 0; idx--) {
       const inp = fileInputs.at(idx);
@@ -52,6 +57,7 @@ class ChatFileAttacher {
     return null;
   }
 
+  /** Attache un fichier texte virtuel via input[type="file"] ou glisser-déposer simulé. */
   dropFile(filename, textContent, autoSubmit = true) {
     const file = new File([textContent], filename, { type: "text/plain;charset=utf-8" });
     const dt = new DataTransfer();

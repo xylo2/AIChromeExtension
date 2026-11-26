@@ -2,12 +2,15 @@
  * Rendu DOM, liste des sous-dossiers workspace et interactions visuelles de la popup ChromeAI.
  */
 class WatcherPopupView {
+  /** Mémorise les identifiants des champs de configuration verrouillables de la popup. */
   constructor(configInputIds) {
     this.CONFIG_INPUT_IDS = configInputIds;
   }
 
+  /** Raccourci retournant l'élément DOM correspondant à l'identifiant fourni. */
   getEl(id) { return document.getElementById(id); }
 
+  /** Verrouille ou déverrouille les champs de configuration selon l'état d'exécution. */
   setConfigInputsLocked(locked) {
     const isLocked = Boolean(locked);
     for (const id of [...this.CONFIG_INPUT_IDS, "targetDirSelect", "reloadFoldersBtn"]) {
@@ -21,6 +24,7 @@ class WatcherPopupView {
     if (notice) notice.style.display = isLocked ? "block" : "none";
   }
 
+  /** Peuple le menu déroulant des sous-dossiers projets détectés dans le workspace. */
   renderWorkspaceFolders(folders, currentTarget = "") {
     const selectEl = this.getEl("targetDirSelect");
     if (!selectEl) return;
@@ -56,6 +60,7 @@ class WatcherPopupView {
       selectEl.appendChild(customOpt);
     }
   }
+  /** Attache un gestionnaire de copie dans le presse-papiers sur un bouton de commande. */
   bindCopyButton(btnId, codeId) {
     const btn = this.getEl(btnId);
     if (!btn) return;
@@ -69,6 +74,7 @@ class WatcherPopupView {
     });
   }
 
+  /** Affiche ou masque l'encadré de message d'erreur dans la popup. */
   showError(msg) {
     const box = this.getEl("errorBox");
     if (!box) return;
@@ -77,6 +83,7 @@ class WatcherPopupView {
     box.textContent = msg;
   }
 
+  /** Affiche la commande PowerShell d'enregistrement de l'hôte natif si manquant. */
   showInstallHelp(installCommand) {
     const helpBox = this.getEl("installHelpBox");
     if (!helpBox) return;
@@ -86,6 +93,7 @@ class WatcherPopupView {
     helpBox.style.display = "block";
   }
 
+  /** Active ou désactive les boutons principaux pendant une transition d'état. */
   setButtonsBusy(busy) {
     ["startBtn", "stopBtn", "refreshBtn"].forEach((id) => {
       const btn = this.getEl(id);
@@ -93,6 +101,7 @@ class WatcherPopupView {
     });
   }
 
+  /** Met à jour la pastille de statut, les détails actifs et les boutons Démarrer/Arrêter. */
   renderState(state, onSavedRootLoaded) {
     const running = Boolean(state && state.running);
     this.setConfigInputsLocked(running);

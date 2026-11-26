@@ -1,3 +1,5 @@
+# Exécution et prévisualisation des exports de projet via project_exporter.
+
 import json
 import os
 import subprocess
@@ -12,10 +14,12 @@ class ProjectExportRunner:
     VALID_MODES: Tuple[str, ...] = ("full", "code", "tests", "modified", "skeleton")
 
     def __init__(self, target_dir: str, run_fn: Callable[..., Any] = subprocess.run) -> None:
+        """Initialise l'exécuteur d'export pour le répertoire cible."""
         self.target_dir: str = target_dir
         self._run = run_fn
 
     def resolve_exporter_dir(self) -> Optional[str]:
+        """Localise le dossier contenant le package project_exporter dans le workspace."""
         base_real: str = os.path.realpath(self.target_dir)
         parent_real: str = os.path.dirname(base_real)
         watcher_dir: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +36,7 @@ class ProjectExportRunner:
         return None
 
     def list_top_folders(self) -> List[str]:
+        """Liste les sous-dossiers de premier niveau exportables du projet cible."""
         base_real: str = os.path.realpath(self.target_dir)
         ignored = {".git", ".venv", "venv", "env", "__pycache__", "node_modules", ".watch_clipboard", ".native_host", ".idea", ".vscode"}
         try:
@@ -43,6 +48,7 @@ class ProjectExportRunner:
             return []
 
     def compute_project_label(self, target_real: str, exporter_root: str) -> str:
+        """Calcule le nom logique du projet utilisé pour nommer le fichier d'export."""
         raw_norm: str = self.target_dir.strip().replace("\\", "/").strip("/")
         if raw_norm and raw_norm != "." and not os.path.isabs(raw_norm):
             parts: List[str] = [p for p in raw_norm.split("/") if p and p != "."]
@@ -58,17 +64,19 @@ class ProjectExportRunner:
         except ValueError:
             pass
         return os.path.basename(target_real) or "project"
-
     @staticmethod
     def estimate_tokens(text: str) -> int:
+        """Estime le volume en tokens d'une chaîne (~4 caractères par token)."""
         return max(1, (len(text) + 3) // 4) if text else 0
 
     @classmethod
     def normalize_mode(cls, mode: str) -> str:
+        """Valide et normalise le mode d'export demandé (full par défaut)."""
         clean: str = (mode or "full").strip().lower()
         return clean if clean in cls.VALID_MODES else "full"
 
     def preview_all_modes(self, subpaths: Optional[List[str]] = None) -> Tuple[bool, Dict[str, Dict[str, int]], str]:
+        """Calcule le nombre de fichiers et de tokens estimés pour chaque mode d'export."""
         exporter_root: Optional[str] = self.resolve_exporter_dir()
         if not exporter_root:
             return False, {}, "Package project_exporter introuvable dans le workspace."
@@ -112,6 +120,7 @@ class ProjectExportRunner:
             return False, {}, str(exc)
 
     def run_export(self, mode: str = "full", subpaths: Optional[List[str]] = None) -> Tuple[bool, str, str, int]:
+        """Génère l'archive texte consolidée dans un répertoire temporaire et lit son contenu."""
         exporter_root: Optional[str] = self.resolve_exporter_dir()
         if not exporter_root:
             return False, "", "Package project_exporter introuvable dans le workspace.", 0

@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Serveur HTTP local multi-thread exposant statut, tests, export et opérations Git.
 
 import hmac
 import json
@@ -21,7 +21,8 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads: bool = True
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        exc_val = sys.exc_info()[1]
+        """Filtre les erreurs de déconnexion socket sans polluer la sortie standard."""
+        exc_val = next(iter(sys.exc_info()[1:2]), None)
         if isinstance(exc_val, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
             return
         super().handle_error(request, client_address)
@@ -40,17 +41,19 @@ class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
     _live_test_state: Dict[str, Any] = _test_mgr._state
 
     def _is_authorized(self) -> bool:
+        """Vérifie le jeton d'authentification X-Watcher-Token en temps constant."""
         return True if not self.api_token else hmac.compare_digest(self.headers.get("X-Watcher-Token", ""), self.api_token)
 
     def _drain_unread_body(self, max_bytes: int = 65536) -> None:
+        """Consomme le corps d'une requête POST non lue pour garder la connexion propre."""
         try:
             content_len: int = int(self.headers.get("Content-Length", "0") or "0")
             if 0 < content_len <= max_bytes:
                 self.rfile.read(content_len)
         except Exception:
             pass
-
     def _read_json_body(self) -> Dict[str, Any]:
+        """Lit et désérialise le corps JSON d'une requête POST."""
         try:
             content_len: int = int(self.headers.get("Content-Length", "0") or "0")
             if content_len > 0:
@@ -62,6 +65,7 @@ class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
         return {}
 
     def _is_within_allowed_roots(self, candidate: str, roots: List[str]) -> bool:
+        """Vérifie qu'un chemin résolu reste strictement à l'intérieur des racines autorisées."""
         cand_norm: str = os.path.normcase(os.path.realpath(candidate))
         for root in roots:
             root_norm: str = os.path.normcase(os.path.realpath(root))
@@ -73,46 +77,59 @@ class _StatusRequestHandler(StatusHttpMixin, BaseHTTPRequestHandler):
         return False
 
     def _file_reader(self) -> SavedFileReader:
+        """Instancie le lecteur de fichiers sauvegardés pour le répertoire courant."""
         return SavedFileReader(self.target_dir, self.assembler_ref, self._is_within_allowed_roots)
 
     def _normalize_header_rel_path(self, raw_rel: str, base_real: str) -> str:
+        """Normalise le chemin relatif extrait d'un en-tête FILE."""
         return self._file_reader().normalize_rel_path(raw_rel, base_real)
 
     def _read_saved_file_from_header(self, header: str) -> Tuple[bool, str, str]:
+        """Relit le fichier ou fragment désigné par une balise FILE/FILE_PART."""
         return self._file_reader().read_from_header(header)
 
     def _git_ops(self) -> GitOperations:
+        """Instancie le contrôleur des opérations Git locales."""
         return GitOperations(self.target_dir, self._is_within_allowed_roots, self._find_git_root, subprocess.run)
 
     def _find_git_root(self) -> Optional[str]:
+        """Retourne la racine du dépôt Git associé au répertoire cible."""
         return GitOperations(self.target_dir, self._is_within_allowed_roots, None, subprocess.run).find_git_root()
 
     def _git_status_entries(self) -> Tuple[bool, List[Dict[str, str]], str]:
+        """Récupère les entrées git status du dépôt cible."""
         return self._git_ops().status_entries()
 
     def _git_diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
+        """Construit le diff compact des fichiers sélectionnés."""
         return self._git_ops().diff_selected(files)
 
     @staticmethod
     def _format_git_push_error(raw_output: str) -> str:
+        """Formate le message d'erreur retourné lors d'un échec de git push."""
         return GitOperations.format_push_error(raw_output)
 
     def _git_commit_and_push(self, action: str, message: str = "", files: Optional[List[str]] = None, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
+        """Exécute un commit ou un push Git sur le dépôt cible."""
         return self._git_ops().commit_and_push(action, message, files, remote, branch)
-
     def _exporter(self) -> ProjectExportRunner:
+        """Instancie l'exécuteur d'export de projet pour le répertoire courant."""
         return ProjectExportRunner(self.target_dir, subprocess.run)
 
     def _resolve_exporter_package_dir(self) -> Optional[str]:
+        """Localise le dossier contenant le package project_exporter."""
         return self._exporter().resolve_exporter_dir()
 
     def _compute_export_project_label(self, target_real: str, exporter_root: str) -> str:
+        """Calcule le nom logique du projet utilisé pour nommer l'export."""
         return self._exporter().compute_project_label(target_real, exporter_root)
 
     def _run_project_export(self, mode: str = "full", subpaths: Optional[List[str]] = None) -> Tuple[bool, str, str, int]:
+        """Exécute l'export consolidé du projet selon le mode et les sous-dossiers."""
         return self._exporter().run_export(mode=mode, subpaths=subpaths)
 
     def _resolve_test_runner_path(self, custom_path: str = "") -> Optional[str]:
+        """Résout et valide le chemin sécurisé vers le script lanceur de tests."""
         raw_custom: str = custom_path.strip()
         is_custom: bool = bool(raw_custom) and raw_custom != self.default_test_runner
         rel_path: str = (raw_custom or self.default_test_runner).replace("\\", "/")
@@ -143,12 +160,14 @@ class StatusServer:
     """Serveur HTTP léger exécuté dans un thread démon."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 18765, target_dir: str = ".", test_runner_path: str = "tools/run_tests_clip.py", api_token: str = "", allowed_origin: str = "", assembler: Any = None) -> None:
+        """Configure l'adresse d'écoute, le répertoire cible et la sécurité du serveur."""
         self.host, self.port, self.target_dir = host, port, os.path.realpath(target_dir)
         self.test_runner_path, self.api_token, self.allowed_origin, self.assembler = test_runner_path, api_token, allowed_origin, assembler
         self._httpd: Optional[_QuietThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> bool:
+        """Démarre l'écoute HTTP dans un thread démon en arrière-plan."""
         handler_cls = type("_BoundStatusHandler", (_StatusRequestHandler,), {"target_dir": self.target_dir, "default_test_runner": self.test_runner_path, "api_token": self.api_token, "allowed_origin": self.allowed_origin, "assembler_ref": self.assembler})
         try:
             self._httpd = _QuietThreadingHTTPServer((self.host, self.port), handler_cls)
@@ -161,6 +180,7 @@ class StatusServer:
         return True
 
     def stop(self) -> None:
+        """Arrête proprement le serveur HTTP et libère le socket d'écoute."""
         if self._httpd is not None:
             self._httpd.shutdown()
             self._httpd.server_close()

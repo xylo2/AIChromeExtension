@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Gestionnaire d'exécution en streaming et d'arrêt des suites de tests.
 
 import os
 import subprocess
@@ -10,9 +10,10 @@ from clipboard_watcher.test_process_utils import read_runner_reports, terminate_
 
 
 class LiveTestManager:
-    """Gère l'exécution asynchrone, le streaming et l'arrêt complet des tests unitaires."""
+    """Gère l'exécution asynchrone, le streaming et l'arrêt des tests unitaires."""
 
     def __init__(self) -> None:
+        """Initialise le verrou et l'état partagé du flux d'exécution des tests."""
         self._lock: threading.Lock = threading.Lock()
         self._state: Dict[str, Any] = {
             "running": False,
@@ -26,6 +27,7 @@ class LiveTestManager:
         }
 
     def get_stream_snapshot(self, offset: int) -> Dict[str, Any]:
+        """Retourne l'état courant des tests et les lignes produites depuis offset."""
         with self._lock:
             lines: List[str] = list(self._state["lines"])
             return {
@@ -42,9 +44,11 @@ class LiveTestManager:
 
     @staticmethod
     def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+        """Délègue l'arrêt complet du processus de test et de ses enfants."""
         terminate_process_tree(proc)
 
     def stop(self) -> Tuple[bool, str]:
+        """Demande l'interruption immédiate de l'exécution de tests en cours."""
         with self._lock:
             if not self._state["running"]:
                 return False, "Aucune exécution de tests en cours."
@@ -53,8 +57,8 @@ class LiveTestManager:
         if proc is not None:
             self._terminate_process_tree(proc)
         return True, "Arrêt complet de l'arbre de processus demandé."
-
     def try_begin(self) -> bool:
+        """Verrouille et réinitialise l'état pour démarrer une nouvelle campagne de tests."""
         with self._lock:
             if self._state["running"]:
                 return False
@@ -65,6 +69,7 @@ class LiveTestManager:
             return True
 
     def execute_streaming(self, test_script: str, target_dir: str) -> Tuple[int, str, str]:
+        """Lance le script de tests, collecte la sortie en direct et lit la couverture."""
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
         with tempfile.TemporaryDirectory(prefix="watch_clip_tests_") as tmp_dir:

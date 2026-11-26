@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Validation syntaxique automatique des fichiers Python, JSON et JavaScript assemblés.
 
 import json
 import os
@@ -15,6 +15,7 @@ class SyntaxChecker:
 
     @staticmethod
     def _find_node() -> Optional[str]:
+        """Recherche le binaire Node.js dans l'environnement Python ou le PATH."""
         py_dir: Path = Path(sys.executable).resolve().parent
         for cand in (py_dir / "node.exe", py_dir / "node"):
             if cand.is_file():
@@ -23,6 +24,7 @@ class SyntaxChecker:
 
     @staticmethod
     def _extract_context(source: str, error_line: Optional[int], radius: int = 5) -> str:
+        """Extrait un extrait numéroté centré sur la ligne fautive du fichier."""
         lines: List[str] = source.splitlines()
         if not lines:
             return ""
@@ -37,7 +39,9 @@ class SyntaxChecker:
 
     @classmethod
     def check_file(cls, file_path: str, rel_path: str, encoding: str = "utf-8") -> Optional[Dict[str, object]]:
-        ext: str = os.path.splitext(file_path)[1].lower()
+        """Contrôle la syntaxe d'un fichier (.py, .json, .js) et retourne le diagnostic."""
+        _, raw_ext = os.path.splitext(file_path)
+        ext: str = raw_ext.lower()
         if ext not in (".py", ".json", ".js"):
             return None
         try:
@@ -51,16 +55,14 @@ class SyntaxChecker:
                 return None
             except SyntaxError as exc:
                 ln: int = int(exc.lineno or 1)
-                msg: str = f"{exc.msg} (ligne {ln})"
-                return {"file": rel_path, "line": ln, "message": msg, "snippet": cls._extract_context(source, ln)}
+                return {"file": rel_path, "line": ln, "message": f"{exc.msg} (ligne {ln})", "snippet": cls._extract_context(source, ln)}
         if ext == ".json":
             try:
                 json.loads(source)
                 return None
             except json.JSONDecodeError as exc:
                 ln = int(exc.lineno or 1)
-                msg = f"{exc.msg} (ligne {ln}, col {exc.colno})"
-                return {"file": rel_path, "line": ln, "message": msg, "snippet": cls._extract_context(source, ln)}
+                return {"file": rel_path, "line": ln, "message": f"{exc.msg} (ligne {ln}, col {exc.colno})", "snippet": cls._extract_context(source, ln)}
         node_bin: Optional[str] = cls._find_node()
         if not node_bin:
             return None

@@ -2,6 +2,7 @@
  * Gestion du positionnement et de l'action contextuelle guidée près du compositeur.
  */
 class ComposerQuickButtonsManager {
+  /** Initialise la liste d'excuses et le conteneur des boutons rapides. */
   constructor(chatInjector, bottomRow, exportBtn) {
     this.chat = chatInjector;
     this.bottomRow = bottomRow;
@@ -19,8 +20,10 @@ class ComposerQuickButtonsManager {
     this.groupEl.className = "gmc-composer-quick-group";
   }
 
+  /** Tire aléatoirement une excuse humoristique de développeur. */
   pickExcuse() { return this.EXCUSES.at(Math.floor(Math.random() * this.EXCUSES.length)); }
 
+  /** Détermine l'action prioritaire suggérée selon l'état du watcher et des tests. */
   resolveGuidedAction({ watcherState, canCommitMsg, testsPassedForCurrentEvent = false }) {
     if (!watcherState?.running) return null;
     if (watcherState.hasSyntaxError) return { id: "fix_syntax", label: "🚨 Corriger syntaxe", title: "Envoyer l'erreur de syntaxe à l'IA" };
@@ -31,12 +34,13 @@ class ComposerQuickButtonsManager {
     return null;
   }
 
+  /** Indique si la conversation AI est démarrée ou si le compositeur est en bas de page. */
   hasStartedConversation() {
     if (document.querySelector("[data-aim-turn], [data-turn-id], message-content, model-response, user-query, .conversation-container")) return true;
     const inputEl = this.chat.findChatInputElement();
     return Boolean(inputEl && this.isBottomComposer(inputEl));
   }
-
+  /** Insère le groupe de boutons rapides dans la barre flottante en repli. */
   attachToFloatingBar() {
     this.groupEl.classList.remove("gmc-composer-below");
     if (this.groupEl.parentElement !== this.bottomRow || this.groupEl.nextSibling !== this.exportBtn) {
@@ -44,6 +48,7 @@ class ComposerQuickButtonsManager {
     }
   }
 
+  /** Vérifie que le champ de saisie appartient bien au compositeur inférieur du chat. */
   isBottomComposer(inputEl) {
     if (!inputEl || inputEl.closest('form[action="/search"], [role="search"]')) return false;
     if (typeof inputEl.getBoundingClientRect !== "function") return true;
@@ -52,6 +57,7 @@ class ComposerQuickButtonsManager {
     return rect.height > 0 && (viewH === 0 || rect.top >= viewH * 0.45);
   }
 
+  /** Monte ou replace les boutons rapides près du bouton + du compositeur actif. */
   mount() {
     document.querySelectorAll(".gmc-composer-quick-group").forEach((el) => { if (el !== this.groupEl) el.remove(); });
     if (!this.hasStartedConversation()) { if (this.groupEl.parentElement) this.groupEl.remove(); return; }

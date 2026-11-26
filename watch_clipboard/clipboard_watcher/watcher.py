@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Surveillance continue du presse-papiers système sans verrouillage.
 
 import ctypes
 import os
@@ -11,14 +11,12 @@ from clipboard_watcher.config import WatcherConfig
 
 
 class ClipboardWatcher:
-    """
-    Surveille en continu le presse-papiers système sans le verrouiller pendant l'écoute,
-    et s'arrête automatiquement si le navigateur parent est fermé.
-    """
+    """Surveille le presse-papiers et s'arrête si le navigateur parent ferme."""
 
     STARTUP_GRACE_SECONDS: float = 8.0
 
     def __init__(self, base_dir: str, assembler: FileAssembler, config: WatcherConfig) -> None:
+        """Initialise l'état de scrutation et la détection du navigateur parent."""
         self.base_dir: str = base_dir
         self.assembler: FileAssembler = assembler
         self.config: WatcherConfig = config
@@ -29,9 +27,11 @@ class ClipboardWatcher:
         self._last_browser_check: float = self._started_at
 
     def _is_process_running(self, process_name: str) -> bool:
+        """Délègue la vérification d'activité du processus navigateur."""
         return is_process_running(process_name)
 
     def _should_exit_with_browser(self) -> bool:
+        """Indique si le watcher doit s'arrêter après fermeture du navigateur."""
         if not self.config.auto_exit_on_browser_close or not self._browser_exe:
             return False
         now: float = time.monotonic()
@@ -41,6 +41,7 @@ class ClipboardWatcher:
         return not self._is_process_running(self._browser_exe)
 
     def _get_win32_sequence_number(self) -> Optional[int]:
+        """Lit le compteur de séquence du presse-papiers Windows sans l'ouvrir."""
         if os.name != "nt":
             return None
         try:
@@ -49,6 +50,7 @@ class ClipboardWatcher:
             return None
 
     def _get_clipboard_text(self, retries: int = 3) -> Optional[str]:
+        """Lit le contenu texte du presse-papiers avec tentatives en cas de contention."""
         if self._root is None:
             return ""
         for attempt in range(retries):
@@ -61,8 +63,8 @@ class ClipboardWatcher:
                 if attempt < retries - 1:
                     time.sleep(0.015)
         return None
-
     def _clear_clipboard_once(self) -> None:
+        """Vide le presse-papiers au démarrage pour éviter de retraiter un ancien bloc."""
         if os.name == "nt":
             try:
                 user32 = ctypes.windll.user32
@@ -80,6 +82,7 @@ class ClipboardWatcher:
                 pass
 
     def start(self) -> None:
+        """Lance la boucle principale de surveillance et d'assemblage des fichiers."""
         os.makedirs(self.base_dir, exist_ok=True)
         os.makedirs(self.assembler.temp_dir, exist_ok=True)
         self._root = tk.Tk()

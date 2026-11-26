@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Gestion des routes HTTP POST déclenchant l'exécution synchrone ou asynchrone des tests.
 
 import os
 import re
@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 
 def handle_run_tests_route(handler: Any, async_mode: bool) -> None:
+    """Valide le lanceur de tests et démarre la campagne en mode synchrone ou streaming."""
     body_t = handler._read_json_body()
     test_script: Optional[str] = handler._resolve_test_runner_path(str(body_t.get("test_runner", "")).strip())
     if test_script is None:

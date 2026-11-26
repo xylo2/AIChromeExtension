@@ -1,4 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
+# Gestionnaire de filtrage hiérarchique des règles .gitignore sans dépendance externe.
 
 import logging
 import re
@@ -7,11 +7,10 @@ from typing import Dict, List, Pattern
 
 
 class GitignoreRule:
-    """
-    Représente une règle unitaire issue d'un fichier .gitignore compilée en expression régulière.
-    """
+    """Représente une règle unitaire issue d'un fichier .gitignore."""
 
     def __init__(self, pattern: str) -> None:
+        """Analyse la négation, le ciblage de dossier et compile le motif."""
         self.negated: bool = pattern.startswith("!")
         if self.negated:
             pattern = pattern[1:]
@@ -26,7 +25,9 @@ class GitignoreRule:
 
     @staticmethod
     def _restore_char_classes(escaped: str) -> str:
+        """Restaure les classes de caractères [...] après échappement regex."""
         def _replace_class(match: re.Match[str]) -> str:
+            """Convertit une classe échappée en classe regex valide."""
             inner: str = match.group(1)
             if inner.startswith(r"\!"):
                 inner = "^" + inner[2:]
@@ -38,6 +39,7 @@ class GitignoreRule:
         return re.sub(r"\\\[((?:\\.|[^\\\]])+)\\\]", _replace_class, escaped)
 
     def _compile_pattern(self, pattern: str, anchored: bool) -> Pattern[str]:
+        """Traduit un motif glob .gitignore en expression régulière."""
         escaped: str = re.escape(pattern)
         escaped = self._restore_char_classes(escaped)
         escaped = escaped.replace(r"\*\*/", "(?:.+/)?")
@@ -50,23 +52,24 @@ class GitignoreRule:
         return re.compile(f"{prefix}{escaped}(?:/.*)?\\Z")
 
     def matches(self, rel_path: str, is_dir: bool) -> bool:
+        """Vérifie si un chemin relatif et son type correspondent à la règle."""
         if self.dir_only and not is_dir:
             return False
         return bool(self.regex.search(rel_path))
-
-
 class GitignoreManager:
-    """
-    Gère le chargement et l'évaluation hiérarchique des fichiers .gitignore sans dépendance externe.
-    """
+    """Charge et évalue hiérarchiquement les fichiers .gitignore."""
 
-    def __init__(self, root_dir: Path, logger: logging.Logger, enabled: bool = True) -> None:
+    def __init__(
+        self, root_dir: Path, logger: logging.Logger, enabled: bool = True
+    ) -> None:
+        """Initialise le gestionnaire de règles pour une arborescence donnée."""
         self.root_dir: Path = root_dir
         self.logger: logging.Logger = logger
         self.enabled: bool = enabled
         self._rules_by_dir: Dict[Path, List[GitignoreRule]] = {}
 
     def register_directory(self, current_dir: Path) -> None:
+        """Charge et compile les règles du .gitignore présent dans current_dir."""
         if not self.enabled:
             return
         gi_file: Path = current_dir / ".gitignore"
@@ -75,7 +78,8 @@ class GitignoreManager:
 
         rules: List[GitignoreRule] = []
         try:
-            for raw_line in gi_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            raw_txt: str = gi_file.read_text(encoding="utf-8", errors="ignore")
+            for raw_line in raw_txt.splitlines():
                 line: str = raw_line.strip()
                 if not line or line.startswith("#"):
                     continue
@@ -85,11 +89,15 @@ class GitignoreManager:
             self.logger.warning("Impossible de lire %s : %s", gi_file, exc)
 
     def is_ignored(self, target_path: Path, is_dir: bool = False) -> bool:
+        """Évalue séquentiellement toutes les règles applicables à target_path."""
         if not self.enabled:
             return False
 
         ignored: bool = False
-        for base_dir in sorted(self._rules_by_dir.keys(), key=lambda p: len(p.parts)):
+        ordered_dirs = sorted(
+            self._rules_by_dir.keys(), key=lambda p: len(p.parts)
+        )
+        for base_dir in ordered_dirs:
             try:
                 rel_path: str = target_path.relative_to(base_dir).as_posix()
             except ValueError:

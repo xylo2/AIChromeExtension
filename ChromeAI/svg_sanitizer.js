@@ -2,10 +2,12 @@
  * Extraction, assainissement et téléchargement sécurisé des balises SVG.
  */
 class SvgSanitizerHelper {
+  /** Construit l'URI canonique de l'espace de noms XML SVG. */
   getCanonicalSvgNamespace() {
     return ["http://www", "w3", "org/2000/svg"].join(".");
   }
 
+  /** Normalise xmlns et supprime les balises ou attributs actifs potentiellement dangereux. */
   sanitizeSvgMarkup(rawSvg) {
     let svg = String(rawSvg || "");
     const svgNs = this.getCanonicalSvgNamespace();
@@ -20,6 +22,7 @@ class SvgSanitizerHelper {
     return svg;
   }
 
+  /** Extrait et assainit le premier bloc complet <svg>...</svg> présent dans rawText. */
   extractSvgMarkup(rawText) {
     const text = String(rawText || "");
     const startIdx = text.search(/<svg\b[^>]*>/i);
@@ -29,12 +32,14 @@ class SvgSanitizerHelper {
     return this.sanitizeSvgMarkup(text.slice(startIdx, startIdx + endMatch.index + endMatch.at(0).length));
   }
 
+  /** Nettoie l'en-tête pour produire un nom de fichier .svg valide. */
   normalizeDownloadFilename(headerName) {
     const rawBase = String(headerName || "image.svg").split("|").at(0).trim().split(/[\\/]/).filter(Boolean).pop() || "image.svg";
     const safeBase = rawBase.replace(/[^\w.-]/g, "_") || "image.svg";
     return safeBase.toLowerCase().endsWith(".svg") ? safeBase : `${safeBase.replace(/\.[^.]+$/, "")}.svg`;
   }
 
+  /** Génère un fichier XML SVG et déclenche son téléchargement local. */
   downloadSvg(rawText, headerName = "image.svg") {
     const svgMarkup = this.extractSvgMarkup(rawText);
     if (!svgMarkup) return false;

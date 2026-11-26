@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 """
 Point d'entrée de watch_clipboard (synchronisation presse-papiers -> fichiers).
 
@@ -7,10 +5,10 @@ RÈGLES DE GÉNÉRATION (ChromeAI & watch_clipboard) :
 1. Balise en 1re ligne à l'intérieur du bloc Markdown :
    - Fichier complet : === FILE: tools/chemin/relatif/fichier.ext ===
    - Fichier découpé : === FILE_PART: tools/chemin/relatif/fichier.ext | 1/N ===
-2. Limites anti-troncature : ne jamais dépasser 110 lignes par bloc (viser 70 à 105)
+2. Limites anti-troncature : ne jamais dépasser 65 lignes par bloc (viser 45 à 62)
    ni 2 à 3 blocs FILE_PART par réponse. Calculer N avant d'écrire la partie 1/N.
 3. Intégrité : code complet sans ellipses (...), zéro note juste sous un bloc,
-   chemins relatifs en tools/ uniquement (pas de / initial ni de ..).
+   chemins relatifs uniquement (pas de / initial ni de ..).
 4. Pièges d'affichage web : construire dynamiquement les séquences de 3 backticks
    (chr(96) * 3 en Python, String.fromCharCode(96).repeat(3) en JS), concaténer les
    URLs sensibles et éviter les index numériques entre crochets.
@@ -27,6 +25,7 @@ from clipboard_watcher.watcher import ClipboardWatcher
 
 
 def _resolve_default_api_token(explicit_token: Optional[str]) -> str:
+    """Résout le jeton API depuis l'argument CLI, l'environnement ou le cache local."""
     if explicit_token is not None:
         return explicit_token.strip()
     env_tok: str = os.environ.get("WATCH_CLIPBOARD_TOKEN", "").strip()
@@ -44,9 +43,7 @@ def _resolve_default_api_token(explicit_token: Optional[str]) -> str:
 
 
 class ApplicationRunner:
-    """
-    Orchestre l'initialisation des composants, le serveur de statut et la surveillance.
-    """
+    """Orchestre l'initialisation des composants, le serveur HTTP et la surveillance."""
 
     def __init__(
         self,
@@ -58,6 +55,7 @@ class ApplicationRunner:
         api_token: Optional[str] = None,
         allowed_origin: Optional[str] = None,
     ) -> None:
+        """Configure et instancie l'assembleur, le watcher et le serveur de statut."""
         self.target_dir: str = target_dir
         self.config: WatcherConfig = WatcherConfig(config_path=config_file)
         if poll_interval is not None:
@@ -78,7 +76,8 @@ class ApplicationRunner:
         self.status_server: Optional[StatusServer] = None
         if self.config.server_enabled:
             tok: str = _resolve_default_api_token(api_token)
-            orig: str = (allowed_origin if allowed_origin is not None else os.environ.get("WATCH_CLIPBOARD_ORIGIN", "")).strip()
+            raw_orig = allowed_origin if allowed_origin is not None else os.environ.get("WATCH_CLIPBOARD_ORIGIN", "")
+            orig: str = raw_orig.strip()
             self.status_server = StatusServer(
                 host=self.config.server_host,
                 port=self.config.server_port,
@@ -90,6 +89,7 @@ class ApplicationRunner:
             )
 
     def run(self) -> None:
+        """Démarre le serveur HTTP de statut puis la boucle principale de scrutation."""
         if self.status_server is not None:
             self.status_server.start()
         try:
@@ -97,7 +97,10 @@ class ApplicationRunner:
         finally:
             if self.status_server is not None:
                 self.status_server.stop()
+
+
 def _parse_cli_args(argv: List[str]) -> argparse.Namespace:
+    """Analyse les arguments passés en ligne de commande."""
     parser = argparse.ArgumentParser(description="Surveille le presse-papiers et assemble les fichiers.")
     parser.add_argument("positional_dir", nargs="?", default=None, help="Dossier cible")
     parser.add_argument("--dir", dest="opt_dir", default=None, help="Dossier cible explicite")
@@ -111,12 +114,11 @@ def _parse_cli_args(argv: List[str]) -> argparse.Namespace:
 
 
 def main() -> None:
+    """Point d'entrée CLI initialisant et exécutant ApplicationRunner."""
     parsed = _parse_cli_args(sys.argv[1:])
     destination: str = parsed.opt_dir or parsed.positional_dir or "."
-
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
     config_path: str = os.path.join(script_dir, "config_watch_clipboard.ini")
-
     app: ApplicationRunner = ApplicationRunner(
         target_dir=destination,
         config_file=config_path,

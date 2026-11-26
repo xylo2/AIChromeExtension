@@ -1,3 +1,5 @@
+# Exécution synchrone ou en streaming et arrêt de tools/build_package.py.
+
 import os
 import subprocess
 import sys
@@ -14,9 +16,11 @@ class PackageBuildRunner:
     _state: Dict[str, Any] = {"running": False, "lines": [], "passed": None, "output": "", "error": "", "proc": None, "stopped": False}
 
     def __init__(self, target_dir: str, is_within_roots_fn: Callable[[str, list[str]], bool], run_fn: Callable[..., Any] = subprocess.run) -> None:
+        """Initialise l'exécuteur de build avec le répertoire cible et la garde de chemin."""
         self.target_dir, self._is_within_allowed_roots, self._run = target_dir, is_within_roots_fn, run_fn
 
     def resolve_build_script(self) -> Optional[str]:
+        """Localise le script tools/build_package.py dans le projet ou son parent."""
         base_real: str = os.path.realpath(self.target_dir)
         parent_real: str = os.path.dirname(base_real)
         allowed_roots: list[str] = [base_real] + ([parent_real] if parent_real and parent_real != base_real else [])
@@ -28,12 +32,13 @@ class PackageBuildRunner:
 
     @classmethod
     def get_stream_snapshot(cls, offset: int) -> Dict[str, Any]:
+        """Retourne l'état courant du build et les nouvelles lignes depuis offset."""
         with cls._lock:
             lines: List[str] = list(cls._state["lines"])
             return {"ok": True, "running": cls._state["running"], "stopped": bool(cls._state.get("stopped")), "offset": len(lines), "chunk": "".join(lines[offset:]), "passed": cls._state["passed"], "output": cls._state["output"], "error": cls._state["error"]}
-
     @classmethod
     def stop_build(cls) -> Tuple[bool, str]:
+        """Interrompt l'arbre de processus de build_package.py en cours."""
         with cls._lock:
             if not cls._state["running"]:
                 return False, "Aucune génération de package en cours."
@@ -44,6 +49,7 @@ class PackageBuildRunner:
         return True, "Arrêt de build_package.py demandé."
 
     def start_streaming(self) -> Tuple[bool, str, int]:
+        """Démarre build_package.py en arrière-plan pour un suivi en direct."""
         script_path: Optional[str] = self.resolve_build_script()
         if not script_path:
             return False, "Script tools/build_package.py introuvable.", 404
@@ -55,6 +61,7 @@ class PackageBuildRunner:
         return True, "", 200
 
     def _run_worker(self, script_path: str) -> None:
+        """Exécute le sous-processus de build et alimente le tampon de sortie ligne par ligne."""
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
         kwargs: Dict[str, Any] = {"cwd": os.path.realpath(self.target_dir), "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "encoding": "utf-8", "errors": "replace"}
         kwargs["creationflags" if os.name == "nt" else "start_new_session"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else True
@@ -80,6 +87,7 @@ class PackageBuildRunner:
                 self._state.update({"running": False, "proc": None, "passed": False, "error": "" if stopped else str(exc)})
 
     def run_build(self) -> Tuple[bool, str, int]:
+        """Exécute build_package.py de façon synchrone et retourne son code HTTP."""
         script_path: Optional[str] = self.resolve_build_script()
         if not script_path:
             return False, "Script tools/build_package.py introuvable.", 404
