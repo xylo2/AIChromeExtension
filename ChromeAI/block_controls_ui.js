@@ -17,19 +17,23 @@ class BlockControlsUiHelper {
     if (unique.length <= 1) return unique.at(0) || "";
     return unique.length === 2 ? `${unique.at(0)} et ${unique.at(1)}` : `${unique.slice(0, -1).join(", ")} et ${unique.at(-1)}`;
   }
-  updateHeaderLanguageLabel(wrapper, labelText) {
-    if (!wrapper || !labelText) return;
+  findHeaderLanguageNode(wrapper) {
+    if (!wrapper) return null;
     const roots = [wrapper, wrapper.parentElement].filter((r) => r && typeof r.querySelectorAll === "function");
     for (const root of roots) {
       for (const node of Array.from(root.querySelectorAll("span, div"))) {
         if (node.closest?.(".gmc-placeholder, pre, code, button") || (node.children && node.children.length > 0)) continue;
         const t = String(node.textContent || "").trim();
-        if (/^(?:javascript|python|css|html|json|markdown|ini|bash|text|svg)(?:\s*(?:,|et)\s*[a-z0-9_-]+)*$/i.test(t)) {
-          if (node.dataset && !node.dataset.gmcOrigLang) node.dataset.gmcOrigLang = t;
-          node.textContent = labelText; return;
-        }
+        if (/^(?:javascript|python|css|html|json|markdown|ini|bash|text|svg)(?:\s*(?:,|et)\s*[a-z0-9_-]+)*$/i.test(t)) return node;
       }
     }
+    return null;
+  }
+  updateHeaderLanguageLabel(wrapper, labelText) {
+    const node = this.findHeaderLanguageNode(wrapper);
+    if (!node || !labelText) return;
+    if (node.dataset && !node.dataset.gmcOrigLang) node.dataset.gmcOrigLang = String(node.textContent || "").trim();
+    node.textContent = labelText;
   }
   createPurgeBtn(item, onCopyAndPurge) {
     const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-purge-btn";
@@ -97,8 +101,7 @@ class BlockControlsUiHelper {
       lbl.textContent = purged ? `✅ [${badge}] ${m.headerName} — Copié et purgé` : manager.formatLabel(`[${badge}] ${m.headerName}`, lines, hasSpill, hasSvg);
       const act = document.createElement("div"); act.className = "gmc-group-row-actions";
       m.toggleBtn.textContent = isCollapsed ? "Afficher" : "Masquer";
-      m.verifyBtn.classList.remove("gmc-code-header-btn");
-      act.append(m.toggleBtn, m.verifyBtn); mRow.append(lbl, act); item.groupListEl.appendChild(mRow);
+      act.append(m.toggleBtn); mRow.append(lbl, act); item.groupListEl.appendChild(mRow);
     }
     this.updateHeaderLanguageLabel(this.spill.findCodeBlockWrapper(item.el), this.formatCombinedLanguages(badges));
     if (item.downloadBtn) item.downloadBtn.style.display = anySvg ? "inline-flex" : "none";
@@ -148,26 +151,26 @@ class BlockControlsUiHelper {
     const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
     const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test(`${b.getAttribute("aria-label") || ""} ${b.getAttribute("title") || ""} ${b.textContent || ""}`));
-    if (!nativeCopy?.parentElement) return;
-    nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
-    if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) {
-      if (isGrouped && item.verifyBtn?.closest?.(".gmc-code-header-btn")) { item.verifyBtn.classList.remove("gmc-code-header-btn"); this.syncItemVisuals(item, item._mgrRef || { isItemPurged: () => false, MAX_SAFE_LINES: 75, formatLabel: (h) => h, preserveScrollAround: (_, fn) => fn() }); }
-      return;
-    }
+    const langNode = this.findHeaderLanguageNode(wrapper);
+    const headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
+    if (!headerAnchor) return;
+    if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
+    if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) return;
     if (item.headerPurgeAttached) this.detachHeaderControls(pre, item);
     if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
     wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true;
     if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge);
     item.headerPurgeBtn.classList.add("gmc-code-header-btn");
-    if (isGrouped) {
-      nativeCopy.parentElement.insertBefore(item.headerPurgeBtn, nativeCopy.nextSibling);
-    } else {
-      item.verifyBtn.classList.add("gmc-code-header-btn");
+    item.verifyBtn.classList.add("gmc-code-header-btn");
+    if (langNode?.parentElement) {
+      langNode.parentElement.appendChild(item.headerPurgeBtn);
+      langNode.parentElement.appendChild(item.verifyBtn);
+    } else if (nativeCopy?.parentElement) {
       nativeCopy.parentElement.insertBefore(item.verifyBtn, nativeCopy.nextSibling);
       nativeCopy.parentElement.insertBefore(item.headerPurgeBtn, item.verifyBtn.nextSibling);
     }
     if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
-    if (nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
+    if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
   }
 }
 window.GmcBlockControlsUiHelper = BlockControlsUiHelper;

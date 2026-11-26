@@ -81,16 +81,18 @@ class BlockVerificationHelper {
       item.isVerifyingSpill = false;
     }
   }
+
   findTurnContainer(el) {
     let curr = el;
     let bestMultiPre = null;
-    for (let depth = 0; depth < 16 && curr; depth++) {
+    const turnSel = "[data-aim-turn], [data-turn-id], message-content, model-response, .conversation-container, article";
+    for (let depth = 0; depth < 22 && curr; depth++) {
       const tag = String(curr.tagName || "").toUpperCase();
       if (["BODY", "HTML", "MAIN"].includes(tag)) break;
       if (typeof curr.querySelector === "function" && curr.querySelector("textarea, [contenteditable='true']")) break;
-      if (typeof curr.matches === "function" && curr.matches("[data-aim-turn], [data-turn-id], message-content, model-response, .conversation-container, article")) return curr;
+      if (typeof curr.matches === "function" && curr.matches(turnSel)) return curr;
       if (typeof curr.querySelectorAll === "function") {
-        if (curr.querySelectorAll("[data-aim-turn], [data-turn-id], message-content, model-response, user-query").length > 1) break;
+        if (curr.querySelectorAll(turnSel).length > 1) break;
         const pres = curr.querySelectorAll("pre");
         if (pres.length > 1) bestMultiPre = curr;
       }
@@ -128,30 +130,19 @@ class BlockVerificationHelper {
     return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|r[eé]pond(?:s|re)\s*[«"']\s*suite\s*[»"']|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']\s*suite\s*[»"'])/i.test(combinedTail);
   }
 
-  hideSuiteBanner() {
-    if (this.suiteCountdownTimer) { clearInterval(this.suiteCountdownTimer); this.suiteCountdownTimer = null; }
-    if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; }
-  }
-
+  hideSuiteBanner() { if (this.suiteCountdownTimer) { clearInterval(this.suiteCountdownTimer); this.suiteCountdownTimer = null; } if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; } }
   mountSuiteBannerUnderComposer(banner) {
     const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
     const composerBox = inputEl && typeof this.chat?.findComposerContainer === "function" ? this.chat.findComposerContainer(inputEl) : inputEl?.parentElement;
-    if (composerBox && composerBox !== document.body && composerBox.parentElement && typeof composerBox.parentElement.insertBefore === "function") {
-      banner.classList.add("gmc-autosuite-inline");
-      composerBox.parentElement.insertBefore(banner, composerBox.nextSibling);
-      return true;
-    }
+    if (composerBox && composerBox !== document.body && composerBox.parentElement && typeof composerBox.parentElement.insertBefore === "function") { banner.classList.add("gmc-autosuite-inline"); composerBox.parentElement.insertBefore(banner, composerBox.nextSibling); return true; }
     if (document.body?.appendChild) { document.body.appendChild(banner); return true; }
     return false;
   }
-
   showSuiteBanner(delayMs, onCancel) {
     this.hideSuiteBanner();
     if (typeof document === "undefined" || !document.createElement) return;
-    const banner = document.createElement("div");
-    banner.className = "gmc-autosuite-banner";
-    const label = document.createElement("span");
-    const cancelBtn = document.createElement("button");
+    const banner = document.createElement("div"); banner.className = "gmc-autosuite-banner";
+    const label = document.createElement("span"), cancelBtn = document.createElement("button");
     cancelBtn.type = "button"; cancelBtn.className = "gmc-autosuite-cancel"; cancelBtn.textContent = "Annuler";
     cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); onCancel(); });
     banner.append(label, cancelBtn);
@@ -159,8 +150,7 @@ class BlockVerificationHelper {
     this.suiteBannerEl = banner;
     const deadline = Date.now() + delayMs;
     const updateLabel = () => { label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`; };
-    updateLabel();
-    this.suiteCountdownTimer = setInterval(updateLabel, 200);
+    updateLabel(); this.suiteCountdownTimer = setInterval(updateLabel, 200);
   }
 }
 window.GmcBlockVerificationHelper = BlockVerificationHelper;

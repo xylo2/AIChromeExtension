@@ -8,7 +8,7 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("CodeBlockManager regroupe les blocs d'un tour en lignes individuelles avec langages combinés et vérification unitaire", async () => {
+test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec boutons en en-tête et lignes individuelles", async () => {
   let copiedText = "";
   const droppedFiles = [];
   const sentPrompts = [];
@@ -53,8 +53,12 @@ test("CodeBlockManager regroupe les blocs d'un tour en lignes individuelles avec
       return [];
     },
     append(...items) { items.forEach((it) => this.appendChild(it)); },
-    appendChild(it) { it.parentNode = this; it.parentElement = this; this.children.push(it); return it; },
+    appendChild(it) {
+      if (it.parentNode && it.parentNode !== this) it.parentNode.children = it.parentNode.children.filter((x) => x !== it);
+      it.parentNode = this; it.parentElement = this; this.children.push(it); return it;
+    },
     insertBefore(it, ref) {
+      if (it.parentNode) it.parentNode.children = it.parentNode.children.filter((x) => x !== it);
       it.parentNode = this; it.parentElement = this;
       const idx = this.children.indexOf(ref);
       if (idx >= 0) this.children.splice(idx, 0, it);
@@ -64,12 +68,13 @@ test("CodeBlockManager regroupe les blocs d'un tour en lignes individuelles avec
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
     remove() {}
   });
-
   const turnEl = makeEl("MODEL-RESPONSE");
+  const headerBar = makeEl("DIV");
   const wrap1 = makeEl("DIV");
   const langSpan = makeEl("SPAN"); langSpan.textContent = "javascript";
+  headerBar.appendChild(langSpan);
   const pre1 = makeEl("PRE"); pre1.textContent = "=== FILE: tools/ChromeAI/a.js ===\nconst a = 1;\n";
-  wrap1.append(langSpan, pre1);
+  wrap1.append(headerBar, pre1);
   const wrap2 = makeEl("DIV");
   const pre2 = makeEl("PRE"); pre2.textContent = "=== FILE: tools/ChromeAI/b.css ===\nbody { margin: 0; }\n";
   wrap2.appendChild(pre2);
@@ -102,18 +107,19 @@ test("CodeBlockManager regroupe les blocs d'un tour en lignes individuelles avec
   assert.equal(sec.isSecondaryInGroup, true);
   assert.equal(sec.placeholderEl.style.display, "none");
   assert.equal(langSpan.textContent, "javascript et css");
-  assert.equal(lead.batchRow.style.display, "none");
+  assert.ok(headerBar.children.includes(lead.headerPurgeBtn));
+  assert.ok(headerBar.children.includes(lead.verifyBtn));
   assert.equal(lead.groupListEl.children.length, 2);
-  assert.ok(lead.groupListEl.children.at(0).children.at(0).textContent.includes("[JS] tools/ChromeAI/a.js"));
-  assert.ok(lead.groupListEl.children.at(1).children.at(0).textContent.includes("[CSS] tools/ChromeAI/b.css"));
+  assert.equal(lead.groupListEl.children.at(0).children.at(1).children.length, 1);
+  assert.equal(lead.groupListEl.children.at(1).children.at(1).children.length, 1);
 
   sec.toggleBtn.listeners.click();
-  assert.equal(wrap2.classList.contains("gmc-grouped-secondary-block"), false);
+  assert.equal(pre2.parentNode, wrap1);
   sec.toggleBtn.listeners.click();
-  assert.equal(wrap2.classList.contains("gmc-grouped-secondary-block"), true);
+  assert.equal(pre2.parentNode, wrap2);
 
-  await mgr.verifyWithAi(sec);
-  assert.equal(droppedFiles.at(0).name, "b.css.txt");
+  await mgr.verifyWithAi(lead);
+  assert.equal(droppedFiles.at(0).name, "verification_tour.txt");
   assert.ok(droppedFiles.at(0).content.includes("body { margin: 0; }"));
 
   await mgr.copyAndPurge(lead);
