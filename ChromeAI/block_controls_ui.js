@@ -9,6 +9,8 @@ class BlockControlsUiHelper {
     this.DONE_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
     this.LANG_NAMES = { JS: "javascript", JSX: "jsx", TS: "typescript", TSX: "tsx", PY: "python", CSS: "css", HTML: "html", JSON: "json", MD: "markdown", INI: "ini", TOML: "toml", YAML: "yaml", YML: "yaml", XML: "xml", SH: "bash", SQL: "sql", TXT: "text", SVG: "svg" };
   }
+  // Indique si l'extension autorise l'aperçu visuel SVG sur le bloc.
+  isSvgCapableBadge(badge) { return ["SVG", "HTML", "XML"].includes(String(badge || "").toUpperCase()); }
   // Masque la balise === END_FILE === lorsqu'elle a débordé juste après le bloc pre.
   hideTrailingEndMarker(pre) { const edge = this.spill.findEdgeSibling(pre, "next"); if (edge?.nodeType === 1 && this.spill.END_FILE_REGEX.test(String(edge.textContent || "").trim())) edge.classList?.add("gmc-spilled-hidden"); }
   // Extrait l'extension en majuscules depuis l'en-tête FILE ou FILE_PART.
@@ -102,9 +104,9 @@ class BlockControlsUiHelper {
       manager.preserveScrollAround(m.el.parentElement || m.el, () => sp.nodes.forEach((n) => n.classList?.toggle("gmc-spilled-hidden", isCollapsed)));
       const fullText = [sp.beforeText, this.spill.extractRawCode(m.el), sp.afterText].filter(Boolean).join("\n");
       if (fullText) m.cachedCombinedCode = fullText;
-      const lines = fullText ? fullText.split("\n").length : 0, hasSpill = sp.nodes.length > 0, hasSvg = Boolean(this.svgPreview?.hasSvg(fullText));
-      m.hasSpill = hasSpill; if (hasSvg) anySvg = true;
       const badge = this.detectFileTypeBadge(m.headerName); badges.push(badge);
+      const lines = fullText ? fullText.split("\n").length : 0, hasSpill = sp.nodes.length > 0, hasSvg = this.isSvgCapableBadge(badge) && Boolean(this.svgPreview?.hasSvg(fullText));
+      m.hasSpill = hasSpill; if (hasSvg) anySvg = true;
       const mRow = document.createElement("div"); mRow.className = "gmc-group-row";
       const purged = manager.isItemPurged(m);
       if (!purged && hasSpill) mRow.classList.add("gmc-row-spilled"); else if (!purged && lines > manager.MAX_SAFE_LINES) mRow.classList.add("gmc-row-oversized");
@@ -133,47 +135,44 @@ class BlockControlsUiHelper {
     if (item.placeholderEl) item.placeholderEl.style.display = "flex";
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
     const rem = typeof manager.getUnpurgedBlocksFrom === "function" ? manager.getUnpurgedBlocksFrom(item) : manager.getUnpurgedBlocks();
-    const unpurgedInGroup = isGrouped ? item.groupItems.filter((m) => !manager.isItemPurged(m)).length : (manager.isItemPurged(item) ? 0 : 1);
-    const showBatch = !manager.isItemPurged(item) && rem.length > Math.max(1, unpurgedInGroup);
-    if (item.batchBtn) { item.batchBtn.style.display = showBatch ? "inline-flex" : "none"; if (showBatch) item.batchBtn.textContent = "📋 Copier à partir d'ici & purger (" + rem.length + " blocs)"; if (item.batchRow) item.batchRow.style.display = showBatch && item.batchBtn.parentElement === item.batchRow ? "flex" : "none"; }
+    const showBatch = !manager.isItemPurged(item) && rem.length >= 1;
+    if (item.batchBtn) { item.batchBtn.style.display = showBatch ? "inline-flex" : "none"; if (showBatch) item.batchBtn.textContent = rem.length > 1 ? "📋 Copier à partir d'ici & purger (" + rem.length + " blocs)" : "📋 Copier & purger"; if (item.batchRow) item.batchRow.style.display = showBatch && item.batchBtn.parentElement === item.batchRow ? "flex" : "none"; }
     if (isGrouped) { this.syncGroupLeadVisuals(item, item.groupItems, manager); return; }
     const cardTarget = item.cardEl || item.placeholderEl; cardTarget.classList.remove("gmc-group-card");
     if (item.groupListEl) item.groupListEl.style.display = "none"; if (item.singleMainRow) item.singleMainRow.style.display = "flex";
-    const badge = this.detectFileTypeBadge(item.headerName);
-    this.updateHeaderLanguageLabel(this.spill.findCodeBlockWrapper(item.el), this.formatCombinedLanguages([badge]));
-    if (manager.isItemPurged(item)) { if (this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; } return; }
+    const badge = this.detectFileTypeBadge(item.headerName), canSvg = this.isSvgCapableBadge(badge), wrapper = this.spill.findCodeBlockWrapper(item.el);
+    this.updateHeaderLanguageLabel(wrapper, this.formatCombinedLanguages([badge])); this.hideNativeFooterCaution(wrapper);
+    if (manager.isItemPurged(item)) { if (canSvg && this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; } return; }
     const isCollapsed = item.el.classList.contains("gmc-collapsed-code"), sp = this.spill.collect(item.el);
     (item.spilledNodes || []).forEach((n) => { if (!sp.nodes.includes(n)) n.classList?.remove("gmc-spilled-hidden"); });
     item.spilledNodes = sp.nodes;
     manager.preserveScrollAround(item.el.parentElement || item.el, () => sp.nodes.forEach((n) => n.classList?.toggle("gmc-spilled-hidden", isCollapsed)));
     const fullText = [sp.beforeText, this.spill.extractRawCode(item.el), sp.afterText].filter(Boolean).join("\n");
     if (fullText) item.cachedCombinedCode = fullText;
-    const lineCount = fullText.split("\n").length, hasSpill = sp.nodes.length > 0, hasSvg = Boolean(this.svgPreview?.hasSvg(fullText)); item.hasSpill = hasSpill;
+    const lineCount = fullText.split("\n").length, hasSpill = sp.nodes.length > 0, hasSvg = canSvg && Boolean(this.svgPreview?.hasSvg(fullText)); item.hasSpill = hasSpill;
     if (item.downloadBtn) item.downloadBtn.style.display = hasSvg ? "inline-flex" : "none";
     if (hasSvg) { const getText = () => manager.extractCombinedCode(item); this.svgPreview.bindHoverTarget(cardTarget, getText); this.svgPreview.bindHoverTarget(item.el, getText); }
-item.labelEl.textContent = manager.formatLabel("[" + badge + "] " + item.headerName, lineCount, hasSpill, hasSvg);
-cardTarget.classList.toggle("gmc-spilled", hasSpill); cardTarget.classList.toggle("gmc-oversized", !hasSpill && lineCount > manager.MAX_SAFE_LINES);
-}
-// Injecte les boutons purge, batch et vérification IA collés à gauche dans l'en-tête du bloc.
-attachHeaderControls(pre, item, onCopyAndPurge, getCodeFn) {
-if (item.isSecondaryInGroup) { this.detachHeaderControls(pre, item); return; }
-const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;
-const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
-const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test([b.getAttribute("aria-label") || "", b.getAttribute("title") || "", b.textContent || ""].join(" ")));
-const langNode = this.findHeaderLanguageNode(wrapper), headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
-if (!headerAnchor) return;
-headerAnchor.classList?.add("gmc-code-header-compact");
-if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
-if (isGrouped) this.hideNativeFooterCaution(wrapper);
-if (item.headerPurgeAttached && !item.verifyBtn?.isConnected) this.detachHeaderControls(pre, item);
-if (!item.headerPurgeAttached) { wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true; item.verifyBtn.classList.add("gmc-code-header-btn"); if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none"; }
-const insertNext = (node, afterNode) => { const ref = afterNode ? afterNode.nextSibling : headerAnchor.firstChild; if (node.parentElement !== headerAnchor || node.previousSibling !== afterNode) headerAnchor.insertBefore(node, ref); };
-let cursor = langNode?.parentElement === headerAnchor ? langNode : (nativeCopy?.parentElement === headerAnchor ? nativeCopy : null);
-if (item.batchBtn) { item.batchBtn.classList.add("gmc-header-batch-btn"); insertNext(item.batchBtn, cursor); cursor = item.batchBtn; if (item.batchRow) item.batchRow.style.display = "none"; }
-if (isGrouped) { if (item.headerPurgeBtn) { item.headerPurgeBtn.remove(); item.headerPurgeBtn = null; } }
-else { if (!item.headerPurgeBtn) { item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge); item.headerPurgeBtn.classList.add("gmc-code-header-btn"); } insertNext(item.headerPurgeBtn, cursor); cursor = item.headerPurgeBtn; }
-if (item.verifyBtn) { item.verifyBtn.classList.add("gmc-code-header-btn"); insertNext(item.verifyBtn, cursor); }
-if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
-}
+    item.labelEl.textContent = manager.formatLabel("[" + badge + "] " + item.headerName, lineCount, hasSpill, hasSvg);
+    cardTarget.classList.toggle("gmc-spilled", hasSpill); cardTarget.classList.toggle("gmc-oversized", !hasSpill && lineCount > manager.MAX_SAFE_LINES);
+  }
+  // Injecte le bouton bleu textuel et l'icône de vérification IA dans l'en-tête du bloc.
+  attachHeaderControls(pre, item, _onCopyAndPurge, getCodeFn) {
+    if (item.isSecondaryInGroup) { this.detachHeaderControls(pre, item); return; }
+    const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;
+    const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test([b.getAttribute("aria-label") || "", b.getAttribute("title") || "", b.textContent || ""].join(" ")));
+    const langNode = this.findHeaderLanguageNode(wrapper), headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
+    if (!headerAnchor) return;
+    headerAnchor.classList?.add("gmc-code-header-compact");
+    if (nativeCopy) nativeCopy.classList.add("gmc-hidden-native-copy");
+    this.hideNativeFooterCaution(wrapper);
+    if (item.headerPurgeAttached && !item.verifyBtn?.isConnected) this.detachHeaderControls(pre, item);
+    if (!item.headerPurgeAttached) { wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true; item.verifyBtn.classList.add("gmc-code-header-btn"); if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none"; }
+    if (item.headerPurgeBtn) { item.headerPurgeBtn.remove(); item.headerPurgeBtn = null; }
+    const insertNext = (node, afterNode) => { const ref = afterNode ? afterNode.nextSibling : headerAnchor.firstChild; if (node.parentElement !== headerAnchor || node.previousSibling !== afterNode) headerAnchor.insertBefore(node, ref); };
+    let cursor = langNode?.parentElement === headerAnchor ? langNode : (nativeCopy?.parentElement === headerAnchor ? nativeCopy : null);
+    if (item.batchBtn) { item.batchBtn.classList.add("gmc-header-batch-btn"); insertNext(item.batchBtn, cursor); cursor = item.batchBtn; if (item.batchRow) item.batchRow.style.display = "none"; }
+    if (item.verifyBtn) { item.verifyBtn.classList.add("gmc-code-header-btn"); insertNext(item.verifyBtn, cursor); }
+    if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
+  }
 }
 window.GmcBlockControlsUiHelper = BlockControlsUiHelper;

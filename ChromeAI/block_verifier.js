@@ -90,19 +90,20 @@ class BlockVerificationHelper {
       }
       if (typeof curr.matches === "function") {
         if (curr.matches(outerTurnSel)) return curr;
-        if (curr.matches(innerTurnSel) && !bestTurn) bestTurn = curr;
+        if (curr.matches(innerTurnSel)) bestTurn = curr;
       }
       curr = curr.parentElement;
     }
-    return bestMultiPre || bestTurn || el?.parentElement || null;
+    return bestTurn || bestMultiPre || el?.parentElement || null;
   }
-  // Détecte si le texte suivant un bloc de code invite l'utilisateur à répondre « Suite ».
+  // Détecte si le texte suivant un bloc de code invite l'utilisateur à répondre Suite.
   hasSuitePromptAfterBlock(item) {
     if (!item?.el) return false;
     const tailParts = [], turnRoot = this.findTurnContainer(item.el);
     if (turnRoot && typeof turnRoot.querySelectorAll === "function") {
       for (const node of Array.from(turnRoot.querySelectorAll("p, li, div, span"))) {
-        if (node === item.el || item.el.contains?.(node) || node.contains?.(item.el) || node.closest?.(".gmc-placeholder, .gmc-floating-bar, pre, code")) continue;
+        if (node === item.el || item.el.contains?.(node) || node.contains?.(item.el)) continue;
+        if (node.closest?.(".gmc-placeholder, .gmc-floating-bar, pre, code")) continue;
         if (typeof item.el.compareDocumentPosition === "function" && !(item.el.compareDocumentPosition(node) & 4)) continue;
         const txt = String(node.textContent || "").trim();
         if (txt) tailParts.push(txt);
@@ -135,7 +136,7 @@ class BlockVerificationHelper {
   }
   // Insère la bannière d'auto-Suite dans document.body et la positionne.
   mountSuiteBannerFloating(banner) { if (!document.body?.appendChild) return false; document.body.appendChild(banner); this.positionSuiteBannerAboveComposer(banner); return true; }
-  // Affiche un compte à rebours annulable avant l'envoi automatique de « Suite ».
+  // Affiche un compte à rebours annulable avant l'envoi automatique de Suite.
   showSuiteBanner(delayMs, onCancel) {
     this.hideSuiteBanner();
     if (typeof document === "undefined" || !document.createElement) return;
