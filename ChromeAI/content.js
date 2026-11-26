@@ -6,6 +6,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
   if (window.__gmcStreamTimer) clearInterval(window.__gmcStreamTimer);
+  if (window.__gmcBuildStreamTimer) clearInterval(window.__gmcBuildStreamTimer);
   document.querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn, .gmc-quick-commit-btn, .gmc-quick-guided-btn, .gmc-global-copypurge-btn").forEach((el) => el.remove());
 
   const spillDetector = new window.GmcSpillDetector();
@@ -14,7 +15,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const exportMenu = window.GmcExportMenuManager ? new window.GmcExportMenuManager(tokenBudget) : null;
   let canRequestCommitMsg = false, scanTimer = null, isStartingWatcher = false, isTriggeringFreshExport = false;
   let lastBudgetKey = tokenBudget ? tokenBudget.getConversationKey() : "", guidedActionId = "", exportBadgeTimer = null, eventsCtrl = null;
-  let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, lastEvent: null, recentEvents: [] };
+  let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasBuildPackage: false, hasGit: false, hasSyntaxError: false, lastEvent: null, recentEvents: [] };
   let updateIndicators = () => {};
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector, (isVerify) => { canRequestCommitMsg = Boolean(isVerify); updateIndicators(); });
   const svgPreview = new window.GmcSvgPreviewManager(spillDetector);
@@ -42,6 +43,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture", true, serviceRow),
     budgetPill: makeBtn("gmc-global-budget-pill", "📊 0 tok", "Estimation cumulée des tokens envoyés (cliquer pour remettre à zéro)", true, projectRow),
     exportBtn: makeBtn("gmc-global-export-btn", "📦 Exporter", "Exporter le projet et l'envoyer dans le chat", true, projectRow),
+    buildBtn: makeBtn("gmc-global-build-btn", "🔨 Build", "Générer le package (tools/build_package.py)", true, projectRow),
+    buildLogBtn: makeBtn("gmc-global-buildlog-btn", "📋 Logs Build", "Afficher ou masquer la sortie complète de build_package.py", true, projectRow),
     gitBtn: makeBtn("gmc-global-git-btn", "🔀 Git", "Afficher les fichiers modifiés (git status)", true, projectRow),
     commitMsgBtn: makeBtn("gmc-global-commitmsg-btn", "💬 Msg commit", "Demander le message de commit à l'IA", true, projectRow),
     testsBtn: makeBtn("gmc-global-tests-btn", "🧪 Tests", "Exécuter les tests unitaires (Alt+T)", true, testsRow),
@@ -108,10 +111,12 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     els.commitMsgBtn.style.display = running && watcherState.hasGit && canRequestCommitMsg ? "inline-flex" : "none";
     els.composerCommitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     els.gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
+    els.buildBtn.style.display = running && watcherState.hasBuildPackage ? "inline-flex" : "none";
     els.exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     els.testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.testsBtn.disabled = Boolean(testActions.panel.isRunning);
     els.testLogBtn.style.display = running && watcherState.hasRunTestsClip && (testActions.panel.fullReport || testActions.panel.isRunning) ? "inline-flex" : "none";
+    els.buildLogBtn.style.display = running && watcherState.hasBuildPackage && (eventsCtrl?.buildPanel?.fullReport || eventsCtrl?.buildPanel?.isRunning) ? "inline-flex" : "none";
     testActions.renderCoverageIndicator();
     els.eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) {
@@ -120,7 +125,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       const hist = Array.isArray(watcherState.recentEvents) && watcherState.recentEvents.length > 0 ? `\nHistorique :\n${watcherState.recentEvents.join("\n")}` : "";
       els.eventPill.title = (isSyntaxErr ? "Erreur de syntaxe détectée : cliquer pour renvoyer l'extrait à l'IA" : "Cliquer pour envoyer ce statut dans le chat") + hist;
     }
-    toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.gitBtn, els.commitMsgBtn]);
+    toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.buildBtn, els.buildLogBtn, els.gitBtn, els.commitMsgBtn]);
     toggleRowVisibility(testsRow, [els.testsBtn, els.testLogBtn, els.coverageBtn]);
     toggleRowVisibility(domRow, [els.eventPill, els.purgeBtn]);
     const testsPassedForCurrentEvent = Boolean(testActions.lastTestsPassed || testActions.panel.isRunning);

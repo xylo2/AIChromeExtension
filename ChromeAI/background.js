@@ -55,27 +55,26 @@ class WatcherBackgroundService {
     this.isChecking = true;
     const storedPrefs = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
     const customRunner = (storedPrefs.savedTestRunner || "").trim();
-    const state = { running: false, targetDir: null, pid: null, command: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, testRunnerPath: null, lastEvent: null, recentEvents: [], configuredTestRunner: customRunner || this.DEFAULT_TEST_RUNNER, checkedAt: new Date().toLocaleTimeString() };
+    const state = { running: false, targetDir: null, pid: null, command: null, hasRunTestsClip: false, hasExporter: false, hasBuildPackage: false, hasGit: false, hasSyntaxError: false, testRunnerPath: null, lastEvent: null, recentEvents: [], configuredTestRunner: customRunner || this.DEFAULT_TEST_RUNNER, checkedAt: new Date().toLocaleTimeString() };
     try {
       const query = customRunner ? `?test_runner=${encodeURIComponent(customRunner)}` : "";
       const response = await this.fetchWithTokenFallback(`${this.BASE_URL}/status${query}`, { signal: AbortSignal.timeout(4500), cache: "no-store" }, storedPrefs.watcherApiToken || "");
       if (response.ok) {
         const data = await response.json();
         if (data?.status === "running") {
-          Object.assign(state, { running: true, targetDir: data.target_dir || "", pid: data.pid || null, command: data.command || null, hasRunTestsClip: Boolean(data.has_run_tests_clip), hasExporter: Boolean(data.has_exporter), hasGit: Boolean(data.has_git), hasSyntaxError: Boolean(data.has_syntax_error), testRunnerPath: data.test_runner_path || null, lastEvent: data.last_event || null, recentEvents: Array.isArray(data.recent_events) ? data.recent_events : [] });
+          Object.assign(state, { running: true, targetDir: data.target_dir || "", pid: data.pid || null, command: data.command || null, hasRunTestsClip: Boolean(data.has_run_tests_clip), hasExporter: Boolean(data.has_exporter), hasBuildPackage: Boolean(data.has_build_package), hasGit: Boolean(data.has_git), hasSyntaxError: Boolean(data.has_syntax_error), testRunnerPath: data.test_runner_path || null, lastEvent: data.last_event || null, recentEvents: Array.isArray(data.recent_events) ? data.recent_events : [] });
           if (data.configured_test_runner) state.configuredTestRunner = data.configured_test_runner;
           const detectedRoot = this.extractWorkspaceRoot(state.targetDir);
           if (detectedRoot) await chrome.storage.local.set({ savedRootDir: detectedRoot });
         }
       }
     } catch (_err) { state.running = false; } finally { this.isChecking = false; }
-    const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasGit}|${state.hasSyntaxError}|${state.lastEvent}|${state.recentEvents.join(";")}`;
+    const signature = `${state.running}|${state.targetDir}|${state.pid}|${state.hasRunTestsClip}|${state.hasExporter}|${state.hasBuildPackage}|${state.hasGit}|${state.hasSyntaxError}|${state.lastEvent}|${state.recentEvents.join(";")}`;
     await chrome.storage.local.set({ watchClipboardState: state });
     this.updateBadge(state.running);
     if (forceBroadcast || this.lastKnownSignature !== signature) { this.lastKnownSignature = signature; await this.broadcastStateToTabs(state); }
     return state;
   }
-
   async waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
     const deadline = Date.now() + maxWaitMs;
     let state = await this.checkStatus(true);
@@ -136,12 +135,15 @@ class WatcherBackgroundService {
     } catch (err) { return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` }; }
     finally { clearInterval(keepAlive); }
   }
-
   handleMessage(message, sendResponse) {
     if (!message) return false;
     const enc = encodeURIComponent;
     const routes = {
       REFRESH_STATUS: () => this.checkStatus(true), START_WATCHER: () => this.startWatcher(message.targetDir, message.extraArgs), STOP_WATCHER: () => this.stopWatcher(),
+      BUILD_PACKAGE: () => { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); return this.postJson("/build-package", {}, 185000, "Impossible d'exécuter build_package.py.").finally(() => clearInterval(ka)); },
+      START_BUILD_PACKAGE: () => this.postJson("/build-package-start", {}, 10000, "Impossible de démarrer build_package.py."),
+      STOP_BUILD_PACKAGE: () => this.postJson("/build-package-stop", {}, 8000, "Impossible d'arrêter build_package.py."),
+      POLL_BUILD_STREAM: () => this.getJson("/build-stream?offset=" + Number(message.offset || 0), 5000, "Erreur flux build."),
       EXPORT_FOLDERS: () => this.getJson("/export-folders", 5000, "Impossible de lister les dossiers."),
       EXPORT_PREVIEW: () => { const subs = Array.isArray(message.subpaths) && message.subpaths.length > 0 ? `?subpaths=${enc(message.subpaths.join(","))}` : ""; return this.getJson(`/export-preview${subs}`, 15000, "Aperçu indisponible."); },
       EXPORT_PROJECT: () => this.postJson("/export-project", { mode: message.mode || "full", subpaths: Array.isArray(message.subpaths) ? message.subpaths : [] }, 65000, "Impossible de générer l'export du projet."),

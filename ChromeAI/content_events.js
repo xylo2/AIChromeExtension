@@ -1,5 +1,5 @@
 /**
- * Écouteurs DOM, raccourcis clavier (Alt+P/S/T), auto-fix syntaxique, auto-tests et actions guidées.
+ * Écouteurs DOM, raccourcis clavier (Alt+P/S/T), auto-fix syntaxique, auto-tests et build package.
  */
 class ContentEventsController {
   constructor(ctx) {
@@ -64,6 +64,54 @@ class ContentEventsController {
     if (actionId === "commit_msg") { const msgPrompt = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(msgPrompt); chatInjector.insertPrompt(msgPrompt, true); this.ctx.clearCommitMsgFlag(); return; }
     if (actionId === "run_tests") els.testsBtn?.click();
   }
+  ensureBuildPanel() {
+    if (!this.buildPanel && window.GmcTestOutputPanelManager) {
+      this.buildPanel = new window.GmcTestOutputPanelManager(this.ctx.chatInjector, () => this.ctx.sendBgMessage({ type: "STOP_BUILD_PACKAGE" }, () => {}), () => this.ctx.setBtnState(this.ctx.els.buildBtn, null, "🔨 Build"));
+    }
+    return this.buildPanel;
+  }
+  finalizeBuildPackage(res) {
+    const { els, setBtnState, chatInjector, tokenBudget, updateIndicators } = this.ctx;
+    const panel = this.ensureBuildPanel();
+    els.buildBtn.disabled = false;
+    if (this.buildAutoCloseTimer) { clearTimeout(this.buildAutoCloseTimer); this.buildAutoCloseTimer = null; }
+    if (res?.stopped) { setBtnState(els.buildBtn, "fail", "⏹️ Build arrêté"); panel?.finish(false, panel.fullReport || "Génération du package arrêtée.", true); updateIndicators?.(); return; }
+    const finalReport = String(res?.output || panel?.fullReport || "").trim();
+    if (res?.ok) {
+      panel?.finish(true, finalReport || "Package généré avec succès.", false);
+      els.buildBtn.title = finalReport || "Package généré avec succès"; setBtnState(els.buildBtn, "pass", "✅ Build OK");
+      this.buildAutoCloseTimer = setTimeout(() => { this.buildAutoCloseTimer = null; setBtnState(els.buildBtn, null, "🔨 Build"); els.buildBtn.title = "Générer le package (tools/build_package.py)"; }, 3500);
+      updateIndicators?.(); return;
+    }
+    const errTxt = String(res?.error || finalReport || "Erreur lors de l'exécution de build_package.py.");
+    panel?.finish(false, errTxt, false); els.buildBtn.title = errTxt; setBtnState(els.buildBtn, "fail", "❌ Build KO");
+    const trimmedErr = errTxt.length > 3200 ? `${errTxt.slice(0, 3200).trim()}\n[... tronqué ...]` : errTxt;
+    const prompt = `Échec lors de l'exécution de \x60tools/build_package.py\x60 :\n\x60\x60\x60text\n${trimmedErr}\n\x60\x60\x60\nPeux-tu analyser et corriger ce problème ?\n`;
+    if (chatInjector?.insertPrompt?.(prompt, true)) tokenBudget?.recordPayload(prompt);
+    updateIndicators?.();
+  }
+  triggerBuildPackage() {
+    const { els, sendBgMessage, setBtnState, updateIndicators } = this.ctx;
+    const panel = this.ensureBuildPanel();
+    if (!els.buildBtn || els.buildBtn.disabled || panel?.isRunning) { if (panel?.isRunning && !panel.panelEl) panel.toggle(); return; }
+    els.buildBtn.disabled = true; setBtnState(els.buildBtn, "running", "⏳ Build...");
+    panel?.open("⏳ Exécution de build_package.py en cours...", "", true); updateIndicators?.();
+    sendBgMessage({ type: "START_BUILD_PACKAGE" }, (startRes) => {
+      const errTxt = String(startRes?.error || "");
+      if (errTxt === "not_found") { panel?.appendChunk("Mode streaming indisponible. Exécution synchrone...\n"); sendBgMessage({ type: "BUILD_PACKAGE" }, (r) => this.finalizeBuildPackage(r)); return; }
+      if (!startRes?.ok && !/déjà en cours/i.test(errTxt)) { this.finalizeBuildPackage(startRes); return; }
+      let offset = 0;
+      if (window.__gmcBuildStreamTimer) clearInterval(window.__gmcBuildStreamTimer);
+      window.__gmcBuildStreamTimer = setInterval(() => {
+        sendBgMessage({ type: "POLL_BUILD_STREAM", offset }, (snap) => {
+          if (!snap?.ok) return;
+          if (snap.chunk) panel?.appendChunk(snap.chunk);
+          offset = Number(snap.offset || offset);
+          if (!snap.running) { clearInterval(window.__gmcBuildStreamTimer); window.__gmcBuildStreamTimer = null; this.finalizeBuildPackage(snap); }
+        });
+      }, 300);
+    });
+  }
   triggerQuickCommitFlow() {
     const { els, blockManager, chatInjector, gitManager, sendBgMessage, setBtnState, tokenBudget, updateIndicators } = this.ctx;
     blockManager.resetAutoSuiteQuota();
@@ -92,16 +140,12 @@ class ContentEventsController {
   handleStateUpdate(nextState) {
     const isNowRunning = Boolean(nextState?.running);
     if (isNowRunning && !this.wasWatcherRunning) this.enableAutoFixOnServiceStart();
-    this.wasWatcherRunning = isNowRunning;
-    this.ctx.setWatcherState(nextState); this.ctx.updateIndicators();
-    const evSig = String(nextState?.lastEvent || "");
-    const okMatch = evSig.match(/^\[(?:OK|COMPLET)\]\s+([^\s(]+)/);
+    this.wasWatcherRunning = isNowRunning; this.ctx.setWatcherState(nextState); this.ctx.updateIndicators();
+    const evSig = String(nextState?.lastEvent || ""), okMatch = evSig.match(/^\[(?:OK|COMPLET)\]\s+([^\s(]+)/);
     if (okMatch) this.autoSyntaxAttemptsByFile.delete(okMatch.at(1));
     if (this.autoFixEnabled && nextState?.hasSyntaxError && evSig) {
       if (evSig !== this.lastAutoSyntaxSig) {
-        this.lastAutoSyntaxSig = evSig;
-        const fileKey = this.extractSyntaxEventFile(evSig) || "__default__";
-        const tries = this.autoSyntaxAttemptsByFile.get(fileKey) || 0;
+        this.lastAutoSyntaxSig = evSig; const fileKey = this.extractSyntaxEventFile(evSig) || "__default__", tries = this.autoSyntaxAttemptsByFile.get(fileKey) || 0;
         if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) { this.clearAutoFixNotice(); if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = `⏸️ Auto-fix max (${fileKey})`; this.ctx.updateIndicators(); return; }
         const nextTry = tries + 1; this.autoSyntaxAttemptsByFile.set(fileKey, nextTry);
         this.sendSyntaxErrorToAi(evSig, (resolvedFile) => this.notifyAutoFixTriggered(resolvedFile || fileKey, nextTry));
@@ -132,11 +176,13 @@ class ContentEventsController {
     els.yesBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
     els.nextBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); });
     els.excuseBtn?.addEventListener("click", () => chatInjector.insertPrompt(this.ctx.composerUi.pickExcuse(), false));
-    els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
-    els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
-    els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
-    els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
-    document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
-  }
+els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
+els.buildBtn?.addEventListener("click", () => this.triggerBuildPackage());
+els.buildLogBtn?.addEventListener("click", () => this.ensureBuildPanel()?.toggle());
+els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
+els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
+els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
+document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
+}
 }
 window.GmcContentEventsController = ContentEventsController;

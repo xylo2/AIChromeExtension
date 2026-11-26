@@ -5,8 +5,13 @@ import sys
 import threading
 from typing import Any, List, Optional
 from urllib.parse import parse_qs, urlparse
+from clipboard_watcher.build_api import PackageBuildRunner
 from clipboard_watcher.export_api import ProjectExportRunner
 from clipboard_watcher.http_routes_tests import handle_run_tests_route
+
+
+def _build_runner(handler: Any) -> PackageBuildRunner:
+    return PackageBuildRunner(handler.target_dir, handler._is_within_allowed_roots)
 
 
 def handle_get_request(handler: Any) -> None:
@@ -40,6 +45,10 @@ def handle_get_request(handler: Any) -> None:
         raw_off: str = next(iter(params.get("offset", ["0"])), "0").strip()
         handler._send_json(200, handler._test_mgr.get_stream_snapshot(max(0, int(raw_off)) if raw_off.isdigit() else 0))
         return
+    if parsed.path == "/build-stream":
+        raw_off = next(iter(params.get("offset", ["0"])), "0").strip()
+        handler._send_json(200, PackageBuildRunner.get_stream_snapshot(max(0, int(raw_off)) if raw_off.isdigit() else 0))
+        return
     if parsed.path not in ("/status", "/health", "/"):
         handler._send_json(404, {"error": "not_found"})
         return
@@ -52,6 +61,7 @@ def handle_get_request(handler: Any) -> None:
         "target_dir": os.path.realpath(handler.target_dir),
         "command": " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv]),
         "has_run_tests_clip": has_tests, "has_exporter": handler._resolve_exporter_package_dir() is not None,
+        "has_build_package": _build_runner(handler).resolve_build_script() is not None,
         "has_git": handler._find_git_root() is not None,
         "configured_test_runner": custom_runner or handler.default_test_runner,
         "test_runner_path": test_script if has_tests else None,
@@ -59,6 +69,8 @@ def handle_get_request(handler: Any) -> None:
         "recent_events": list(getattr(handler.assembler_ref, "recent_events", [])),
         "has_syntax_error": bool(syn_err),
     })
+
+
 def handle_post_request(handler: Any) -> None:
     if not handler._is_authorized():
         handler._drain_unread_body()
@@ -69,6 +81,21 @@ def handle_post_request(handler: Any) -> None:
         handler._drain_unread_body()
         handler._send_json(200, {"status": "stopping", "pid": os.getpid()})
         threading.Timer(0.15, lambda: os.kill(os.getpid(), signal.SIGINT)).start()
+        return
+    if parsed.path == "/build-package":
+        handler._drain_unread_body()
+        ok_b, out_or_err, code_b = _build_runner(handler).run_build()
+        handler._send_json(code_b, {"ok": True, "output": out_or_err} if ok_b else {"ok": False, "error": out_or_err})
+        return
+    if parsed.path == "/build-package-start":
+        handler._drain_unread_body()
+        ok_bs, err_bs, code_bs = _build_runner(handler).start_streaming()
+        handler._send_json(code_bs, {"ok": True, "started": True} if ok_bs else {"ok": False, "error": err_bs})
+        return
+    if parsed.path == "/build-package-stop":
+        handler._drain_unread_body()
+        ok_st, msg_st = PackageBuildRunner.stop_build()
+        handler._send_json(200 if ok_st else 409, {"ok": ok_st, "stopped": ok_st, "message": msg_st} if ok_st else {"ok": False, "error": msg_st})
         return
     if parsed.path == "/export-project":
         body_e = handler._read_json_body()
