@@ -34,7 +34,7 @@
 .gmc-code-header-btn.gmc-used-btn, .gmc-used-btn { background: rgba(14, 165, 233, 0.18) !important; border-color: rgba(56, 189, 248, 0.55) !important; color: #38bdf8 !important; }
 .gmc-code-header-btn.gmc-purged-btn, .gmc-purged-btn { background: rgba(22, 163, 74, 0.18) !important; border-color: rgba(34, 197, 94, 0.55) !important; color: #4ade80 !important; opacity: 0.9; cursor: default; }
 .gmc-code-header-btn.gmc-verified-btn, .gmc-verified-btn { background: rgba(22, 163, 74, 0.2) !important; border-color: #22c55e !important; color: #4ade80 !important; }
-pre.gmc-collapsed-code, code.gmc-collapsed-code, .gmc-spilled-hidden, .gmc-collapsed-turn, .gmc-grouped-secondary-block, .gmc-hidden-native-copy, .gmc-hidden-native-footer { display: none !important; }
+pre.gmc-collapsed-code, code.gmc-collapsed-code, .gmc-spilled-hidden, .gmc-collapsed-turn, .gmc-grouped-secondary-block, [data-gmc-hidden-card="true"], .gmc-hidden-native-copy, .gmc-hidden-native-footer { display: none !important; }
 
 .gmc-block-slot { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 4px 0; width: 100%; }
 .gmc-batch-bar { display: flex; align-items: center; }

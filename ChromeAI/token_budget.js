@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Utilisateur_A
+
 /**
  * Suivi persistant du budget cumulé de tokens de la conversation et alertes anti-blocage.
  */
@@ -8,7 +11,9 @@ class TokenBudgetManager {
     this.CRITICAL_THRESHOLD = 90000;
     this.HEAVY_EXPORT_LIMIT = 35000;
     this.PENDING_TTL_MS = 30000;
-    this.TURN_SELECTORS = "[data-aim-turn], [data-turn-id], message-content, model-response, user-query, [data-attrid='AIOverview'], [data-al]";
+    this.TURN_SELECTORS = '[data-scope-id="turn"], [data-aim-turn], ' +
+      "[data-turn-id], message-content, model-response, user-query, " +
+      "[data-attrid='AIOverview'], [data-al]";
     this.sessionTokens = 0;
     this.activeKey = "";
   }
@@ -55,11 +60,13 @@ class TokenBudgetManager {
     if (key !== prevKey) { this.activeKey = key; this.sessionTokens = 0; }
     if (typeof chrome === "undefined" || !chrome.storage?.local?.get) return;
     chrome.storage.local.get(["gmcTokenBudgets", "gmcPendingBudget"], (res) => {
-      const map = res?.gmcTokenBudgets && typeof res.gmcTokenBudgets === "object" ? { ...res.gmcTokenBudgets } : {};
+      const map = res?.gmcTokenBudgets && typeof res.gmcTokenBudgets === "object"
+        ? { ...res.gmcTokenBudgets } : {};
       const storedVal = Number(map[key] || 0);
       if (storedVal > this.sessionTokens) this.sessionTokens = storedVal;
       const pending = res?.gmcPendingBudget;
-      if (this.sessionTokens === 0 && pending && Number(pending.tokens) > 0 && (Date.now() - Number(pending.at || 0)) <= this.PENDING_TTL_MS) {
+      const withinTtl = pending && (Date.now() - Number(pending.at || 0)) <= this.PENDING_TTL_MS;
+      if (this.sessionTokens === 0 && withinTtl && Number(pending.tokens) > 0) {
         if (!this.isGenericKey(key) || prevTokens === 0) {
           this.sessionTokens = Number(pending.tokens);
           if (pending.fromKey && pending.fromKey !== key) delete map[pending.fromKey];
@@ -77,13 +84,16 @@ class TokenBudgetManager {
     if (typeof chrome === "undefined" || !chrome.storage?.local?.get) return;
     const key = this.activeKey || this.getConversationKey();
     chrome.storage.local.get("gmcTokenBudgets", (res) => {
-      const map = res?.gmcTokenBudgets && typeof res.gmcTokenBudgets === "object" ? { ...res.gmcTokenBudgets } : {};
+      const map = res?.gmcTokenBudgets && typeof res.gmcTokenBudgets === "object"
+        ? { ...res.gmcTokenBudgets } : {};
       if (this.sessionTokens > 0) map[key] = this.sessionTokens;
       else delete map[key];
       const keys = Object.keys(map);
       if (keys.length > 25) keys.slice(0, keys.length - 25).forEach((oldK) => delete map[oldK]);
       const payload = { gmcTokenBudgets: map };
-      if (pendingTokens > 0 && this.isGenericKey(key)) payload.gmcPendingBudget = { tokens: this.sessionTokens, at: Date.now(), fromKey: key };
+      if (pendingTokens > 0 && this.isGenericKey(key)) {
+        payload.gmcPendingBudget = { tokens: this.sessionTokens, at: Date.now(), fromKey: key };
+      }
       chrome.storage.local.set(payload);
     });
   }
@@ -93,36 +103,63 @@ class TokenBudgetManager {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") return 0;
     const turns = Array.from(document.querySelectorAll(this.TURN_SELECTORS));
     const topTurns = turns.filter((el) => !turns.some((other) => other !== el && other.contains?.(el)));
-    if (topTurns.length > 0) return topTurns.reduce((sum, turn) => sum + this.estimateTokens(turn.textContent || ""), 0);
-    const mainEl = typeof document.querySelector === "function" ? document.querySelector("main, [role='main']") : null;
+    if (topTurns.length > 0) {
+      return topTurns.reduce((sum, turn) => sum + this.estimateTokens(turn.textContent || ""), 0);
+    }
+    const mainEl = typeof document.querySelector === "function"
+      ? document.querySelector("main, [role='main']") : null;
     return mainEl ? this.estimateTokens(mainEl.textContent || "") : 0;
   }
 
   /** Retourne la somme des tokens envoyés en session et des tokens présents dans le DOM. */
-  getTotalEstimatedTokens() { return this.sessionTokens + this.estimateConversationDomTokens(); }
+  getTotalEstimatedTokens() {
+    return this.sessionTokens + this.estimateConversationDomTokens();
+  }
 
   /** Ajoute le coût d'un nouvel envoi (export, diff, test) et persiste le total. */
-  recordPayload(text, explicitTokens = 0) { const added = Number(explicitTokens) > 0 ? Number(explicitTokens) : this.estimateTokens(text); this.sessionTokens += added; this.saveToStorage(added); return this.getTotalEstimatedTokens(); }
+  recordPayload(text, explicitTokens = 0) {
+    const added = Number(explicitTokens) > 0 ? Number(explicitTokens) : this.estimateTokens(text);
+    this.sessionTokens += added;
+    this.saveToStorage(added);
+    return this.getTotalEstimatedTokens();
+  }
 
   /** Remet à zéro le compteur manuel de tokens de la session active. */
-  reset() { this.sessionTokens = 0; chrome.storage?.local?.remove?.("gmcPendingBudget"); this.saveToStorage(0); }
+  reset() {
+    this.sessionTokens = 0;
+    chrome.storage?.local?.remove?.("gmcPendingBudget");
+    this.saveToStorage(0);
+  }
 
   /** Compte le nombre de tours de conversation détectés dans la page. */
-  getConversationTurnCount() { return typeof document?.querySelectorAll === "function" ? document.querySelectorAll(this.TURN_SELECTORS).length : 0; }
+  getConversationTurnCount() {
+    return typeof document?.querySelectorAll === "function"
+      ? document.querySelectorAll(this.TURN_SELECTORS).length : 0;
+  }
 
   /** Recommande le mode d'export optimal selon l'avancement de la conversation. */
-  getRecommendedExportMode() { return this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 15000 ? "modified" : "full"; }
+  getRecommendedExportMode() {
+    return this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 15000
+      ? "modified" : "full";
+  }
 
   /** Indique si un export volumineux nécessite une confirmation utilisateur explicite. */
-  shouldConfirmHeavyExport(estimatedTokens) { return Number(estimatedTokens || 0) > this.HEAVY_EXPORT_LIMIT && (this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 25000); }
+  shouldConfirmHeavyExport(estimatedTokens) {
+    return Number(estimatedTokens || 0) > this.HEAVY_EXPORT_LIMIT
+      && (this.getConversationTurnCount() >= 2 || this.getTotalEstimatedTokens() >= 25000);
+  }
 
   /** Prépare l'état visuel, le libellé et l'infobulle explicative de la pastille budget. */
   formatBadgeState() {
     const total = this.getTotalEstimatedTokens();
     const kStr = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : `${total}`;
     const howItWorks = "L'extension estime le volume cumulé (historique DOM + fichiers/diffs/tests envoyés), privilégie les exports légers dès 2 tours, demande confirmation pour un export lourd (>35k) et alerte à 60k puis 90k tok pour ouvrir un Nouveau chat.";
-    if (total >= this.CRITICAL_THRESHOLD) return { level: "fail", label: `🔥 ${kStr} tok`, title: `Budget critique (>90k tok) : ouvrez un Nouveau chat pour éviter le blocage.\n${howItWorks}` };
-    if (total >= this.WARN_THRESHOLD) return { level: "running", label: `⚠️ ${kStr} tok`, title: `Budget élevé (>60k tok) : privilégiez les exports Modifiés ou Squelette.\n${howItWorks}` };
+    if (total >= this.CRITICAL_THRESHOLD) {
+      return { level: "fail", label: `🔥 ${kStr} tok`, title: `Budget critique (>90k tok) : ouvrez un Nouveau chat pour éviter le blocage.\n${howItWorks}` };
+    }
+    if (total >= this.WARN_THRESHOLD) {
+      return { level: "running", label: `⚠️ ${kStr} tok`, title: `Budget élevé (>60k tok) : privilégiez les exports Modifiés ou Squelette.\n${howItWorks}` };
+    }
     return { level: "", label: `📊 ${kStr} tok`, title: `Estimation du contexte actif (${kStr} tok).\n${howItWorks}` };
   }
 }

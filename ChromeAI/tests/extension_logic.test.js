@@ -45,6 +45,7 @@ test("chaque module est sans triple backtick littéral ni scroll auto", () => {
   assert.ok(contentJs.includes("checkPendingFreshExport"));
   assert.ok(contentJs.includes('floatingBar.classList.toggle("gmc-offline-bar", !running)'));
   assert.ok(contentJs.includes('statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, serviceRow)'));
+  assert.ok(contentJs.includes('els.purgeBtn.style.display = running && unpurgedCount > 0 ? "inline-flex" : "none"'));
   assert.equal(contentJs.includes("copyPurgeAllBtn"), false);
   const eventsJs = fs.readFileSync(path.join(EXTENSION_DIR, "content_events.js"), "utf-8");
   assert.ok(eventsJs.includes('insertPrompt("Oui", true)'));
