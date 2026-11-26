@@ -5,15 +5,17 @@ class WatcherPopupController {
   constructor() {
     this.DEFAULT_ROOT_DIR = "C:\\git";
     this.DEFAULT_TEST_RUNNER = "tools/run_tests_clip.py";
-    this.CONFIG_INPUT_IDS = ["rootDirInput", "targetDirInput", "testRunnerInput", "extraArgsInput"];
+    this.CONFIG_INPUT_IDS = ["rootDirInput", "testRunnerInput", "extraArgsInput"];
     this.view = window.GmcPopupView ? new window.GmcPopupView(this.CONFIG_INPUT_IDS) : null;
     this.isWatcherRunning = false;
     this.folderLoadTimer = null;
+    this.selectedTargetDir = ".";
   }
 
   getEl(id) { return document.getElementById(id); }
   formatArg(value) { return !value ? "" : (/\s/.test(value) ? `"${value}"` : value); }
   getCleanRootDir() { return ((this.getEl("rootDirInput")?.value || "").trim() || this.DEFAULT_ROOT_DIR).replace(/[\\/]+$/, ""); }
+  getCurrentTargetDir() { return (this.getEl("targetDirSelect")?.value || this.selectedTargetDir || ".").trim() || "."; }
 
   buildInstallCommand(rootDir) {
     const cleanRoot = (rootDir || this.DEFAULT_ROOT_DIR).replace(/[\\/]+$/, "");
@@ -30,7 +32,7 @@ class WatcherPopupController {
 
   updateCommandPreview() {
     const rootDir = this.getCleanRootDir();
-    const targetVal = this.getEl("targetDirInput")?.value || "";
+    const targetVal = this.getCurrentTargetDir();
     const extraVal = this.getEl("extraArgsInput")?.value || "";
     if (this.getEl("footerRootDir")) this.getEl("footerRootDir").textContent = rootDir;
     if (this.getEl("previewCommand")) this.getEl("previewCommand").textContent = this.buildCommandPreview(targetVal, extraVal);
@@ -39,13 +41,25 @@ class WatcherPopupController {
 
   loadWorkspaceFolders() {
     const rootDir = this.getCleanRootDir();
-    const currentTarget = this.getEl("targetDirInput")?.value || "";
+    const currentTarget = this.getCurrentTargetDir();
     chrome.runtime.sendMessage({ type: "LIST_WORKSPACE_FOLDERS", rootDir }, (res) => {
-      const folders = res?.ok && Array.isArray(res.folders) ? res.folders : [];
+      const rtErr = chrome.runtime?.lastError?.message || "";
+      if (rtErr || !res || !res.ok) {
+        const detail = rtErr || res?.error || "Impossible de lister les sous-dossiers.";
+        this.showError(`Dossiers : ${detail}`);
+        if (res?.missingHost) this.showInstallHelp(this.buildInstallCommand(rootDir));
+        this.view?.renderWorkspaceFolders([], currentTarget);
+        this.updateCommandPreview();
+        return;
+      }
+      this.showError("");
+      this.showInstallHelp(null);
+      const folders = Array.isArray(res.folders) ? res.folders : [];
       this.view?.renderWorkspaceFolders(folders, currentTarget);
+      this.selectedTargetDir = this.getCurrentTargetDir();
+      this.updateCommandPreview();
     });
   }
-
   scheduleWorkspaceFoldersReload() {
     if (this.folderLoadTimer) clearTimeout(this.folderLoadTimer);
     this.folderLoadTimer = setTimeout(() => { this.folderLoadTimer = null; this.loadWorkspaceFolders(); }, 250);
@@ -63,7 +77,7 @@ class WatcherPopupController {
     if (wasRunning && !this.isWatcherRunning) this.loadWorkspaceFolders();
   }
   bindEvents() {
-    const rootInput = this.getEl("rootDirInput"), targetInput = this.getEl("targetDirInput");
+    const rootInput = this.getEl("rootDirInput");
     const targetSelect = this.getEl("targetDirSelect"), reloadFoldersBtn = this.getEl("reloadFoldersBtn");
     const testRunnerInput = this.getEl("testRunnerInput"), extraInput = this.getEl("extraArgsInput");
     rootInput?.addEventListener("input", () => {
@@ -75,23 +89,13 @@ class WatcherPopupController {
     });
     targetSelect?.addEventListener("change", () => {
       if (!this.isWatcherRunning && targetSelect.value) {
-        if (targetInput) targetInput.value = targetSelect.value;
-        chrome.storage.local.set({ savedTargetDir: targetSelect.value });
+        this.selectedTargetDir = targetSelect.value;
+        chrome.storage.local.set({ savedTargetDir: this.selectedTargetDir });
         this.updateCommandPreview();
       }
     });
     reloadFoldersBtn?.addEventListener("click", () => { if (!this.isWatcherRunning) this.loadWorkspaceFolders(); });
     testRunnerInput?.addEventListener("input", () => { if (!this.isWatcherRunning) chrome.storage.local.set({ savedTestRunner: testRunnerInput.value.trim() || this.DEFAULT_TEST_RUNNER }); });
-    targetInput?.addEventListener("input", () => {
-      if (!this.isWatcherRunning) {
-        this.updateCommandPreview();
-        if (targetSelect) {
-          const clean = targetInput.value.trim().replace(/[\\/]+$/, "").toLowerCase();
-          const matched = Array.from(targetSelect.options || []).find((o) => o.value && o.value.toLowerCase() === clean);
-          targetSelect.value = matched ? matched.value : "";
-        }
-      }
-    });
     extraInput?.addEventListener("input", () => { if (!this.isWatcherRunning) this.updateCommandPreview(); });
     this.bindCopyButton("copyPreviewBtn", "previewCommand");
     this.bindCopyButton("copyInstallBtn", "installCommandText");
@@ -99,7 +103,7 @@ class WatcherPopupController {
       if (this.isWatcherRunning) return;
       this.showError(""); this.showInstallHelp(null); this.setButtonsBusy(true);
       const rootDir = this.getCleanRootDir();
-      const targetDir = (targetInput?.value || "").trim() || ".";
+      const targetDir = this.getCurrentTargetDir();
       const testRunner = (testRunnerInput?.value || "").trim() || this.DEFAULT_TEST_RUNNER;
       const extraArgs = (extraInput?.value || "").trim();
       chrome.storage.local.set({ savedRootDir: rootDir, savedTargetDir: targetDir, savedTestRunner: testRunner, savedExtraArgs: extraArgs });
@@ -126,12 +130,13 @@ class WatcherPopupController {
   init() {
     chrome.storage.local.get(["watchClipboardState", "savedRootDir", "savedTargetDir", "savedTestRunner", "savedExtraArgs"], (res) => {
       if (this.getEl("rootDirInput")) this.getEl("rootDirInput").value = res.savedRootDir || this.DEFAULT_ROOT_DIR;
-      if (res.savedTargetDir && this.getEl("targetDirInput")) this.getEl("targetDirInput").value = res.savedTargetDir;
+      this.selectedTargetDir = (res.savedTargetDir || ".").trim() || ".";
       if (this.getEl("testRunnerInput")) this.getEl("testRunnerInput").value = res.savedTestRunner || this.DEFAULT_TEST_RUNNER;
-      if (res.savedExtraArgs && this.getEl("extraArgsInput")) this.getEl("extraArgsInput").value = res.savedExtraArgs;
+      if (this.getEl("extraArgsInput")) this.getEl("extraArgsInput").value = res.savedExtraArgs || "";
+      this.view?.renderWorkspaceFolders([], this.selectedTargetDir);
       this.updateCommandPreview();
       if (res.watchClipboardState) this.renderState(res.watchClipboardState);
-      if (!this.isWatcherRunning) this.loadWorkspaceFolders();
+      this.loadWorkspaceFolders();
     });
     chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (state) => { if (state) this.renderState(state); });
     const popupPoll = setInterval(() => chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (state) => { if (state) this.renderState(state); }), 1000);

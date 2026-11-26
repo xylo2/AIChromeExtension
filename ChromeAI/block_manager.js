@@ -154,8 +154,8 @@ class CodeBlockManager {
   detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
   scan(preExisting = false) {
     for (const pre of document.querySelectorAll("pre")) { if (pre.getAttribute("data-gmc-processed") === "true") continue; const rawCode = this.spill.extractRawCode(pre); if (!rawCode.includes("\n") && !preExisting) continue; const headerName = this.detectHeaderName(rawCode); if (!headerName || !this.controlsUi) continue; pre.setAttribute("data-gmc-processed", "true"); const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this); this.trackedBlocks.push(item); this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); }); }
-this.groupTurnBlocks(); this.compactExcessDomBlocks(); this.compactOldConversationTurns();
-for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
-}
+    this.groupTurnBlocks(); this.compactExcessDomBlocks(); this.compactOldConversationTurns();
+    for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
+  }
 }
 window.GmcCodeBlockManager = CodeBlockManager;

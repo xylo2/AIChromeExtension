@@ -131,12 +131,26 @@ class BlockVerificationHelper {
   }
 
   hideSuiteBanner() { if (this.suiteCountdownTimer) { clearInterval(this.suiteCountdownTimer); this.suiteCountdownTimer = null; } if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; } }
-  mountSuiteBannerUnderComposer(banner) {
+  positionSuiteBannerAboveComposer(banner) {
     const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
     const composerBox = inputEl && typeof this.chat?.findComposerContainer === "function" ? this.chat.findComposerContainer(inputEl) : inputEl?.parentElement;
-    if (composerBox && composerBox !== document.body && composerBox.parentElement && typeof composerBox.parentElement.insertBefore === "function") { banner.classList.add("gmc-autosuite-inline"); composerBox.parentElement.insertBefore(banner, composerBox.nextSibling); return true; }
-    if (document.body?.appendChild) { document.body.appendChild(banner); return true; }
-    return false;
+    const rect = composerBox && typeof composerBox.getBoundingClientRect === "function" ? composerBox.getBoundingClientRect() : null;
+    const viewW = typeof window !== "undefined" ? (window.innerWidth || 0) : 0;
+    const viewH = typeof window !== "undefined" ? (window.innerHeight || 0) : 0;
+    if (rect && rect.height > 0 && rect.top > 40 && viewH > 0) {
+      banner.style.bottom = `${Math.max(12, Math.round(viewH - rect.top + 8))}px`;
+      if (rect.width > 0 && viewW > 0) {
+        banner.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+        banner.style.right = "auto";
+        banner.style.transform = "translateX(-50%)";
+      }
+    }
+  }
+  mountSuiteBannerFloating(banner) {
+    if (!document.body?.appendChild) return false;
+    document.body.appendChild(banner);
+    this.positionSuiteBannerAboveComposer(banner);
+    return true;
   }
   showSuiteBanner(delayMs, onCancel) {
     this.hideSuiteBanner();
@@ -146,10 +160,13 @@ class BlockVerificationHelper {
     cancelBtn.type = "button"; cancelBtn.className = "gmc-autosuite-cancel"; cancelBtn.textContent = "Annuler";
     cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); onCancel(); });
     banner.append(label, cancelBtn);
-    if (!this.mountSuiteBannerUnderComposer(banner)) return;
+    if (!this.mountSuiteBannerFloating(banner)) return;
     this.suiteBannerEl = banner;
     const deadline = Date.now() + delayMs;
-    const updateLabel = () => { label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`; };
+    const updateLabel = () => {
+      this.positionSuiteBannerAboveComposer(banner);
+      label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`;
+    };
     updateLabel(); this.suiteCountdownTimer = setInterval(updateLabel, 200);
   }
 }

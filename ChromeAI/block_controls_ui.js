@@ -35,6 +35,17 @@ class BlockControlsUiHelper {
     if (node.dataset && !node.dataset.gmcOrigLang) node.dataset.gmcOrigLang = String(node.textContent || "").trim();
     node.textContent = labelText;
   }
+  hideNativeFooterCaution(wrapper) {
+    if (!wrapper || typeof wrapper.querySelectorAll !== "function") return;
+    for (const node of Array.from(wrapper.querySelectorAll("div, p, span"))) {
+      if (node.closest?.(".gmc-placeholder, pre, code")) continue;
+      const t = String(node.textContent || "").trim();
+      if (/^(?:Utilisez le code avec pr[eé]caution\.?|Use code with caution\.?)$/i.test(t)) {
+        const footerBox = node.parentElement && node.parentElement !== wrapper && !node.parentElement.querySelector?.("pre") ? node.parentElement : node;
+        footerBox.classList?.add("gmc-hidden-native-footer");
+      }
+    }
+  }
   createPurgeBtn(item, onCopyAndPurge) {
     const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-purge-btn";
     btn.title = "Copier l'intégralité du bloc (ou du tour) et purger le DOM"; btn.innerHTML = this.PURGE_SVG;
@@ -69,30 +80,30 @@ class BlockControlsUiHelper {
   }
   detachHeaderControls(pre, item) {
     const wrapper = this.spill.findCodeBlockWrapper(pre);
-    if (wrapper) { wrapper.removeAttribute("data-gmc-has-purge"); wrapper.querySelector?.(".gmc-hidden-native-copy")?.classList.remove("gmc-hidden-native-copy"); }
+    if (wrapper) { wrapper.removeAttribute("data-gmc-has-purge"); wrapper.querySelector?.(".gmc-hidden-native-copy")?.classList.remove("gmc-hidden-native-copy"); wrapper.querySelector?.(".gmc-hidden-native-footer")?.classList.remove("gmc-hidden-native-footer"); }
     item.headerPurgeAttached = false; item.verifyBtn?.classList.remove("gmc-code-header-btn");
     if (item.headerPurgeBtn) { item.headerPurgeBtn.remove(); item.headerPurgeBtn = null; }
+    if (item.batchBtn && item.batchRow && !item.batchRow.contains(item.batchBtn)) item.batchRow.appendChild(item.batchBtn);
     if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "inline-flex";
     if (item.placeholderRow && item.verifyBtn && !item.verifyBtn.isConnected) item.placeholderRow.insertBefore(item.verifyBtn, item.placeholderPurgeBtn);
   }
   syncGroupLeadVisuals(item, members, manager) {
     const cardTarget = item.cardEl || item.placeholderEl;
+    cardTarget.classList.add("gmc-group-card"); cardTarget.classList.remove("gmc-spilled", "gmc-oversized");
     if (item.singleMainRow) item.singleMainRow.style.display = "none";
     if (!item.groupListEl) { item.groupListEl = document.createElement("div"); item.groupListEl.className = "gmc-group-list"; cardTarget.appendChild(item.groupListEl); }
     item.groupListEl.style.display = "flex"; item.groupListEl.innerHTML = "";
-    let anySpill = false, anyOversized = false, anySvg = false;
-    const badges = [];
+    let anySvg = false; const badges = [];
     for (const m of members) {
       this.hideTrailingEndMarker(m.el);
-      const isCollapsed = m.el.classList.contains("gmc-collapsed-code");
-      const sp = this.spill.collect(m.el);
+      const isCollapsed = m.el.classList.contains("gmc-collapsed-code"); const sp = this.spill.collect(m.el);
       (m.spilledNodes || []).forEach((n) => { if (!sp.nodes.includes(n)) n.classList?.remove("gmc-spilled-hidden"); });
       m.spilledNodes = sp.nodes;
       manager.preserveScrollAround(m.el.parentElement || m.el, () => sp.nodes.forEach((n) => n.classList?.toggle("gmc-spilled-hidden", isCollapsed)));
       const fullText = [sp.beforeText, this.spill.extractRawCode(m.el), sp.afterText].filter(Boolean).join("\n");
       if (fullText) m.cachedCombinedCode = fullText;
       const lines = fullText ? fullText.split("\n").length : 0, hasSpill = sp.nodes.length > 0, hasSvg = Boolean(this.svgPreview?.hasSvg(fullText));
-      m.hasSpill = hasSpill; if (hasSpill) anySpill = true; if (!hasSpill && lines > manager.MAX_SAFE_LINES) anyOversized = true; if (hasSvg) anySvg = true;
+      m.hasSpill = hasSpill; if (hasSvg) anySvg = true;
       const badge = this.detectFileTypeBadge(m.headerName); badges.push(badge);
       const mRow = document.createElement("div"); mRow.className = "gmc-group-row";
       const purged = manager.isItemPurged(m);
@@ -103,11 +114,10 @@ class BlockControlsUiHelper {
       m.toggleBtn.textContent = isCollapsed ? "Afficher" : "Masquer";
       act.append(m.toggleBtn); mRow.append(lbl, act); item.groupListEl.appendChild(mRow);
     }
-    this.updateHeaderLanguageLabel(this.spill.findCodeBlockWrapper(item.el), this.formatCombinedLanguages(badges));
+    const leadWrapper = this.spill.findCodeBlockWrapper(item.el);
+    this.updateHeaderLanguageLabel(leadWrapper, this.formatCombinedLanguages(badges));
+    this.hideNativeFooterCaution(leadWrapper);
     if (item.downloadBtn) item.downloadBtn.style.display = anySvg ? "inline-flex" : "none";
-    const allPurged = members.every((m) => manager.isItemPurged(m));
-    cardTarget.classList.toggle("gmc-spilled", !allPurged && anySpill);
-    cardTarget.classList.toggle("gmc-oversized", !allPurged && !anySpill && anyOversized);
   }
   syncItemVisuals(item, manager) {
     this.hideTrailingEndMarker(item.el);
@@ -124,11 +134,15 @@ class BlockControlsUiHelper {
     const remainingFromHere = typeof manager.getUnpurgedBlocksFrom === "function" ? manager.getUnpurgedBlocksFrom(item) : manager.getUnpurgedBlocks();
     const unpurgedInGroup = isGrouped ? item.groupItems.filter((m) => !manager.isItemPurged(m)).length : (manager.isItemPurged(item) ? 0 : 1);
     const showBatchFromHere = !manager.isItemPurged(item) && remainingFromHere.length > Math.max(1, unpurgedInGroup);
-    if (item.batchRow && item.batchBtn) { item.batchRow.style.display = showBatchFromHere ? "flex" : "none"; if (showBatchFromHere) item.batchBtn.textContent = `📋 Copier à partir d'ici & purger (${remainingFromHere.length} blocs)`; }
+    if (item.batchBtn) {
+      item.batchBtn.style.display = showBatchFromHere ? "inline-flex" : "none";
+      if (showBatchFromHere) item.batchBtn.textContent = `📋 Copier à partir d'ici & purger (${remainingFromHere.length} blocs)`;
+      if (item.batchRow) item.batchRow.style.display = showBatchFromHere && item.batchRow.contains(item.batchBtn) ? "flex" : "none";
+    }
     if (isGrouped) { this.syncGroupLeadVisuals(item, item.groupItems, manager); return; }
+    const cardTarget = item.cardEl || item.placeholderEl; cardTarget.classList.remove("gmc-group-card");
     if (item.groupListEl) item.groupListEl.style.display = "none";
     if (item.singleMainRow) item.singleMainRow.style.display = "flex";
-    const cardTarget = item.cardEl || item.placeholderEl;
     if (manager.isItemPurged(item)) {
       if (this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; }
       return;
@@ -150,27 +164,22 @@ class BlockControlsUiHelper {
     if (item.isSecondaryInGroup) { this.detachHeaderControls(pre, item); return; }
     const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
-    const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test(`${b.getAttribute("aria-label") || ""} ${b.getAttribute("title") || ""} ${b.textContent || ""}`));
-    const langNode = this.findHeaderLanguageNode(wrapper);
-    const headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
-    if (!headerAnchor) return;
-    if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
-    if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) return;
-    if (item.headerPurgeAttached) this.detachHeaderControls(pre, item);
-    if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
-    wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true;
-    if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge);
-    item.headerPurgeBtn.classList.add("gmc-code-header-btn");
-    item.verifyBtn.classList.add("gmc-code-header-btn");
-    if (langNode?.parentElement) {
-      langNode.parentElement.appendChild(item.headerPurgeBtn);
-      langNode.parentElement.appendChild(item.verifyBtn);
-    } else if (nativeCopy?.parentElement) {
-      nativeCopy.parentElement.insertBefore(item.verifyBtn, nativeCopy.nextSibling);
-      nativeCopy.parentElement.insertBefore(item.headerPurgeBtn, item.verifyBtn.nextSibling);
-    }
-    if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
-    if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
-  }
+const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test([b.getAttribute("aria-label") || "", b.getAttribute("title") || "", b.textContent || ""].join(" ")));
+const langNode = this.findHeaderLanguageNode(wrapper);
+const headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
+if (!headerAnchor) return;
+if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
+if (isGrouped) this.hideNativeFooterCaution(wrapper);
+if (item.batchBtn && headerAnchor && !headerAnchor.contains(item.batchBtn)) { item.batchBtn.classList.add("gmc-header-batch-btn"); headerAnchor.appendChild(item.batchBtn); if (item.batchRow) item.batchRow.style.display = "none"; }
+if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) return;
+if (item.headerPurgeAttached) this.detachHeaderControls(pre, item);
+if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
+wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true;
+if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge);
+item.headerPurgeBtn.classList.add("gmc-code-header-btn"); item.verifyBtn.classList.add("gmc-code-header-btn");
+headerAnchor.appendChild(item.headerPurgeBtn); headerAnchor.appendChild(item.verifyBtn);
+if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
+if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
+}
 }
 window.GmcBlockControlsUiHelper = BlockControlsUiHelper;

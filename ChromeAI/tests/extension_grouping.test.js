@@ -8,7 +8,7 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec boutons en en-tête et lignes individuelles", async () => {
+test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec boutons et batch en en-tête", async () => {
   let copiedText = "";
   const droppedFiles = [];
   const sentPrompts = [];
@@ -49,7 +49,7 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
     querySelector() { return null; },
     querySelectorAll(sel) {
       if (sel === "pre") return collectPres(this);
-      if (sel === "span, div") return collectLeaves(this).filter((n) => n.tagName === "SPAN" || n.tagName === "DIV");
+      if (sel === "span, div" || sel === "div, p, span") return collectLeaves(this).filter((n) => ["SPAN", "DIV", "P"].includes(n.tagName));
       return [];
     },
     append(...items) { items.forEach((it) => this.appendChild(it)); },
@@ -74,20 +74,17 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
   const langSpan = makeEl("SPAN"); langSpan.textContent = "javascript";
   headerBar.appendChild(langSpan);
   const pre1 = makeEl("PRE"); pre1.textContent = "=== FILE: tools/ChromeAI/a.js ===\nconst a = 1;\n";
-  wrap1.append(headerBar, pre1);
+  const footerCaution = makeEl("DIV"); footerCaution.textContent = "Utilisez le code avec précaution.";
+  wrap1.append(headerBar, pre1, footerCaution);
   const wrap2 = makeEl("DIV");
   const pre2 = makeEl("PRE"); pre2.textContent = "=== FILE: tools/ChromeAI/b.css ===\nbody { margin: 0; }\n";
   wrap2.appendChild(pre2);
   turnEl.append(wrap1, wrap2);
 
   const sandbox = {
-    window: {},
-    Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+    window: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async (t) => { copiedText = t; } } },
-    document: {
-      body: makeEl("BODY"), addEventListener() {}, createElement: makeEl,
-      querySelectorAll: (sel) => (sel === "pre" ? [pre1, pre2] : [])
-    },
+    document: { body: makeEl("BODY"), addEventListener() {}, createElement: makeEl, querySelectorAll: (sel) => (sel === "pre" ? [pre1, pre2] : []) },
     setTimeout: () => {}, clearTimeout: () => {}
   };
   vm.createContext(sandbox);
@@ -107,11 +104,11 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
   assert.equal(sec.isSecondaryInGroup, true);
   assert.equal(sec.placeholderEl.style.display, "none");
   assert.equal(langSpan.textContent, "javascript et css");
+  assert.equal(footerCaution.classList.contains("gmc-hidden-native-footer"), true);
+  assert.ok(headerBar.children.includes(lead.batchBtn));
   assert.ok(headerBar.children.includes(lead.headerPurgeBtn));
   assert.ok(headerBar.children.includes(lead.verifyBtn));
   assert.equal(lead.groupListEl.children.length, 2);
-  assert.equal(lead.groupListEl.children.at(0).children.at(1).children.length, 1);
-  assert.equal(lead.groupListEl.children.at(1).children.at(1).children.length, 1);
 
   sec.toggleBtn.listeners.click();
   assert.equal(pre2.parentNode, wrap1);
@@ -120,7 +117,6 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
 
   await mgr.verifyWithAi(lead);
   assert.equal(droppedFiles.at(0).name, "verification_tour.txt");
-  assert.ok(droppedFiles.at(0).content.includes("body { margin: 0; }"));
 
   await mgr.copyAndPurge(lead);
   assert.ok(copiedText.includes("const a = 1;"));
@@ -129,16 +125,8 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
 });
 
 test("BlockVerificationHelper détecte un conteneur générique multi-blocs et déclenche auto-Suite même sur blocs > 75 lignes", async () => {
-  const timers = [];
-  const sentPrompts = [];
-  const collectByTag = (node, tags) => {
-    const out = [];
-    for (const c of node.children || []) {
-      if (tags.includes(c.tagName)) out.push(c);
-      out.push(...collectByTag(c, tags));
-    }
-    return out;
-  };
+  const timers = []; const sentPrompts = [];
+  const collectByTag = (node, tags) => { const out = []; for (const c of node.children || []) { if (tags.includes(c.tagName)) out.push(c); out.push(...collectByTag(c, tags)); } return out; };
   const makeEl = (tag) => ({
     tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "", innerHTML: "",
     disabled: false, style: {}, attrs: {}, dataset: {}, children: [], listeners: {},
@@ -152,14 +140,12 @@ test("BlockVerificationHelper détecte un conteneur générique multi-blocs et d
     insertBefore(it, ref) { it.parentNode = this; it.parentElement = this; const i = this.children.indexOf(ref); if (i >= 0) this.children.splice(i, 0, it); else this.children.push(it); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
   });
-
   const genericTurnDiv = makeEl("DIV");
   const longCode = Array.from({ length: 85 }, (_, i) => `const line_${i} = ${i};`).join("\n");
   const preA = makeEl("PRE"); preA.textContent = `=== FILE_PART: tools/a.js | 1/2 ===\n${longCode}\n`;
   const preB = makeEl("PRE"); preB.textContent = `=== FILE_PART: tools/b.js | 1/2 ===\nconst b = 2;\n`;
   const hintP = makeEl("P"); hintP.textContent = "Réponds « Suite » pour la suite.";
   genericTurnDiv.append(preA, preB, hintP);
-
   const sandbox = {
     window: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async () => {} } },

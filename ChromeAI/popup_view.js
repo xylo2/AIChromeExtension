@@ -34,18 +34,28 @@ class WatcherPopupView {
     const rootOpt = document.createElement("option");
     rootOpt.value = ".";
     rootOpt.textContent = ". (Racine complète)";
-    if (cleanTarget === ".") rootOpt.selected = true;
+    if (cleanTarget === "." || !cleanTarget) rootOpt.selected = true;
     selectEl.appendChild(rootOpt);
 
+    let hasMatched = cleanTarget === "." || !cleanTarget;
     for (const name of folders) {
       const opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name;
-      if (cleanTarget.toLowerCase() === String(name).toLowerCase()) opt.selected = true;
+      if (cleanTarget && cleanTarget.toLowerCase() === String(name).toLowerCase()) {
+        opt.selected = true;
+        hasMatched = true;
+      }
       selectEl.appendChild(opt);
     }
+    if (cleanTarget && !hasMatched) {
+      const customOpt = document.createElement("option");
+      customOpt.value = cleanTarget;
+      customOpt.textContent = cleanTarget;
+      customOpt.selected = true;
+      selectEl.appendChild(customOpt);
+    }
   }
-
   bindCopyButton(btnId, codeId) {
     const btn = this.getEl(btnId);
     if (!btn) return;
