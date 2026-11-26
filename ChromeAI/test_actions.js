@@ -6,7 +6,7 @@ class TestActionsController {
     this.chat = chatInjector; this.sendBgMessage = sendBgMessage; this.setBtnState = setBtnState;
     this.testsBtn = buttons.testsBtn; this.coverageBtn = buttons.coverageBtn;
     this.getWatcherState = getWatcherState; this.onRefreshUi = onRefreshUi; this.budget = budgetManager;
-    this.MAX_PROMPT_REPORT_CHARS = 3200;
+    this.MAX_PROMPT_REPORT_CHARS = 3200; this.autoClosePanelTimer = null;
     this.lastUncoveredReport = ""; this.lastCoveragePercent = null;
     this.lastTestsPassed = false; this.lastPassedEventSnapshot = null;
     this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; this.lastFailureReport = "";
@@ -60,6 +60,7 @@ class TestActionsController {
 
   async finalizeTestRun(res) {
     this.testsBtn.disabled = false;
+    if (this.autoClosePanelTimer) { clearTimeout(this.autoClosePanelTimer); this.autoClosePanelTimer = null; }
     if (!res?.ok && !res?.stopped) { this.setBtnState(this.testsBtn, "fail", "❌ Erreur"); this.panel.finish(false, res?.error || "Erreur d'exécution des tests.", false); this.onRefreshUi(); return; }
     if (res?.stopped) { this.setBtnState(this.testsBtn, "fail", "⏹️ Tests arrêtés"); this.panel.finish(false, this.panel.fullReport || "Exécution arrêtée.", true); this.onRefreshUi(); return; }
     const finalReport = String(res.output || this.panel.fullReport || "").trim();
@@ -69,6 +70,7 @@ class TestActionsController {
       this.lastTestsPassed = true; this.lastPassedEventSnapshot = this.getWatcherState()?.lastEvent ?? null;
       this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; this.lastFailureReport = "";
       this.lastUncoveredReport = String(res.uncovered || "").trim(); this.lastCoveragePercent = this.parseCoveragePercent(this.lastUncoveredReport);
+      this.autoClosePanelTimer = setTimeout(() => { this.autoClosePanelTimer = null; if (this.lastTestsPassed) this.panel.close(); }, 3500);
       this.onRefreshUi(); return;
     }
     this.lastFailureReport = finalReport;

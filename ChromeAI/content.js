@@ -13,7 +13,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const tokenBudget = window.GmcTokenBudgetManager ? new window.GmcTokenBudgetManager() : null;
   const exportMenu = window.GmcExportMenuManager ? new window.GmcExportMenuManager(tokenBudget) : null;
   let canRequestCommitMsg = false, scanTimer = null, isStartingWatcher = false, isTriggeringFreshExport = false;
-  let lastCheckedHref = String(window.location?.href || ""), guidedActionId = "";
+  let lastCheckedHref = String(window.location?.href || ""), guidedActionId = "", exportBadgeTimer = null;
   let watcherState = { running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false, hasGit: false, hasSyntaxError: false, lastEvent: null, recentEvents: [] };
   let updateIndicators = () => {};
   const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector, (isVerify) => { canRequestCommitMsg = Boolean(isVerify); updateIndicators(); });
@@ -44,7 +44,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     autoSyntaxBtn: makeBtn("gmc-global-autosyntax-btn", "⚡ Auto-fix: OFF", "Envoyer automatiquement les erreurs de syntaxe détectées à l'IA", true, topRow),
     autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture et notifier l'IA uniquement en cas d'échec", true, topRow),
     copyPurgeAllBtn: makeBtn("gmc-global-copypurge-btn", "📋 Tout copier et purger", "Copier tous les blocs non purgés et purger le DOM (Alt+P)", true, topRow),
-    purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page sans copier", false, topRow),
+    purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 Alléger DOM", "Purger tous les blocs de la page sans copier", true, topRow),
     eventPill: makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, bottomRow),
     commitMsgBtn: makeBtn("gmc-global-commitmsg-btn", "💬 Message de commit", "Demander à l'IA le bloc COMMIT_MESSAGE sans renvoyer le diff", true, bottomRow),
     gitBtn: makeBtn("gmc-global-git-btn", "🔀 Git status", "Afficher les fichiers modifiés (git status)", true, bottomRow),
@@ -65,6 +65,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   };
   const setBtnState = (btn, state, label) => { btn.classList.remove("state-running", "state-pass", "state-fail"); if (state) btn.classList.add(`state-${state}`); btn.textContent = label; };
   const triggerProjectExport = (mode = "full", subpaths = []) => {
+    if (exportBadgeTimer) { clearTimeout(exportBadgeTimer); exportBadgeTimer = null; }
     setBtnState(els.exportBtn, "running", "⏳ Export...");
     sendBgMessage({ type: "EXPORT_PROJECT", mode, subpaths }, (res) => {
       if (res?.ok && res.content) {
@@ -75,6 +76,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
         chatInjector.insertPrompt(promptTxt, false);
         chatInjector.dropFile(fname, res.content, true);
         setBtnState(els.exportBtn, "pass", `✅ Exporté (${estTok >= 1000 ? `~${(estTok / 1000).toFixed(1)}k tok` : `~${estTok} tok`})`);
+        exportBadgeTimer = setTimeout(() => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter projet"); }, 4000);
         updateIndicators();
       } else setBtnState(els.exportBtn, "fail", "❌ Erreur");
     });
@@ -106,6 +108,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     }
     const unpurgedCount = blockManager.getUnpurgedCount();
     els.copyPurgeAllBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
+    els.purgeBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
     if (unpurgedCount > 0) els.copyPurgeAllBtn.textContent = `📋 Tout copier et purger (${unpurgedCount})`;
     els.autoSyntaxBtn.style.display = running ? "inline-flex" : "none";
     els.autoTestBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";

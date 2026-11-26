@@ -13,14 +13,18 @@ test("TokenBudgetManager, ExportMenuManager (confirm export lourd), TestActionsC
   let confirmCalls = 0;
   let confirmReply = false;
   const prompts = [];
+  const timers = [];
   const makeNode = () => ({
     type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, style: {}, children: [], listeners: {},
-    classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); } },
+    classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); }, contains(c) { return this.set.has(c); } },
     append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
   });
   const sandbox = {
     window: { confirm: () => { confirmCalls += 1; return confirmReply; } },
+    Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; },
+    clearTimeout() {},
     document: { createElement: makeNode, createTextNode: (t) => ({ textContent: t }), body: { appendChild() {} }, querySelectorAll: () => new Array(turnCount).fill({}) },
     chrome: {
       runtime: {
@@ -32,7 +36,7 @@ test("TokenBudgetManager, ExportMenuManager (confirm export lourd), TestActionsC
     }
   };
   vm.createContext(sandbox);
-  for (const mod of ["token_budget.js", "composer_ui.js", "export_menu.js", "test_panel.js", "test_actions.js"]) {
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "token_budget.js", "composer_ui.js", "export_menu.js", "test_panel.js", "test_actions.js", "block_controls_ui.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const budget = new sandbox.window.GmcTokenBudgetManager();
@@ -46,7 +50,6 @@ test("TokenBudgetManager, ExportMenuManager (confirm export lourd), TestActionsC
   assert.equal(budget.formatBadgeState().level, "fail");
   budget.reset();
   assert.equal(budget.sessionTokens, 0);
-
   let selectedMode = null;
   const menu = new sandbox.window.GmcExportMenuManager(budget);
   menu.toggle((m) => { selectedMode = m; }, []);
@@ -64,6 +67,21 @@ test("TokenBudgetManager, ExportMenuManager (confirm export lourd), TestActionsC
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "E".repeat(4500) });
   assert.equal(testCtrl.hasPendingFailure(), true);
   assert.ok(prompts.at(0).includes("caractères tronqués"));
+
+  testCtrl.panel.open("Tests", "", true);
+  await testCtrl.finalizeTestRun({ ok: true, passed: true, output: "OK" });
+  assert.ok(testCtrl.panel.panelEl !== null);
+  timers.at(-1).fn();
+  assert.equal(testCtrl.panel.panelEl, null);
+
+  const spill = new sandbox.window.GmcSpillDetector();
+  const controlsUi = new sandbox.window.GmcBlockControlsUiHelper(spill);
+  const endMarkerNode = makeNode();
+  endMarkerNode.nodeType = 1;
+  endMarkerNode.textContent = "=== END_FILE ===";
+  const preNode = { nextSibling: endMarkerNode, parentElement: null };
+  controlsUi.hideTrailingEndMarker(preNode);
+  assert.equal(endMarkerNode.classList.contains("gmc-spilled-hidden"), true);
 
   const composerUi = new sandbox.window.GmcComposerQuickButtonsManager(fakeChat, makeNode(), makeNode());
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: true }, unpurgedCount: 2, hasTestFailure: true, canCommitMsg: true }).id, "fix_syntax");
