@@ -58,7 +58,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     updateIndicators();
   });
   const svgPreview = new window.GmcSvgPreviewManager(spillDetector);
-
   let floatingBar = document.querySelector(".gmc-floating-bar");
   if (!floatingBar) {
     floatingBar = document.createElement("div");
@@ -152,10 +151,11 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (exportBadgeTimer) { clearTimeout(exportBadgeTimer); exportBadgeTimer = null; }
     sendBgMessage({ type: "EXPORT_PROJECT", mode, subpaths }, (res) => {
       els.exportBtn.disabled = false;
+      if (exportBadgeTimer) { clearTimeout(exportBadgeTimer); exportBadgeTimer = null; }
       if (!res?.ok || !res.content) {
         setBtnState(els.exportBtn, "fail", "❌ Erreur export");
         exportBadgeTimer = setTimeout(
-          () => setBtnState(els.exportBtn, null, "📦 Exporter"), 2500
+          () => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2500
         );
         return;
       }
@@ -168,12 +168,11 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       chatInjector.insertPrompt(prompt, { minDelayMs: 1600, maxWaitMs: 7000, waitForFile: fname });
       setBtnState(els.exportBtn, "pass", "✅ Exporté");
       exportBadgeTimer = setTimeout(
-        () => setBtnState(els.exportBtn, null, "📦 Exporter"), 2200
+        () => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2200
       );
       updateIndicators();
     });
   };
-
   /** Vérifie si un export automatique a été demandé depuis un nouveau chat vierge. */
   const checkPendingFreshExport = () => {
     if (isTriggeringFreshExport || !watcherState?.running || !watcherState?.hasExporter) return;

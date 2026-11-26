@@ -64,7 +64,6 @@ class CodeBlockManager {
     this.hideSuiteBanner();
   }
   preserveScrollAround(_targetEl, mutatorFn) { return mutatorFn(); }
-
   /** Formate le libellé d'état d'un bloc (normal, >75 lignes, débordement ou SVG). */
   formatLabel(headerName, lineCount, hasSpill, hasSvg = false) {
     const svgTag = hasSvg ? " [SVG — survoler pour aperçu]" : "";
@@ -148,13 +147,18 @@ class CodeBlockManager {
     }
     return collapsed;
   }
+  /** Copie les blocs cibles dans le presse-papiers, les purge et déclenche auto-Suite si pertinent. */
   async copyAndPurgeTargets(targets) {
     if (targets.length === 0) return 0;
     const chunks = targets.map((it) => this.extractSingleItemCode(it)).filter(Boolean);
     if (chunks.length > 0) { try { await navigator.clipboard.writeText(chunks.join("\n\n")); } catch (_err) {} }
-    let purgedCount = 0, hasAlertItem = false;
-    for (const item of targets) { if (this.isSpilledItem(item)) hasAlertItem = true; if (this.purgeDomOnly(item)) purgedCount += 1; }
-    if (purgedCount > 0) { if (typeof this.onPurge === "function") this.onPurge(); const lastItem = targets.at(-1); if (lastItem && !hasAlertItem) this.maybeAutoSendSuite(lastItem); }
+    let purgedCount = 0;
+    for (const item of targets) { if (this.purgeDomOnly(item)) purgedCount += 1; }
+    if (purgedCount > 0) {
+      if (typeof this.onPurge === "function") this.onPurge();
+      const lastItem = targets.at(-1);
+      if (lastItem) this.maybeAutoSendSuite(lastItem);
+    }
     return purgedCount;
   }
   async copyAndPurgeAll() { return this.copyAndPurgeTargets(this.getUnpurgedBlocks()); }
@@ -174,10 +178,13 @@ class CodeBlockManager {
   hasNextUnpurgedBlock(currentItem) { const idx = this.trackedBlocks.indexOf(currentItem); return idx >= 0 && this.trackedBlocks.slice(idx + 1).some((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b) && !b.isSecondaryInGroup); }
   async copyAndPurge(item) {
     const members = Array.isArray(item?.groupItems) && item.groupItems.length > 1 ? item.groupItems : [item];
-    const hasSpill = members.some((m) => this.isSpilledItem(m)) || this.isSpilledItem(item);
     await this.copyOnly(item); let anyPurged = false;
     for (const m of members) { if (this.purgeDomOnly(m)) anyPurged = true; }
-    if (anyPurged) { if (typeof this.onPurge === "function") this.onPurge(); const lastMember = members.at(-1) || item; if (!this.hasNextUnpurgedBlock(lastMember) && !hasSpill) this.maybeAutoSendSuite(lastMember); }
+    if (anyPurged) {
+      if (typeof this.onPurge === "function") this.onPurge();
+      const lastMember = members.at(-1) || item;
+      if (!this.hasNextUnpurgedBlock(lastMember)) this.maybeAutoSendSuite(lastMember);
+    }
   }
   findSecondaryCardRoot(secEl, leadEl, turnRoot) {
     let curr = secEl;

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Utilisateur_A
 # Consolidation de fichiers d'un projet selon différents modes d'export.
 
 import fnmatch
@@ -6,8 +8,8 @@ import os
 from pathlib import Path
 import subprocess
 from typing import List, Optional, Set, Tuple
-from project_exporter.config import ExporterConfig
-from project_exporter.gitignore import GitignoreManager
+from .config import ExporterConfig
+from .gitignore import GitignoreManager
 
 
 class ProjectExporter:
@@ -41,8 +43,9 @@ class ProjectExporter:
         self.export_mode: str = (
             clean_mode if clean_mode in self.MODE_LABELS else "full"
         )
+        sep_back: str = chr(92)
         self.include_subpaths: List[str] = [
-            p.strip().replace("\\", "/").strip("/")
+            p.strip().replace(sep_back, "/").strip("/")
             for p in (include_subpaths or [])
             if p.strip()
         ]
@@ -72,11 +75,12 @@ class ProjectExporter:
                 cwd=str(git_root), capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=15, check=False,
             )
+            sep_back: str = chr(92)
             modified: Set[str] = set()
             for raw_ln in st_p.stdout.splitlines():
                 if len(raw_ln) >= 4:
                     rel_raw = raw_ln[3:].strip().strip('"').split(" -> ")[-1]
-                    full_p = (git_root / rel_raw.replace("\\", "/")).resolve()
+                    full_p = (git_root / rel_raw.replace(sep_back, "/")).resolve()
                     try:
                         modified.add(full_p.relative_to(self.root_dir).as_posix().lower())
                     except ValueError:
@@ -88,7 +92,8 @@ class ProjectExporter:
     @staticmethod
     def is_test_rel_path(rel_posix: str) -> bool:
         """Indique si un chemin relatif correspond à un fichier ou dossier de test."""
-        parts: List[str] = [p.lower() for p in rel_posix.replace("\\", "/").split("/") if p]
+        sep_back: str = chr(92)
+        parts: List[str] = [p.lower() for p in rel_posix.replace(sep_back, "/").split("/") if p]
         if any(p in ("tests", "test", "__tests__") for p in parts[:-1]):
             return True
         fname: str = parts[-1] if parts else ""
@@ -142,7 +147,7 @@ class ProjectExporter:
         except Exception as exc:
             return f"[ERREUR DE LECTURE : {exc}]"
         if self.export_mode == "skeleton":
-            from project_exporter.skeleton import extract_skeleton
+            from .skeleton import extract_skeleton
             return extract_skeleton(file_path.suffix.lower(), raw)
         return raw
 

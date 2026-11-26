@@ -56,7 +56,6 @@ class BlockVerificationHelper {
       attempt();
     });
   }
-
   /** Résout le nom et le contenu à vérifier (priorité au disque, repli sur le DOM). */
   async resolveItemPayload(item, getSingleCodeFn) {
     const combinedText = getSingleCodeFn(item);
@@ -90,6 +89,7 @@ class BlockVerificationHelper {
       { minDelayMs: 900, maxWaitMs: 4500, waitForFile: bundleName }
     );
   }
+
   /** Transmet un bloc unique ou l'ensemble d'un bloc regroupé à l'IA pour contrôler son intégrité. */
   async verifyWithAi(item, getSingleCodeFn) {
     if (!item || !item.headerName || item.isVerifyingSpill) return;
@@ -118,7 +118,6 @@ class BlockVerificationHelper {
       item.isVerifyingSpill = false;
     }
   }
-
   /** Remonte le DOM pour identifier l'élément conteneur englobant toute la réponse du tour. */
   findTurnContainer(el) {
     if (!el) return null;
@@ -180,7 +179,7 @@ class BlockVerificationHelper {
       anc = anc.parentElement;
     }
     const combinedTail = tailParts.join("\n");
-    return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|r[eé]pond(?:s|re)\s*[«"']\s*suite\s*[»"']|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']\s*suite\s*[»"'])/i.test(combinedTail);
+    return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|attends\s*[«"']?\s*suite\s*[»"']?|r[eé]pond(?:s|re)\s*[«"']?\s*suite\s*[»"']?|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']?\s*suite\s*[»"']?)/i.test(combinedTail);
   }
 
   /** Arrête le compte à rebours et supprime la bannière flottante d'auto-Suite. */

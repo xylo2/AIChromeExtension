@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Utilisateur_A
 # Analyse, validation des chemins, nettoyage et assemblage des blocs du presse-papiers.
 
 import os
@@ -22,7 +24,8 @@ class FileAssembler:
         """Initialise les répertoires racine et cache miroir de l'assembleur."""
         self.base_dir: str = os.path.realpath(base_dir)
         self.config: WatcherConfig = config
-        temp_sub: str = (self.config.temp_dir_name or "").strip().strip("\\/")
+        sep_chars: str = chr(92) + "/"
+        temp_sub: str = (self.config.temp_dir_name or "").strip().strip(sep_chars)
         if not temp_sub or temp_sub in (".", ".."):
             temp_sub = ".watch_clipboard"
         self.temp_dir: str = os.path.realpath(os.path.join(self.base_dir, temp_sub))
@@ -42,7 +45,8 @@ class FileAssembler:
 
     def _safe_join(self, root_dir: str, rel_path: str) -> str:
         """Résout un chemin relatif en interdisant toute traversée hors de root_dir."""
-        raw_clean: str = rel_path.strip().replace("\\", "/")
+        sep_back: str = chr(92)
+        raw_clean: str = rel_path.strip().replace(sep_back, "/")
         if not raw_clean or raw_clean.startswith("/") or os.path.isabs(raw_clean):
             raise UnsafePathError(f"Chemin interdit (absolu ou vide) : '{rel_path}'")
         raw_clean = self._strip_redundant_base_prefix(raw_clean)
@@ -74,10 +78,14 @@ class FileAssembler:
         """Retire les marqueurs de fin, les clôtures Markdown et les espaces superflus."""
         truncated: str = next(iter(re.split(self.END_FILE_PATTERN, raw_block, maxsplit=1)), "")
         lines: List[str] = truncated.strip("\n").splitlines()
+        fence: str = chr(96) * 3
         first: str = next(iter(lines), "")
-        if first.lstrip().startswith("\x60" * 3) or first.strip() in self.config.strip_lang_tags:
+        had_open_fence: bool = first.lstrip().startswith(fence)
+        if had_open_fence:
             lines = lines[1:]
-        if lines and lines[-1].strip().startswith("\x60" * 3):
+            if lines and lines[0].strip() in self.config.strip_lang_tags:
+                lines = lines[1:]
+        if lines and lines[-1].strip().startswith(fence):
             lines = lines[:-1]
         cleaned: List[str] = [ln.rstrip() for ln in lines]
         return "\n".join(cleaned).rstrip()
@@ -90,13 +98,15 @@ class FileAssembler:
 
     def _record_event(self, tag: str, target_path: str, detail: str = "") -> None:
         """Formate et mémorise un événement horodaté pour un fichier cible."""
-        rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
+        sep_back: str = chr(92)
+        rel_display: str = os.path.relpath(target_path, self.base_dir).replace(sep_back, "/")
         suffix: str = f" ({detail})" if detail else ""
         self._push_history(f"[{tag}] {rel_display}{suffix}")
 
     def _verify_written_syntax(self, target_path: str, ok_tag: str = "OK", ok_detail: str = "") -> None:
         """Contrôle la syntaxe du fichier écrit et met à jour l'état d'alerte."""
-        rel_display: str = os.path.relpath(target_path, self.base_dir).replace("\\", "/")
+        sep_back: str = chr(92)
+        rel_display: str = os.path.relpath(target_path, self.base_dir).replace(sep_back, "/")
         err = SyntaxChecker.check_file(target_path, rel_display, encoding=self.config.encoding)
         if err is not None:
             self.last_syntax_error = err
