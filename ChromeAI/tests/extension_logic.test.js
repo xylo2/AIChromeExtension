@@ -87,29 +87,20 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
 });
 
-test("GitCommitUiHelper.findNewChatButton et createFreshExportButton déclenchent le nouveau chat", () => {
-  let newChatClicked = false;
-  let storedPayload = null;
-  let assignedUrl = "";
-  let createdBtn = null;
-  const newChatBtn = {
-    className: "new-chat-btn", textContent: "Nouveau chat",
-    getAttribute: () => "",
-    click() { newChatClicked = true; }
-  };
-  const testHref = new URL("/search?udm=50&q=test&ei=123", ["https://www", "google", "com"].join(".")).toString();
+test("GitCommitUiHelper.findNewChatButton et buildFreshChatUrl ouvrent une session vierge", () => {
+  let newChatClicked = false, storedPayload = null, assignedUrl = "";
+  const timeouts = [];
+  const newChatBtn = { className: "new-chat-btn", textContent: "Nouveau chat", getAttribute: () => "", click() { newChatClicked = true; } };
+  const baseUrl = ["https://www", "google", "com"].join(".");
+  const searchHref = new URL("/search?udm=50&q=test&ei=123#hash", baseUrl).toString();
+  const appHref = new URL("/app/session-12345?hl=fr#top", baseUrl).toString();
   const sandbox = {
     URL,
-    window: { location: { href: testHref, assign(u) { assignedUrl = u; } } },
+    setTimeout: (fn) => timeouts.push(fn),
+    window: { location: { href: searchHref, assign(u) { assignedUrl = u; } } },
     document: {
-      querySelectorAll: () => [newChatBtn],
-      createElement: () => {
-        createdBtn = {
-          type: "", className: "", textContent: "", title: "", disabled: false, listeners: {},
-          addEventListener(ev, fn) { this.listeners[ev] = fn; }
-        };
-        return createdBtn;
-      }
+      querySelectorAll: (sel) => (sel === "pre" ? [{ tagName: "PRE" }] : [newChatBtn]),
+      createElement: () => ({ type: "", className: "", textContent: "", title: "", disabled: false, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } })
     },
     chrome: { storage: { local: { set(obj) { storedPayload = obj; } } } }
   };
@@ -117,14 +108,13 @@ test("GitCommitUiHelper.findNewChatButton et createFreshExportButton déclenchen
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "git_commit_ui.js"), "utf-8"), sandbox);
   const helper = new sandbox.window.GmcGitCommitUiHelper(null);
   assert.equal(helper.findNewChatButton(), newChatBtn);
+  assert.equal(helper.buildFreshChatUrl(searchHref), `${baseUrl}/search?udm=50`);
+  assert.equal(helper.buildFreshChatUrl(appHref), `${baseUrl}/`);
   const btn = helper.createFreshExportButton();
   btn.listeners.click({ preventDefault() {}, stopPropagation() {} });
   assert.equal(btn.disabled, true);
   assert.equal(newChatClicked, true);
   assert.ok(typeof storedPayload?.pendingFreshExportAt === "number");
-  newChatBtn.textContent = "Autre";
-  assert.equal(helper.findNewChatButton(), null);
-  btn.listeners.click({ preventDefault() {}, stopPropagation() {} });
-  assert.equal(assignedUrl.includes("q=test"), false);
-  assert.equal(assignedUrl.includes("udm=50"), true);
+  timeouts.forEach((fn) => fn());
+  assert.equal(assignedUrl, `${baseUrl}/search?udm=50`);
 });
