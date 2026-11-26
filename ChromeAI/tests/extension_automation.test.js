@@ -8,7 +8,7 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/tours", async () => {
+test("Commit 1-clic, Auto-tests, notification Auto-fix (max 2) et compaction DOM/tours", async () => {
   const prompts = []; const dropped = []; let testsClicked = 0; let canCommitMsg = false;
   const makeBtn = () => ({ textContent: "", disabled: false, style: {}, listeners: {}, classList: { set: new Set(), toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); }, remove() {}, add() {} }, addEventListener(ev, fn) { this.listeners[ev] = fn; }, click() { testsClicked += 1; } });
   const sandbox = {
@@ -44,6 +44,8 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   assert.equal(testsClicked, 1);
 
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 1)" });
+  assert.ok(els.autoSyntaxBtn.textContent.includes("Auto-fix envoyé (bad.py 1/2)"));
+  assert.equal(ctrl.isAutoFixHandlingCurrentError(), true);
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 2)" });
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 3)" });
   assert.equal(prompts.length, 2);

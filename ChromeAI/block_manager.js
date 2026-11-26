@@ -12,7 +12,6 @@ class CodeBlockManager {
     this.trackedBlocks = []; this.autoSentSuiteForTurn = null; this.consecutiveAutoSuiteCount = 0; this.pendingSuiteTimer = null;
     this.bindUserTypingCancelsAutoSuite();
   }
-
   bindUserTypingCancelsAutoSuite() {
     if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
     const cancel = (ev) => {
@@ -21,13 +20,11 @@ class CodeBlockManager {
     };
     ["keydown", "beforeinput", "input", "paste"].forEach((evtName) => document.addEventListener(evtName, cancel, true));
   }
-
   isComposerNonEmpty() {
     if (!this.chat || typeof this.chat.findChatInputElement !== "function" || typeof this.chat.getInputText !== "function") return false;
     const inputEl = this.chat.findChatInputElement();
     return Boolean(inputEl && this.chat.getInputText(inputEl) !== "");
   }
-
   isItemPurged(item) { return Boolean(item?.purged || item?.el?.getAttribute?.("data-gmc-purged") === "true"); }
   getUnpurgedBlocks() { return this.trackedBlocks.filter((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b)); }
   getUnpurgedBlocksFrom(startItem) {
@@ -39,25 +36,18 @@ class CodeBlockManager {
   hideSuiteBanner() { this.verifier?.hideSuiteBanner(); }
   showSuiteBanner(delayMs) { this.verifier?.showSuiteBanner(delayMs, () => this.resetAutoSuiteQuota()); }
   resetAutoSuiteQuota() { this.consecutiveAutoSuiteCount = 0; if (this.pendingSuiteTimer) { clearTimeout(this.pendingSuiteTimer); this.pendingSuiteTimer = null; } this.hideSuiteBanner(); }
-
   preserveScrollAround(targetEl, mutatorFn) {
     if (!targetEl || typeof targetEl.getBoundingClientRect !== "function" || typeof window === "undefined" || typeof window.scrollBy !== "function") return mutatorFn();
-    const beforeRect = targetEl.getBoundingClientRect();
-    const res = mutatorFn();
-    if (beforeRect.top < 0 && beforeRect.height > 0) {
-      const delta = targetEl.getBoundingClientRect().height - beforeRect.height;
-      if (Math.abs(delta) > 2) window.scrollBy(0, delta);
-    }
+    const beforeRect = targetEl.getBoundingClientRect(), res = mutatorFn();
+    if (beforeRect.top < 0 && beforeRect.height > 0) { const delta = targetEl.getBoundingClientRect().height - beforeRect.height; if (Math.abs(delta) > 2) window.scrollBy(0, delta); }
     return res;
   }
-
   formatLabel(headerName, lineCount, hasSpill, hasSvg = false) {
     const svgTag = hasSvg ? " [SVG — survoler pour aperçu]" : "";
     if (hasSpill) return `🚨 ${headerName}${svgTag} (${lineCount} lignes — débordement hors bloc récupéré)`;
     if (lineCount > this.MAX_SAFE_LINES) return `⚠️ ${headerName}${svgTag} (${lineCount} lignes — bloc long > 75)`;
     return `${hasSvg ? "🖼️" : "📄"} ${headerName}${svgTag} (${lineCount} lignes)`;
   }
-
   extractSingleItemCode(item) {
     if (this.isItemPurged(item) && item.cachedCombinedCode) return item.cachedCombinedCode;
     const baseCode = this.spill.extractRawCode(item.el), sp = this.spill.collect(item.el);
@@ -66,7 +56,6 @@ class CodeBlockManager {
     if (combined) item.cachedCombinedCode = combined;
     return combined;
   }
-
   extractCombinedCode(item) {
     return (Array.isArray(item?.groupItems) && item.groupItems.length > 1)
       ? item.groupItems.map((m) => this.extractSingleItemCode(m)).filter(Boolean).join("\n\n")
@@ -83,7 +72,7 @@ class CodeBlockManager {
       (spilledNodes || []).forEach((n) => n.remove()); item.spilledNodes = [];
       if (labelEl) labelEl.textContent = `✅ ${headerName || "Bloc"} — ${customMessage}`;
       (purgeButtons || []).forEach((btn) => { btn.disabled = true; btn.classList.add("gmc-purged-btn"); });
-      if (verifyBtn && !verifyBtn.disabled) verifyBtn.title = "Transmettre le bloc à l'IA pour vérification (sans copier ni purger)";
+      if (verifyBtn && !verifyBtn.disabled) verifyBtn.title = "Transmettre ce bloc à l'IA pour vérification (sans copier ni purger)";
       return true;
     });
   }
@@ -126,27 +115,34 @@ class CodeBlockManager {
   async copyOnly(item) { const text = this.extractCombinedCode(item); try { await navigator.clipboard.writeText(text); } catch (_err) {} return text; }
   findTurnContainer(el) { return this.verifier ? this.verifier.findTurnContainer(el) : (el?.parentElement || null); }
   hasSuitePromptAfterBlock(item) { return this.verifier ? this.verifier.hasSuitePromptAfterBlock(item) : false; }
-  maybeAutoSendSuite(item) { if (!this.chat || typeof this.chat.insertPrompt !== "function" || this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false; const turnKey = this.findTurnContainer(item.el) || item.el; if (this.autoSentSuiteForTurn === turnKey || !this.hasSuitePromptAfterBlock(item)) return false; this.autoSentSuiteForTurn = turnKey; if (this.pendingSuiteTimer) clearTimeout(this.pendingSuiteTimer); this.showSuiteBanner(this.AUTO_SUITE_DELAY_MS); this.pendingSuiteTimer = setTimeout(() => { this.pendingSuiteTimer = null; this.hideSuiteBanner(); if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return; this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true); }, this.AUTO_SUITE_DELAY_MS); return true; }
-  scrollToNextUnpurgedBlock(currentItem) { const startIdx = this.trackedBlocks.indexOf(currentItem); if (startIdx < 0) return false; const nextItem = this.trackedBlocks.slice(startIdx + 1).find((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b) && !b.isSecondaryInGroup); const target = nextItem ? (nextItem.headerPurgeBtn?.isConnected ? nextItem.headerPurgeBtn : (nextItem.placeholderEl || nextItem.el)) : null; if (target && typeof target.scrollIntoView === "function") { target.scrollIntoView({ behavior: "smooth", block: "center" }); return true; } return false; }
-  async copyAndPurge(item) { const members = Array.isArray(item?.groupItems) && item.groupItems.length > 1 ? item.groupItems : [item]; const hasSpill = members.some((m) => this.isSpilledItem(m)) || this.isSpilledItem(item); await this.copyOnly(item); let anyPurged = false; for (const m of members) { if (this.purgeDomOnly(m)) anyPurged = true; } if (anyPurged) { if (typeof this.onPurge === "function") this.onPurge(); const lastMember = members.at(-1) || item; if (!this.scrollToNextUnpurgedBlock(lastMember) && !hasSpill) this.maybeAutoSendSuite(lastMember); } }
-  toggleBlockDisplay(item) { const members = Array.isArray(item?.groupItems) && item.groupItems.length > 1 ? item.groupItems : [item]; const collapsed = item.el.classList.toggle("gmc-collapsed-code"); if (item.toggleBtn) item.toggleBtn.textContent = collapsed ? "Afficher" : "Masquer"; for (const m of members) { if (m !== item) m.el.classList.toggle("gmc-collapsed-code", collapsed); const wrapper = this.spill.findCodeBlockWrapper(m.el); if (wrapper && wrapper !== m.el && m.isSecondaryInGroup) wrapper.classList.toggle("gmc-grouped-secondary-block", collapsed); } this.syncItem(item); this.attachHeaderControls(item.el, item); }
-  groupTurnBlocks() {
-    const byTurn = new Map();
-    for (const item of this.trackedBlocks) { if (!item?.el || item.el.isConnected === false) continue; const turn = this.findTurnContainer(item.el); if (!turn || turn === document.body) { item.groupItems = null; item.isSecondaryInGroup = false; continue; } if (!byTurn.has(turn)) byTurn.set(turn, []); byTurn.get(turn).push(item); }
-    for (const items of byTurn.values()) {
-      if (items.length <= 1) { const s = items.at(0); if (s) { s.groupItems = null; s.isSecondaryInGroup = false; } continue; }
-      const lead = items.at(0); lead.groupItems = items; lead.isSecondaryInGroup = false; const leadCollapsed = lead.el.classList.contains("gmc-collapsed-code");
-      for (let i = 1; i < items.length; i += 1) { const sec = items.at(i); sec.groupItems = null; sec.isSecondaryInGroup = true; sec.el.classList.toggle("gmc-collapsed-code", leadCollapsed); const wrapper = this.spill.findCodeBlockWrapper(sec.el); if (wrapper && wrapper !== sec.el) wrapper.classList.toggle("gmc-grouped-secondary-block", leadCollapsed); }
-    }
-  }
-  buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : (headerName || "bloc.txt") + ".txt"; }
-  async verifyWithAi(item) { if (!this.verifier) return; this.resetAutoSuiteQuota(); await this.verifier.verifyWithAi(item, (it) => this.extractSingleItemCode(it)); }
-  syncItem(item) { if (item?.el && this.controlsUi) this.controlsUi.syncItemVisuals(item, this); }
-  createPurgeBtn(item) { return this.controlsUi ? this.controlsUi.createPurgeBtn(item, (it) => this.copyAndPurge(it)) : document.createElement("button"); }
-  createDownloadBtn(item) { return this.controlsUi ? this.controlsUi.createDownloadBtn(item, (it) => this.extractCombinedCode(it)) : document.createElement("button"); }
-  attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
-  detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
-  scan(preExisting = false) {
+maybeAutoSendSuite(item) { if (!this.chat || typeof this.chat.insertPrompt !== "function" || this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false; const turnKey = this.findTurnContainer(item.el) || item.el; if (this.autoSentSuiteForTurn === turnKey || !this.hasSuitePromptAfterBlock(item)) return false; this.autoSentSuiteForTurn = turnKey; if (this.pendingSuiteTimer) clearTimeout(this.pendingSuiteTimer); this.showSuiteBanner(this.AUTO_SUITE_DELAY_MS); this.pendingSuiteTimer = setTimeout(() => { this.pendingSuiteTimer = null; this.hideSuiteBanner(); if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return; this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true); }, this.AUTO_SUITE_DELAY_MS); return true; }
+scrollToNextUnpurgedBlock(currentItem) { const startIdx = this.trackedBlocks.indexOf(currentItem); if (startIdx < 0) return false; const nextItem = this.trackedBlocks.slice(startIdx + 1).find((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b) && !b.isSecondaryInGroup); const target = nextItem ? (nextItem.headerPurgeBtn?.isConnected ? nextItem.headerPurgeBtn : (nextItem.placeholderEl || nextItem.el)) : null; if (target && typeof target.scrollIntoView === "function") { target.scrollIntoView({ behavior: "smooth", block: "center" }); return true; } return false; }
+async copyAndPurge(item) { const members = Array.isArray(item?.groupItems) && item.groupItems.length > 1 ? item.groupItems : [item]; const hasSpill = members.some((m) => this.isSpilledItem(m)) || this.isSpilledItem(item); await this.copyOnly(item); let anyPurged = false; for (const m of members) { if (this.purgeDomOnly(m)) anyPurged = true; } if (anyPurged) { if (typeof this.onPurge === "function") this.onPurge(); const lastMember = members.at(-1) || item; if (!this.scrollToNextUnpurgedBlock(lastMember) && !hasSpill) this.maybeAutoSendSuite(lastMember); } }
+toggleBlockDisplay(item) {
+const collapsed = item.el.classList.toggle("gmc-collapsed-code");
+if (item.toggleBtn) item.toggleBtn.textContent = collapsed ? "Afficher" : "Masquer";
+if (item.isSecondaryInGroup) { const wrapper = this.spill.findCodeBlockWrapper(item.el); if (wrapper && wrapper !== item.el) wrapper.classList.toggle("gmc-grouped-secondary-block", collapsed); }
+const leadItem = item.groupLeadRef || item;
+this.syncItem(leadItem);
+this.attachHeaderControls(leadItem.el, leadItem);
+}
+groupTurnBlocks() {
+const byTurn = new Map();
+for (const item of this.trackedBlocks) { if (!item?.el || item.el.isConnected === false) continue; const turn = this.findTurnContainer(item.el); if (!turn || turn === document.body) { item.groupItems = null; item.isSecondaryInGroup = false; item.groupLeadRef = null; continue; } if (!byTurn.has(turn)) byTurn.set(turn, []); byTurn.get(turn).push(item); }
+for (const items of byTurn.values()) {
+if (items.length <= 1) { const s = items.at(0); if (s) { s.groupItems = null; s.isSecondaryInGroup = false; s.groupLeadRef = null; } continue; }
+const lead = items.at(0); lead.groupItems = items; lead.isSecondaryInGroup = false; lead.groupLeadRef = null;
+for (let i = 1; i < items.length; i += 1) { const sec = items.at(i); sec.groupItems = null; sec.isSecondaryInGroup = true; sec.groupLeadRef = lead; const secCollapsed = sec.el.classList.contains("gmc-collapsed-code"); const wrapper = this.spill.findCodeBlockWrapper(sec.el); if (wrapper && wrapper !== sec.el) wrapper.classList.toggle("gmc-grouped-secondary-block", secCollapsed); }
+}
+}
+buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : (headerName || "bloc.txt") + ".txt"; }
+async verifyWithAi(item) { if (!this.verifier) return; this.resetAutoSuiteQuota(); await this.verifier.verifyWithAi(item, (it) => this.extractSingleItemCode(it)); }
+syncItem(item) { if (item?.el && this.controlsUi) { item._mgrRef = this; this.controlsUi.syncItemVisuals(item, this); } }
+createPurgeBtn(item) { return this.controlsUi ? this.controlsUi.createPurgeBtn(item, (it) => this.copyAndPurge(it)) : document.createElement("button"); }
+createDownloadBtn(item) { return this.controlsUi ? this.controlsUi.createDownloadBtn(item, (it) => this.extractCombinedCode(it)) : document.createElement("button"); }
+attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
+detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
+scan(preExisting = false) {
 for (const pre of document.querySelectorAll("pre")) { if (pre.getAttribute("data-gmc-processed") === "true") continue; const rawCode = this.spill.extractRawCode(pre); if (!rawCode.includes("\n") && !preExisting) continue; const headerName = this.detectHeaderName(rawCode); if (!headerName || !this.controlsUi) continue; pre.setAttribute("data-gmc-processed", "true"); const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this); this.trackedBlocks.push(item); this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); }); }
 this.groupTurnBlocks(); this.compactExcessDomBlocks(); this.compactOldConversationTurns();
 for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
