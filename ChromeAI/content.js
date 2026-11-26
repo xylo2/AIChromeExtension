@@ -6,7 +6,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
   if (window.__gmcStreamTimer) clearInterval(window.__gmcStreamTimer);
-  document.querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn").forEach((el) => el.remove());
+  document.querySelectorAll(".gmc-composer-quick-group, .gmc-quick-yes-btn, .gmc-quick-next-btn, .gmc-quick-excuse-btn, .gmc-quick-commit-btn").forEach((el) => el.remove());
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
@@ -40,6 +40,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   const els = {
     statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, topRow),
     autoSyntaxBtn: makeBtn("gmc-global-autosyntax-btn", "⚡ Auto-fix: OFF", "Envoyer automatiquement les erreurs de syntaxe détectées à l'IA", true, topRow),
+    autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture et notifier l'IA uniquement en cas d'échec", true, topRow),
     copyPurgeAllBtn: makeBtn("gmc-global-copypurge-btn", "📋 Tout copier & purger", "Copier tous les blocs non purgés et purger le DOM (Alt+P)", true, topRow),
     purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page sans copier", false, topRow),
     eventPill: makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, bottomRow),
@@ -54,7 +55,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   els.yesBtn = makeBtn("gmc-quick-yes-btn gmc-composer-btn", "Oui", "Envoyer « Oui » à l'IA", false, composerUi.groupEl);
   els.nextBtn = makeBtn("gmc-quick-next-btn gmc-composer-btn", "Suite", "Envoyer « Suite » à l'IA (Alt+S)", false, composerUi.groupEl);
   els.excuseBtn = makeBtn("gmc-quick-excuse-btn gmc-composer-btn", "🎲 Excuse", "Insérer une excuse de développeur dans le chat", false, composerUi.groupEl);
-
+  els.composerCommitBtn = makeBtn("gmc-quick-commit-btn gmc-composer-btn", "💬 Commit", "Générer le message de commit (ou vérifier le diff Git en 1 clic)", true, composerUi.groupEl);
   const sendBgMessage = (payload, onReply) => {
     if (!chrome.runtime?.id) { alert("Extension rechargée : actualisez cette page (F5) pour reconnecter les boutons."); return; }
     chrome.runtime.sendMessage(payload, (res) => { onReply(chrome.runtime.lastError ? { ok: false, error: chrome.runtime.lastError.message || "Port fermé" } : res); });
@@ -99,7 +100,9 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     els.copyPurgeAllBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
     if (unpurgedCount > 0) els.copyPurgeAllBtn.textContent = `📋 Tout copier & purger (${unpurgedCount})`;
     els.autoSyntaxBtn.style.display = running ? "inline-flex" : "none";
+    els.autoTestBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.commitMsgBtn.style.display = running && watcherState.hasGit && canRequestCommitMsg ? "inline-flex" : "none";
+    els.composerCommitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     els.gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     els.exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     els.testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
@@ -120,7 +123,8 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const eventsCtrl = new window.GmcContentEventsController({
     els, blockManager, chatInjector, gitManager, exportMenu, testActions, composerUi, sendBgMessage, setBtnState, triggerProjectExport, updateIndicators,
-    getWatcherState: () => watcherState, setWatcherState: (s) => { watcherState = s; }, isStarting: () => isStartingWatcher, setStarting: (v) => { isStartingWatcher = v; }, clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); }
+    getWatcherState: () => watcherState, setWatcherState: (s) => { watcherState = s; }, isStarting: () => isStartingWatcher, setStarting: (v) => { isStartingWatcher = v; },
+    canRequestCommitMsg: () => canRequestCommitMsg, clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); }
   });
   eventsCtrl.bindAll();
   const refreshState = () => {

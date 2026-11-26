@@ -10,15 +10,15 @@ class GitPanelManager {
     return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n**Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie (sans générer de message de commit).`;
   }
   buildCommitMessageOnlyPrompt() {
-    return "Génère maintenant uniquement le **message de commit** correspondant aux modifications vérifiées ci-dessus, dans un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne (sans balise `=== FILE ===`), structuré avec un **Titre** Conventional Commits en français (apport fonctionnel) et un **Corps** décrivant l'apport fonctionnel puis les détails techniques (tests unitaires).";
+    return "Génère maintenant uniquement le **message de commit** correspondant aux modifications vérifiées ci-dessus, dans un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne (sans balise \x60=== FILE ===\x60), structuré avec un **Titre** Conventional Commits en français (apport fonctionnel) et un **Corps** décrivant l'apport fonctionnel puis les détails techniques (tests unitaires).";
   }
   buildCommitPrompt(selectedFiles, diffFilename) {
     const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
-    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème et précise en une ou deux phrases si **tout va bien** ou s'il y a une anomalie.\n2. **Message de commit** : propose ensuite un bloc de code contenant `=== COMMIT_MESSAGE ===` en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
+    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème et précise en une ou deux phrases si **tout va bien** ou s'il y a une anomalie.\n2. **Message de commit** : propose ensuite un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
   }
   extractCommitMessage(pre) {
     const lines = this.spill.extractRawCode(pre).split("\n");
-    if (lines.length > 0 && this.spill.COMMIT_TAG_REGEX.test(lines[0].trim())) lines.shift();
+    if (lines.length > 0 && this.spill.COMMIT_TAG_REGEX.test(lines.at(0).trim())) lines.shift();
     if (lines.length > 0 && this.spill.END_FILE_REGEX.test(lines.at(-1).trim())) lines.pop();
     return lines.join("\n").trim();
   }
@@ -50,7 +50,7 @@ class GitPanelManager {
   }
   submitSelection(checkboxes, triggerBtn, actionBtns, mode) {
     const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path); if (selected.length === 0) return;
-    this.lastValidatedFiles = [...selected]; if (chrome.storage?.local) chrome.storage.local.set({ savedGitSelectedFiles: this.lastValidatedFiles });
+    this.lastValidatedFiles = [...selected]; if (chrome.storage?.local?.set) chrome.storage.local.set({ savedGitSelectedFiles: this.lastValidatedFiles });
     const origLabels = actionBtns.map((b) => b.textContent); actionBtns.forEach((b) => { b.disabled = true; }); triggerBtn.textContent = "⏳ Diff en cours...";
     chrome.runtime.sendMessage({ type: "GIT_DIFF_SELECTED", files: selected }, (res) => {
       if (!res?.ok) { actionBtns.forEach((b, i) => { b.disabled = false; b.textContent = origLabels.at(i); }); triggerBtn.textContent = "❌ Erreur diff"; return; }
@@ -71,10 +71,10 @@ class GitPanelManager {
         e.preventDefault(); e.stopPropagation(); const msgText = this.extractCommitMessage(pre); if (!msgText || !this.uiHelper) return;
         const restoreScroll = this.uiHelper.captureScrollAnchor(bar); commitBtn.disabled = true; commitBtn.textContent = "⏳ Commit en cours...";
         try { await navigator.clipboard.writeText(msgText); } catch (_err) {} restoreScroll();
-        let filesToCommit = this.lastValidatedFiles; if (filesToCommit.length === 0 && chrome.storage?.local && chrome.runtime?.id) { try { filesToCommit = (await chrome.storage.local.get("savedGitSelectedFiles")).savedGitSelectedFiles || []; } catch (_e) {} }
+        let filesToCommit = this.lastValidatedFiles; if (filesToCommit.length === 0 && chrome.storage?.local?.get && chrome.runtime?.id) { try { filesToCommit = (await chrome.storage.local.get("savedGitSelectedFiles")).savedGitSelectedFiles || []; } catch (_e) {} }
         this.uiHelper.sendRuntimeSafe({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
           if (res?.ok) {
-            this.lastValidatedFiles = []; if (chrome.storage?.local) chrome.storage.local.remove("savedGitSelectedFiles").catch?.(() => {});
+            this.lastValidatedFiles = []; if (chrome.storage?.local?.remove) chrome.storage.local.remove("savedGitSelectedFiles").catch?.(() => {});
             commitBtn.textContent = "✅ Commit effectué & copié"; commitBtn.classList.add("state-pass"); bar.querySelector(".gmc-git-error-box")?.remove();
             if (!bar.querySelector(".gmc-git-push-btn")) bar.appendChild(this.uiHelper.createPushButton(bar, this));
             if (!bar.querySelector(".gmc-git-fresh-export-btn")) { const fb = this.uiHelper.createFreshExportButton(); fb.classList.add("gmc-git-fresh-export-btn"); bar.appendChild(fb); }

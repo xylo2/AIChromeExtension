@@ -3,53 +3,40 @@
  */
 class TestActionsController {
   constructor(chatInjector, sendBgMessage, setBtnState, buttons, getWatcherState, onRefreshUi) {
-    this.chat = chatInjector;
-    this.sendBgMessage = sendBgMessage;
-    this.setBtnState = setBtnState;
-    this.testsBtn = buttons.testsBtn;
-    this.coverageBtn = buttons.coverageBtn;
-    this.getWatcherState = getWatcherState;
-    this.onRefreshUi = onRefreshUi;
-    this.lastUncoveredReport = "";
-    this.lastCoveragePercent = null;
-    this.lastTestsPassed = false;
-    this.lastPassedEventSnapshot = null;
+    this.chat = chatInjector; this.sendBgMessage = sendBgMessage; this.setBtnState = setBtnState;
+    this.testsBtn = buttons.testsBtn; this.coverageBtn = buttons.coverageBtn;
+    this.getWatcherState = getWatcherState; this.onRefreshUi = onRefreshUi;
+    this.lastUncoveredReport = ""; this.lastCoveragePercent = null;
+    this.lastTestsPassed = false; this.lastPassedEventSnapshot = null;
+    this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null;
     this.panel = new window.GmcTestOutputPanelManager(chatInjector, () => this.sendBgMessage({ type: "STOP_PROJECT_TESTS" }, () => {}), () => this.resetTestsButton());
     this.bindEvents();
   }
 
   resetTestsButton() { this.setBtnState(this.testsBtn, null, "🧪 Lancer les tests"); }
+  computeFailureSignature(reportText) { return String(reportText || "").replace(/\s+/g, " ").trim().slice(0, 400); }
 
   preserveWindowScroll(mutatorFn) {
-    const winX = typeof window !== "undefined" ? (window.scrollX || 0) : 0;
-    const winY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
-    const restore = () => {
-      if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - winY) > 2) {
-        window.scrollTo(winX, winY);
-      }
-    };
+    const winX = typeof window !== "undefined" ? (window.scrollX || 0) : 0, winY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
+    const restore = () => { if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - winY) > 2) window.scrollTo(winX, winY); };
     const res = mutatorFn();
     restore();
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(restore);
-    }
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
     return res;
   }
 
   invalidateOnNewFiles() {
-    if (!this.lastTestsPassed) return;
-    if ((this.getWatcherState()?.lastEvent ?? null) !== this.lastPassedEventSnapshot) {
-      this.lastTestsPassed = false;
-      this.lastPassedEventSnapshot = null;
-      this.lastUncoveredReport = "";
-      this.lastCoveragePercent = null;
+    const curEv = this.getWatcherState()?.lastEvent ?? null;
+    if (this.lastTestsPassed && curEv !== this.lastPassedEventSnapshot) {
+      this.lastTestsPassed = false; this.lastPassedEventSnapshot = null; this.lastUncoveredReport = ""; this.lastCoveragePercent = null;
       this.resetTestsButton();
     }
+    if (this.lastSentFailureSig && curEv !== this.lastFailureEventSnapshot) {
+      this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null;
+    }
   }
-  parseCoveragePercent(reportText) {
-    const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i);
-    return m ? Number.parseFloat(m.at(1)) : null;
-  }
+
+  parseCoveragePercent(reportText) { const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i); return m ? Number.parseFloat(m.at(1)) : null; }
 
   renderCoverageIndicator() {
     const st = this.getWatcherState();
@@ -57,8 +44,7 @@ class TestActionsController {
     this.coverageBtn.style.display = "inline-flex";
     const pct = this.lastCoveragePercent ?? this.parseCoveragePercent(this.lastUncoveredReport);
     const isFull = pct !== null && pct >= 100;
-    this.coverageBtn.classList.toggle("state-pass", isFull);
-    this.coverageBtn.classList.toggle("state-fail", pct !== null && pct < 70);
+    this.coverageBtn.classList.toggle("state-pass", isFull); this.coverageBtn.classList.toggle("state-fail", pct !== null && pct < 70);
     this.coverageBtn.textContent = isFull ? "✅ Couv. 100.0%" : `📊 Couverture${pct !== null ? ` (${pct.toFixed(1)}%)` : ""}`;
     this.coverageBtn.title = isFull ? "Toutes les lignes exécutables mesurées sont couvertes par les tests" : "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
   }
@@ -71,16 +57,20 @@ class TestActionsController {
     this.panel.finish(Boolean(res.passed), finalReport, false);
     if (res.passed) {
       this.setBtnState(this.testsBtn, "pass", "✅ Tests OK");
-      this.lastTestsPassed = true;
-      this.lastPassedEventSnapshot = this.getWatcherState()?.lastEvent ?? null;
-      this.lastUncoveredReport = String(res.uncovered || "").trim();
-      this.lastCoveragePercent = this.parseCoveragePercent(this.lastUncoveredReport);
-      this.onRefreshUi();
-      return;
+      this.lastTestsPassed = true; this.lastPassedEventSnapshot = this.getWatcherState()?.lastEvent ?? null;
+      this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null;
+      this.lastUncoveredReport = String(res.uncovered || "").trim(); this.lastCoveragePercent = this.parseCoveragePercent(this.lastUncoveredReport);
+      this.onRefreshUi(); return;
     }
     if (finalReport) {
-      if (this.preserveWindowScroll(() => this.chat.insertTestResults(finalReport, true))) this.resetTestsButton();
-      else { try { await navigator.clipboard.writeText(finalReport); } catch (_err) {} this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs copiés"); }
+      const sig = this.computeFailureSignature(finalReport);
+      const curEv = this.getWatcherState()?.lastEvent ?? null;
+      if (sig && sig === this.lastSentFailureSig && curEv === this.lastFailureEventSnapshot) {
+        try { await navigator.clipboard.writeText(finalReport); } catch (_err) {}
+        this.setBtnState(this.testsBtn, "fail", "⚠️ Échec déjà envoyé");
+      } else if (this.preserveWindowScroll(() => this.chat.insertTestResults(finalReport, true))) {
+        this.lastSentFailureSig = sig; this.lastFailureEventSnapshot = curEv; this.resetTestsButton();
+      } else { try { await navigator.clipboard.writeText(finalReport); } catch (_err) {} this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs copiés"); }
     } else this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs (vide)");
     this.onRefreshUi();
   }
@@ -102,11 +92,11 @@ class TestActionsController {
     this.coverageBtn.addEventListener("click", () => {
       if (!this.lastUncoveredReport) return;
       this.preserveWindowScroll(() => this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + this.lastUncoveredReport + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true));
-      this.lastUncoveredReport = ""; this.lastCoveragePercent = null; this.lastTestsPassed = false; this.lastPassedEventSnapshot = null;
-      this.renderCoverageIndicator();
+      this.lastUncoveredReport = ""; this.lastCoveragePercent = null; this.lastTestsPassed = false; this.lastPassedEventSnapshot = null; this.renderCoverageIndicator();
     });
-    this.testsBtn.addEventListener("click", () => {
+    this.testsBtn.addEventListener("click", (ev) => {
       if (this.testsBtn.disabled || this.panel.isRunning) { if (this.panel.isRunning && !this.panel.panelEl) this.panel.toggle(); return; }
+      if (ev?.isTrusted !== false) { this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; }
       this.testsBtn.disabled = true; this.setBtnState(this.testsBtn, "running", "⏳ Tests...");
       this.lastTestsPassed = false; this.lastPassedEventSnapshot = null; this.lastUncoveredReport = ""; this.lastCoveragePercent = null;
       this.panel.open("⏳ Exécution des tests en cours...", "", true); this.onRefreshUi();

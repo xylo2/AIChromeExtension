@@ -3,19 +3,11 @@
  */
 class CodeBlockManager {
   constructor(spillDetector, chatInjector, onPurgeCallback = null, svgPreview = null) {
-    this.spill = spillDetector;
-    this.chat = chatInjector;
-    this.onPurge = onPurgeCallback;
-    this.svgPreview = svgPreview;
+    this.spill = spillDetector; this.chat = chatInjector; this.onPurge = onPurgeCallback; this.svgPreview = svgPreview;
     this.verifier = window.GmcBlockVerificationHelper ? new window.GmcBlockVerificationHelper(chatInjector, spillDetector) : null;
     this.controlsUi = window.GmcBlockControlsUiHelper ? new window.GmcBlockControlsUiHelper(spillDetector, svgPreview) : null;
-    this.MAX_SAFE_LINES = 95;
-    this.AUTO_SUITE_DELAY_MS = 2800;
-    this.MAX_CONSECUTIVE_AUTO_SUITE = 2;
-    this.trackedBlocks = [];
-    this.autoSentSuiteForTurn = null;
-    this.consecutiveAutoSuiteCount = 0;
-    this.pendingSuiteTimer = null;
+    this.MAX_SAFE_LINES = 95; this.MAX_ACTIVE_DOM_BLOCKS = 4; this.AUTO_SUITE_DELAY_MS = 2800; this.MAX_CONSECUTIVE_AUTO_SUITE = 2;
+    this.trackedBlocks = []; this.autoSentSuiteForTurn = null; this.consecutiveAutoSuiteCount = 0; this.pendingSuiteTimer = null;
     this.bindUserTypingCancelsAutoSuite();
   }
 
@@ -93,6 +85,14 @@ class CodeBlockManager {
   isRedOrOversizedItem(item) { return Boolean(item?.hasSpill || (item?.spilledNodes && item.spilledNodes.length > 0) || item?.placeholderEl?.classList?.contains?.("gmc-spilled") || item?.placeholderEl?.classList?.contains?.("gmc-oversized")); }
   purgeAll() { let any = false; this.trackedBlocks.forEach((b) => { if (this.purgeDomOnly(b, "Purge manuelle")) any = true; }); if (any && typeof this.onPurge === "function") this.onPurge(); }
 
+  compactExcessDomBlocks() {
+    const active = this.getUnpurgedBlocks();
+    if (active.length <= this.MAX_ACTIVE_DOM_BLOCKS) return 0;
+    let count = 0;
+    for (const oldItem of active.slice(0, active.length - this.MAX_ACTIVE_DOM_BLOCKS)) { if (this.purgeDomOnly(oldItem, "Auto-allégé (DOM)")) count += 1; }
+    return count;
+  }
+
   async copyAndPurgeAll() {
     const targets = this.getUnpurgedBlocks();
     if (targets.length === 0) return 0;
@@ -165,6 +165,7 @@ class CodeBlockManager {
       this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); });
       this.attachHeaderControls(pre, item); this.syncItem(item);
     }
+    this.compactExcessDomBlocks();
     for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
   }
 }

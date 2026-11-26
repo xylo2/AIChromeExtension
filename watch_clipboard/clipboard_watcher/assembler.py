@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import os
 import re
 from typing import Dict, List, Optional
@@ -13,7 +11,7 @@ class UnsafePathError(ValueError):
 
 
 class FileAssembler:
-    """Analyse les blocs extraits du presse-papiers et écrit ou réassemble les fichiers cibles."""
+    """Analyse les blocs extraits du presse-papiers, nettoie et assemble les fichiers cibles."""
 
     FILE_HEADER_PATTERN: str = r"(?m)^[ \t]*(?:#\s*)?=== FILE(?:_PART)?:\s*(.+?)\s*===[ \t]*"
     END_FILE_PATTERN: str = r"(?m)^[ \t]*(?:#\s*)?=== END_FILE ===[ \t]*$"
@@ -64,7 +62,6 @@ class FileAssembler:
         if os.path.dirname(candidate) == self.base_dir:
             raise UnsafePathError(f"Le cache partiel doit résider dans {self.temp_dir}")
         return candidate
-
     def _clean_block_lines(self, raw_block: str) -> str:
         truncated: str = next(iter(re.split(self.END_FILE_PATTERN, raw_block, maxsplit=1)), "")
         lines: List[str] = truncated.strip("\n").splitlines()
@@ -73,7 +70,8 @@ class FileAssembler:
             lines = lines[1:]
         if lines and lines[-1].strip().startswith("\x60" * 3):
             lines = lines[:-1]
-        return "\n".join(lines).rstrip()
+        cleaned: List[str] = [ln.rstrip() for ln in lines]
+        return "\n".join(cleaned).rstrip()
 
     def _push_history(self, event_text: str) -> None:
         self.last_event = event_text

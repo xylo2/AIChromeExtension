@@ -1,11 +1,33 @@
 /**
- * Écouteurs DOM, raccourcis clavier (Alt+P/S/T) et auto-fix syntaxique pour ChromeAI.
+ * Écouteurs DOM, raccourcis clavier (Alt+P/S/T), auto-fix syntaxique, auto-tests et commit 1-clic.
  */
 class ContentEventsController {
   constructor(ctx) {
     this.ctx = ctx;
     this.autoFixEnabled = false;
+    this.autoTestEnabled = false;
     this.lastAutoSyntaxSig = "";
+    this.lastAutoTestEventSig = "";
+  }
+
+  loadPrefs() {
+    chrome.storage?.local?.get?.(["gmcAutoFix", "gmcAutoTest"], (res) => {
+      if (typeof res?.gmcAutoFix === "boolean") this.autoFixEnabled = res.gmcAutoFix;
+      if (typeof res?.gmcAutoTest === "boolean") this.autoTestEnabled = res.gmcAutoTest;
+      this.syncToggleButtons();
+    });
+  }
+
+  syncToggleButtons() {
+    const { els } = this.ctx;
+    if (els.autoSyntaxBtn) {
+      els.autoSyntaxBtn.textContent = this.autoFixEnabled ? "⚡ Auto-fix: ON" : "⚡ Auto-fix: OFF";
+      els.autoSyntaxBtn.classList.toggle("state-pass", this.autoFixEnabled);
+    }
+    if (els.autoTestBtn) {
+      els.autoTestBtn.textContent = this.autoTestEnabled ? "🧪 Auto-tests: ON" : "🧪 Auto-tests: OFF";
+      els.autoTestBtn.classList.toggle("state-pass", this.autoTestEnabled);
+    }
   }
 
   sendSyntaxErrorToAi(fallbackText = "") {
@@ -20,27 +42,72 @@ class ContentEventsController {
     });
   }
 
+  triggerQuickCommitFlow() {
+    const { els, blockManager, chatInjector, gitManager, sendBgMessage, setBtnState } = this.ctx;
+    blockManager.resetAutoSuiteQuota();
+    if (typeof this.ctx.canRequestCommitMsg === "function" && this.ctx.canRequestCommitMsg()) {
+      chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true);
+      this.ctx.clearCommitMsgFlag();
+      return;
+    }
+    const btn = els.composerCommitBtn || els.gitBtn;
+    const origText = btn ? btn.textContent : "💬 Commit";
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Diff..."; }
+    sendBgMessage({ type: "GIT_STATUS" }, (res) => {
+      const entries = res?.entries || [];
+      if (!res?.ok || entries.length === 0) {
+        if (btn) { btn.disabled = false; btn.textContent = res?.ok ? "✅ Rien à committer" : "❌ Erreur Git"; setTimeout(() => { btn.textContent = origText; }, 2000); }
+        return;
+      }
+      const files = entries.map((e) => e.path).filter(Boolean);
+      gitManager.lastValidatedFiles = [...files];
+      chrome.storage?.local?.set?.({ savedGitSelectedFiles: files });
+      sendBgMessage({ type: "GIT_DIFF_SELECTED", files }, (diffRes) => {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
+        if (!diffRes?.ok) { setBtnState(els.gitBtn, "fail", "❌ Erreur diff"); return; }
+        const diffName = diffRes.filename || "git_changes.diff.txt";
+        const diffContent = String(diffRes.content || diffRes.diff || "");
+        if (diffContent) chatInjector.dropFile(diffName, diffContent, false);
+        chatInjector.insertPrompt(gitManager.buildCommitPrompt(files, diffName), { minDelayMs: 1600, maxWaitMs: 7000, waitForFile: diffContent ? diffName : "" });
+        this.ctx.clearCommitMsgFlag();
+      });
+    });
+  }
   handleStateUpdate(nextState) {
     this.ctx.setWatcherState(nextState);
     this.ctx.updateIndicators();
-    if (this.autoFixEnabled && nextState?.hasSyntaxError && nextState?.lastEvent) {
-      const sig = String(nextState.lastEvent);
-      if (sig !== this.lastAutoSyntaxSig) { this.lastAutoSyntaxSig = sig; this.sendSyntaxErrorToAi(sig); }
-    } else if (!nextState?.hasSyntaxError) this.lastAutoSyntaxSig = "";
+    const evSig = String(nextState?.lastEvent || "");
+    if (this.autoFixEnabled && nextState?.hasSyntaxError && evSig) {
+      if (evSig !== this.lastAutoSyntaxSig) { this.lastAutoSyntaxSig = evSig; this.sendSyntaxErrorToAi(evSig); }
+      return;
+    }
+    if (!nextState?.hasSyntaxError) this.lastAutoSyntaxSig = "";
+    if (this.autoTestEnabled && nextState?.running && nextState?.hasRunTestsClip && !nextState?.hasSyntaxError && /^\[(?:OK|COMPLET)\]/.test(evSig)) {
+      if (evSig !== this.lastAutoTestEventSig && !this.ctx.testActions?.panel?.isRunning) {
+        this.lastAutoTestEventSig = evSig;
+        this.ctx.els.testsBtn?.click();
+      }
+    }
   }
 
   bindAll() {
     const { els, blockManager, chatInjector, gitManager, exportMenu, testActions, sendBgMessage, setBtnState, triggerProjectExport } = this.ctx;
+    this.loadPrefs();
     els.autoSyntaxBtn?.addEventListener("click", () => {
       this.autoFixEnabled = !this.autoFixEnabled;
-      els.autoSyntaxBtn.textContent = this.autoFixEnabled ? "⚡ Auto-fix: ON" : "⚡ Auto-fix: OFF";
-      els.autoSyntaxBtn.classList.toggle("state-pass", this.autoFixEnabled);
+      chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled });
+      this.syncToggleButtons();
       if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState());
+    });
+    els.autoTestBtn?.addEventListener("click", () => {
+      this.autoTestEnabled = !this.autoTestEnabled;
+      chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled });
+      this.syncToggleButtons();
     });
     els.statusPill.addEventListener("click", () => {
       if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return;
       this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage...";
-      chrome.storage.local.get(["savedTargetDir", "savedExtraArgs"], (res) => {
+      chrome.storage?.local?.get?.(["savedTargetDir", "savedExtraArgs"], (res) => {
         sendBgMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() }, (reply) => {
           this.ctx.setStarting(false); if (reply?.state) this.handleStateUpdate(reply.state); else this.ctx.updateIndicators();
         });
@@ -48,6 +115,7 @@ class ContentEventsController {
     });
     els.copyPurgeAllBtn.addEventListener("click", () => blockManager.copyAndPurgeAll());
     els.commitMsgBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true); this.ctx.clearCommitMsgFlag(); });
+    els.composerCommitBtn?.addEventListener("click", () => this.triggerQuickCommitFlow());
     els.eventPill.addEventListener("click", () => {
       const st = this.ctx.getWatcherState(); const rawEv = String(st?.lastEvent || els.eventPill.textContent || "");
       if (st?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) { this.sendSyntaxErrorToAi(rawEv); return; }

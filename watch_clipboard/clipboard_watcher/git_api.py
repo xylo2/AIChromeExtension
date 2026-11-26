@@ -1,5 +1,4 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
+import fnmatch
 import os
 import re
 import subprocess
@@ -7,7 +6,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 class GitOperations:
-    """Encapsule les opérations Git locales (status, diff -U5 intelligent, commit, push)."""
+    """Encapsule les opérations Git locales (status, diff -U2 compact, commit, push)."""
+
+    NOISY_DIFF_PATTERNS: Tuple[str, ...] = (
+        "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
+        "*.min.js", "*.min.css", "*.map", "*.png", "*.jpg", "*.jpeg", "*.ico", "*.woff2",
+    )
 
     def __init__(
         self,
@@ -58,6 +62,10 @@ class GitOperations:
                 entries.append({"status": code, "path": rel_path.replace("\\", "/")})
         return True, entries, ""
 
+    @classmethod
+    def _is_noisy_diff_file(cls, rel: str) -> bool:
+        bname: str = os.path.basename(rel).lower()
+        return any(fnmatch.fnmatch(bname, pat) for pat in cls.NOISY_DIFF_PATTERNS)
     @staticmethod
     def _summarize_untracked_test(rel: str, content: str) -> str:
         low = rel.lower()
@@ -79,20 +87,22 @@ class GitOperations:
         ]
         if not clean_files:
             return False, "", "Aucun fichier valide sélectionné."
+        diffable: List[str] = [f for f in clean_files if not self._is_noisy_diff_file(f)]
         chunks: List[str] = []
         st_proc = self._run(["git", "status", "--short", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
         if st_proc.stdout.strip():
             chunks.append("=== GIT STATUS ===\n" + st_proc.stdout.strip())
-        has_head = self._run(["git", "rev-parse", "--verify", "HEAD"], cwd=git_root, capture_output=True, check=False).returncode == 0
-        diff_cmd: List[str] = ["git", "diff", "-U5", "HEAD", "--", *clean_files] if has_head else ["git", "diff", "-U5", "--cached", "--", *clean_files]
-        diff_proc = self._run(diff_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-        if diff_proc.stdout.strip():
-            chunks.append("=== GIT DIFF ===\n" + diff_proc.stdout.strip())
-        if not has_head:
-            wt_proc = self._run(["git", "diff", "-U5", "--", *clean_files], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
-            if wt_proc.stdout.strip():
-                chunks.append("=== GIT DIFF (WORKING TREE) ===\n" + wt_proc.stdout.strip())
-        for rel in clean_files:
+        if diffable:
+            has_head = self._run(["git", "rev-parse", "--verify", "HEAD"], cwd=git_root, capture_output=True, check=False).returncode == 0
+            diff_cmd: List[str] = ["git", "diff", "-U2", "HEAD", "--", *diffable] if has_head else ["git", "diff", "-U2", "--cached", "--", *diffable]
+            diff_proc = self._run(diff_cmd, cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+            if diff_proc.stdout.strip():
+                chunks.append("=== GIT DIFF ===\n" + diff_proc.stdout.strip())
+            if not has_head:
+                wt_proc = self._run(["git", "diff", "-U2", "--", *diffable], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
+                if wt_proc.stdout.strip():
+                    chunks.append("=== GIT DIFF (WORKING TREE) ===\n" + wt_proc.stdout.strip())
+        for rel in diffable:
             full_p: str = os.path.join(git_root, rel)
             ut_proc = self._run(["git", "ls-files", "--others", "--exclude-standard", "--", rel], cwd=git_root, capture_output=True, text=True, check=False)
             if ut_proc.stdout.strip() and os.path.isfile(full_p):
