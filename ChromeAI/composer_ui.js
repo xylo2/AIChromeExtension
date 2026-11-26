@@ -21,11 +21,11 @@ class ComposerQuickButtonsManager {
 
   pickExcuse() { return this.EXCUSES.at(Math.floor(Math.random() * this.EXCUSES.length)); }
 
-  resolveGuidedAction({ watcherState, canCommitMsg }) {
+  resolveGuidedAction({ watcherState, canCommitMsg, testsPassedForCurrentEvent = false }) {
     if (!watcherState?.running) return null;
     if (watcherState.hasSyntaxError) return { id: "fix_syntax", label: "🚨 Corriger syntaxe", title: "Envoyer l'erreur de syntaxe à l'IA" };
     if (canCommitMsg) return { id: "commit_msg", label: "💬 Générer commit", title: "Demander le message de commit à l'IA" };
-    if (watcherState.hasRunTestsClip && /^\[(?:OK|COMPLET)\]/.test(String(watcherState.lastEvent || ""))) {
+    if (!testsPassedForCurrentEvent && watcherState.hasRunTestsClip && /^\[(?:OK|COMPLET)\]/.test(String(watcherState.lastEvent || ""))) {
       return { id: "run_tests", label: "🧪 Vérifier tests", title: "Lancer les tests unitaires sur le fichier assemblé" };
     }
     return null;

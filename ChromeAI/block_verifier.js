@@ -81,15 +81,24 @@ class BlockVerificationHelper {
       item.isVerifyingSpill = false;
     }
   }
-
   findTurnContainer(el) {
     let curr = el;
+    let bestMultiPre = null;
     for (let depth = 0; depth < 16 && curr; depth++) {
+      const tag = String(curr.tagName || "").toUpperCase();
+      if (["BODY", "HTML", "MAIN"].includes(tag)) break;
+      if (typeof curr.querySelector === "function" && curr.querySelector("textarea, [contenteditable='true']")) break;
       if (typeof curr.matches === "function" && curr.matches("[data-aim-turn], [data-turn-id], message-content, model-response, .conversation-container, article")) return curr;
+      if (typeof curr.querySelectorAll === "function") {
+        if (curr.querySelectorAll("[data-aim-turn], [data-turn-id], message-content, model-response, user-query").length > 1) break;
+        const pres = curr.querySelectorAll("pre");
+        if (pres.length > 1) bestMultiPre = curr;
+      }
       curr = curr.parentElement;
     }
-    return el?.parentElement || null;
+    return bestMultiPre || el?.parentElement || null;
   }
+
   hasSuitePromptAfterBlock(item) {
     if (!item?.el) return false;
     const tailParts = [];
@@ -104,9 +113,9 @@ class BlockVerificationHelper {
       }
     }
     let anc = this.spill.findCodeBlockWrapper(item.el) || item.el;
-    for (let up = 0; up < 5 && anc; up++) {
+    for (let up = 0; up < 6 && anc; up++) {
       let sib = anc.nextSibling;
-      for (let steps = 0; sib && steps < 15; steps++) {
+      for (let steps = 0; sib && steps < 18; steps++) {
         if ((sib.nodeType === 1 && !String(sib.className || "").includes("gmc-")) || sib.nodeType === 3) {
           const txt = String(sib.textContent || "").trim();
           if (txt) tailParts.push(txt);

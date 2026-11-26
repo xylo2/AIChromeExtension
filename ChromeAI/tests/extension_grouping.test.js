@@ -72,7 +72,6 @@ test("CodeBlockManager regroupe les blocs d'un tour en une carte unique avec typ
   for (const mod of ["spill_heuristics.js", "spill_detector.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
-
   const fakeChat = {
     dropFile: (name, content) => droppedFiles.push({ name, content }),
     insertPrompt: (txt, auto) => { sentPrompts.push({ txt, auto }); return true; }
@@ -103,4 +102,55 @@ test("CodeBlockManager regroupe les blocs d'un tour en une carte unique avec typ
   assert.ok(copiedText.includes("const a = 1;"));
   assert.ok(copiedText.includes("body { margin: 0; }"));
   assert.equal(mgr.getUnpurgedCount(), 0);
+});
+
+test("BlockVerificationHelper détecte un conteneur générique multi-blocs et déclenche auto-Suite même sur blocs > 75 lignes", async () => {
+  const timers = [];
+  const sentPrompts = [];
+  const collectByTag = (node, tags) => {
+    const out = [];
+    for (const c of node.children || []) {
+      if (tags.includes(c.tagName)) out.push(c);
+      out.push(...collectByTag(c, tags));
+    }
+    return out;
+  };
+  const makeEl = (tag) => ({
+    tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "", innerHTML: "",
+    disabled: false, style: {}, attrs: {}, children: [], listeners: {},
+    parentNode: null, parentElement: null, nextSibling: null, isConnected: true,
+    classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); return f; }, contains(c) { return this.set.has(c); } },
+    setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, removeAttribute(k) { delete this.attrs[k]; },
+    matches: () => false, closest: () => null, querySelector: () => null,
+    querySelectorAll(sel) { return sel === "pre" ? collectByTag(this, ["PRE"]) : (sel.includes("p") ? collectByTag(this, ["P", "DIV", "SPAN"]) : []); },
+    append(...items) { items.forEach((it) => { it.parentNode = this; it.parentElement = this; const prev = this.children.at(-1); if (prev) prev.nextSibling = it; this.children.push(it); }); },
+    insertBefore(it, ref) { it.parentNode = this; it.parentElement = this; const i = this.children.indexOf(ref); if (i >= 0) this.children.splice(i, 0, it); else this.children.push(it); },
+    addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
+  });
+
+  const genericTurnDiv = makeEl("DIV");
+  const longCode = Array.from({ length: 85 }, (_, i) => `const line_${i} = ${i};`).join("\n");
+  const preA = makeEl("PRE"); preA.textContent = `=== FILE_PART: tools/a.js | 1/2 ===\n${longCode}\n`;
+  const preB = makeEl("PRE"); preB.textContent = `=== FILE_PART: tools/b.js | 1/2 ===\nconst b = 2;\n`;
+  const hintP = makeEl("P"); hintP.textContent = "Réponds « Suite » pour la suite.";
+  genericTurnDiv.append(preA, preB, hintP);
+
+  const sandbox = {
+    window: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+    navigator: { clipboard: { writeText: async () => {} } },
+    document: { body: makeEl("BODY"), addEventListener() {}, createElement: makeEl, querySelectorAll: (sel) => (sel === "pre" ? [preA, preB] : []) },
+    setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}, setInterval: () => 1, clearInterval() {}
+  };
+  vm.createContext(sandbox);
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
+  }
+  const fakeChat = { insertPrompt: (txt, auto) => { sentPrompts.push({ txt, auto }); return true; } };
+  const mgr = new sandbox.window.GmcCodeBlockManager(new sandbox.window.GmcSpillDetector(), fakeChat);
+  mgr.scan(false);
+  assert.equal(mgr.trackedBlocks.at(0).groupItems.length, 2);
+  await mgr.copyAndPurge(mgr.trackedBlocks.at(0));
+  assert.equal(timers.length, 1);
+  timers.at(0)();
+  assert.deepEqual(sentPrompts, [{ txt: "Suite", auto: true }]);
 });
