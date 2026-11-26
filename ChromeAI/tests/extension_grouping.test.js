@@ -8,32 +8,30 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 
-test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec boutons et batch en en-tête", async () => {
+test("CodeBlockManager regroupe les blocs d'un tour malgré des data-turn-id individuels et masque la 2e carte", async () => {
   let copiedText = "";
   const droppedFiles = [];
   const sentPrompts = [];
 
-  const collectPres = (node) => {
+  const collectBy = (node, pred) => {
     const out = [];
     for (const c of node.children || []) {
-      if (c.tagName === "PRE") out.push(c);
-      out.push(...collectPres(c));
+      if (pred(c)) out.push(c);
+      out.push(...collectBy(c, pred));
     }
     return out;
   };
-  const collectLeaves = (node) => {
-    const out = [];
-    for (const c of node.children || []) {
-      if (!c.children || c.children.length === 0) out.push(c);
-      out.push(...collectLeaves(c));
-    }
-    return out;
+  const syncSiblings = (parent) => {
+    parent.children.forEach((c, idx) => { c.nextSibling = parent.children.at(idx + 1) || null; });
   };
 
   const makeEl = (tag) => ({
     tagName: tag, className: "", textContent: "", title: "", type: "", innerHTML: "",
     disabled: false, style: {}, attrs: {}, dataset: {}, children: [], listeners: {},
     parentNode: null, parentElement: null, nextSibling: null, isConnected: true,
+    get firstChild() { return this.children.at(0) || null; },
+    get previousSibling() { if (!this.parentNode) return null; const i = this.parentNode.children.indexOf(this); return i > 0 ? this.parentNode.children.at(i - 1) : null; },
+    removeChild(c) { this.children = this.children.filter((x) => x !== c); syncSiblings(this); return c; },
     classList: {
       set: new Set(),
       add(...cs) { cs.forEach((c) => this.set.add(c)); },
@@ -44,42 +42,48 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k] || null; },
     removeAttribute(k) { delete this.attrs[k]; },
-    matches(sel) { return sel.includes("model-response") && this.tagName === "MODEL-RESPONSE"; },
+    matches(sel) { return (sel.includes("model-response") && this.tagName === "MODEL-RESPONSE") || (sel.includes("data-turn-id") && Boolean(this.attrs["data-turn-id"])); },
+    contains(target) { return target === this || this.children.some((c) => c === target || c.contains?.(target)); },
     closest() { return null; },
     querySelector() { return null; },
     querySelectorAll(sel) {
-      if (sel === "pre") return collectPres(this);
-      if (sel === "span, div" || sel === "div, p, span") return collectLeaves(this).filter((n) => ["SPAN", "DIV", "P"].includes(n.tagName));
+      if (sel === "pre") return collectBy(this, (n) => n.tagName === "PRE");
+      if (sel.includes("model-response")) return collectBy(this, (n) => n.tagName === "MODEL-RESPONSE");
+      if (sel.includes("user-query")) return collectBy(this, (n) => n.tagName === "USER-QUERY");
+      if (sel === "span, div" || sel === "div, p, span") return collectBy(this, (n) => (!n.children || n.children.length === 0) && ["SPAN", "DIV", "P"].includes(n.tagName));
       return [];
     },
     append(...items) { items.forEach((it) => this.appendChild(it)); },
     appendChild(it) {
-      if (it.parentNode && it.parentNode !== this) it.parentNode.children = it.parentNode.children.filter((x) => x !== it);
-      it.parentNode = this; it.parentElement = this; this.children.push(it); return it;
+      if (it.parentNode && it.parentNode !== this) { it.parentNode.children = it.parentNode.children.filter((x) => x !== it); syncSiblings(it.parentNode); }
+      it.parentNode = this; it.parentElement = this; this.children.push(it); syncSiblings(this); return it;
     },
     insertBefore(it, ref) {
-      if (it.parentNode) it.parentNode.children = it.parentNode.children.filter((x) => x !== it);
+      if (it.parentNode) { it.parentNode.children = it.parentNode.children.filter((x) => x !== it); syncSiblings(it.parentNode); }
       it.parentNode = this; it.parentElement = this;
       const idx = this.children.indexOf(ref);
       if (idx >= 0) this.children.splice(idx, 0, it);
       else this.children.push(it);
-      return it;
+      syncSiblings(this); return it;
     },
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
-    remove() {}
+    remove() { if (this.parentNode) { const p = this.parentNode; p.children = p.children.filter((x) => x !== p); syncSiblings(p); } this.parentNode = null; this.parentElement = null; }
   });
   const turnEl = makeEl("MODEL-RESPONSE");
   const headerBar = makeEl("DIV");
   const wrap1 = makeEl("DIV");
-  const langSpan = makeEl("SPAN"); langSpan.textContent = "javascript";
-  headerBar.appendChild(langSpan);
-  const pre1 = makeEl("PRE"); pre1.textContent = "=== FILE: tools/ChromeAI/a.js ===\nconst a = 1;\n";
+  const langSpan = makeEl("SPAN"); langSpan.textContent = "code";
+  const spacer = makeEl("DIV");
+  headerBar.append(langSpan, spacer);
+  const pre1 = makeEl("PRE"); pre1.textContent = "=== FILE: tools/ChromeAI/a.py ===\ndef a(): return 1\n";
   const footerCaution = makeEl("DIV"); footerCaution.textContent = "Utilisez le code avec précaution.";
   wrap1.append(headerBar, pre1, footerCaution);
+  const outerSecCard = makeEl("DIV"); outerSecCard.setAttribute("data-turn-id", "sub-block-2");
   const wrap2 = makeEl("DIV");
   const pre2 = makeEl("PRE"); pre2.textContent = "=== FILE: tools/ChromeAI/b.css ===\nbody { margin: 0; }\n";
   wrap2.appendChild(pre2);
-  turnEl.append(wrap1, wrap2);
+  outerSecCard.appendChild(wrap2);
+  turnEl.append(wrap1, outerSecCard);
 
   const sandbox = {
     window: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
@@ -103,11 +107,15 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
   assert.equal(lead.groupItems.length, 2);
   assert.equal(sec.isSecondaryInGroup, true);
   assert.equal(sec.placeholderEl.style.display, "none");
-  assert.equal(langSpan.textContent, "javascript et css");
+  assert.equal(outerSecCard.classList.contains("gmc-grouped-secondary-block"), true);
+  assert.equal(headerBar.classList.contains("gmc-code-header-compact"), true);
+  assert.equal(langSpan.textContent, "python et css");
   assert.equal(footerCaution.classList.contains("gmc-hidden-native-footer"), true);
-  assert.ok(headerBar.children.includes(lead.batchBtn));
-  assert.ok(headerBar.children.includes(lead.headerPurgeBtn));
-  assert.ok(headerBar.children.includes(lead.verifyBtn));
+  const batchIdx = headerBar.children.indexOf(lead.batchBtn);
+  const verifyIdx = headerBar.children.indexOf(lead.verifyBtn);
+  assert.equal(batchIdx, 1);
+  assert.equal(verifyIdx, 2);
+  assert.equal(lead.headerPurgeBtn, null);
   assert.equal(lead.groupListEl.children.length, 2);
 
   sec.toggleBtn.listeners.click();
@@ -117,20 +125,30 @@ test("CodeBlockManager regroupe les blocs d'un tour dans une carte unique avec b
 
   await mgr.verifyWithAi(lead);
   assert.equal(droppedFiles.at(0).name, "verification_tour.txt");
+  assert.ok(droppedFiles.at(0).content.includes("--- tools/ChromeAI/a.py ---"));
+  assert.ok(droppedFiles.at(0).content.includes("--- tools/ChromeAI/b.css ---"));
+  assert.ok(sentPrompts.at(0).txt.includes("l'ensemble des 2 blocs représentés dans cette carte"));
 
   await mgr.copyAndPurge(lead);
-  assert.ok(copiedText.includes("const a = 1;"));
+  assert.ok(copiedText.includes("def a(): return 1"));
   assert.ok(copiedText.includes("body { margin: 0; }"));
   assert.equal(mgr.getUnpurgedCount(), 0);
 });
-
-test("BlockVerificationHelper détecte un conteneur générique multi-blocs et déclenche auto-Suite même sur blocs > 75 lignes", async () => {
+test("BlockVerificationHelper détecte un conteneur générique multi-blocs", async () => {
   const timers = []; const sentPrompts = [];
-  const collectByTag = (node, tags) => { const out = []; for (const c of node.children || []) { if (tags.includes(c.tagName)) out.push(c); out.push(...collectByTag(c, tags)); } return out; };
+  const collectByTag = (node, tags) => {
+    const out = [];
+    for (const c of node.children || []) {
+      if (tags.includes(c.tagName)) out.push(c);
+      out.push(...collectByTag(c, tags));
+    }
+    return out;
+  };
   const makeEl = (tag) => ({
-    tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "", innerHTML: "",
-    disabled: false, style: {}, attrs: {}, dataset: {}, children: [], listeners: {},
-    parentNode: null, parentElement: null, nextSibling: null, isConnected: true,
+    tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "",
+    innerHTML: "", disabled: false, style: {}, attrs: {}, dataset: {},
+    children: [], listeners: {}, parentNode: null, parentElement: null,
+    nextSibling: null, isConnected: true,
     classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); return f; }, contains(c) { return this.set.has(c); } },
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, removeAttribute(k) { delete this.attrs[k]; },
     matches: () => false, closest: () => null, querySelector: () => null,

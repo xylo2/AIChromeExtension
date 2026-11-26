@@ -1,20 +1,18 @@
-/**
- * Vérification IA des blocs FILE/FILE_PART (unitaire ou groupée par tour), bannière auto-Suite et détection de fin de tour.
- */
+// Vérification IA des blocs (unitaire ou groupée), bannière auto-Suite et fin de tour.
 class BlockVerificationHelper {
-  /** Initialise l'injecteur de chat, le détecteur de débordement et l'état de la bannière. */
+  // Initialise l'injecteur de chat, le détecteur de débordement et l'état de la bannière.
   constructor(chatInjector, spillDetector) {
     this.chat = chatInjector; this.spill = spillDetector; this.suiteCountdownTimer = null; this.suiteBannerEl = null;
     this.DONE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
   }
-  /** Construit un nom de pièce jointe de repli à partir de l'en-tête FILE ou FILE_PART. */
+  // Construit un nom de pièce jointe de repli à partir de l'en-tête FILE ou FILE_PART.
   buildFallbackAttachmentName(headerName) {
     const parts = (headerName || "bloc.txt").split("|");
     const baseName = parts.at(0).trim().split(/[\\/]/).filter(Boolean).pop() || "bloc.txt";
     const partIdx = parts.length > 1 ? parts.at(1).split("/").at(0).trim() : "";
     return partIdx ? `${baseName}.part${partIdx}.txt` : `${baseName}.txt`;
   }
-  /** Interroge le serveur local pour relire le fichier ou fragment réellement écrit sur disque. */
+  // Interroge le serveur local pour relire le fichier ou fragment réellement écrit sur disque.
   requestSavedFile(headerName, maxWaitMs = 1400) {
     return new Promise((resolve) => {
       const deadline = Date.now() + maxWaitMs;
@@ -29,7 +27,7 @@ class BlockVerificationHelper {
       attempt();
     });
   }
-  /** Résout le nom et le contenu à vérifier (priorité au disque, repli sur le DOM). */
+  // Résout le nom et le contenu à vérifier (priorité au disque, repli sur le DOM).
   async resolveItemPayload(item, getSingleCodeFn) {
     const combinedText = getSingleCodeFn(item);
     let attachName = this.buildFallbackAttachmentName(item.headerName), attachContent = combinedText;
@@ -37,22 +35,27 @@ class BlockVerificationHelper {
     if (res?.ok && typeof res.content === "string") { attachName = res.filename || attachName; attachContent = res.content; }
     return { attachName, attachContent };
   }
-  /** Regroupe tous les blocs d'un tour dans verification_tour.txt et demande un contrôle à l'IA. */
+  // Regroupe l'ensemble des blocs du tour dans verification_tour.txt et demande un contrôle complet.
   async verifyGroupWithAi(leadItem, members, getSingleCodeFn) {
-    const sections = [], headersList = [];
+    const sections = [], headersList = [], targetPaths = new Set();
     for (const m of members) {
       headersList.push(m.headerName);
+      targetPaths.add(String(m.headerName || "").split("|").at(0).trim());
       const { attachContent } = await this.resolveItemPayload(m, getSingleCodeFn);
       sections.push(`--- ${m.headerName} ---\n${attachContent}`);
     }
     const bundleName = "verification_tour.txt";
+    const singleTarget = targetPaths.size === 1 ? Array.from(targetPaths).at(0) : "";
+    const scopeSummary = singleTarget
+      ? `l'intégralité des ${members.length} parties assemblées pour \x60${singleTarget}\x60 (\x60${headersList.join("`, `")}\x60)`
+      : `l'ensemble des ${members.length} blocs représentés dans cette carte (\x60${headersList.join("`, `")}\x60)`;
     this.chat.dropFile(bundleName, sections.join("\n\n"), false);
     this.chat.insertPrompt(
-      `Vérification groupée de récupération pour les ${members.length} blocs du tour (\x60${headersList.join("`, `")}\x60) : voici exactement le contenu récupéré dans la pièce jointe \x60${bundleName}\x60. Confirme simplement si chaque bloc correspond bien à l'intégralité de ce que tu voulais produire (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère uniquement les blocs concernés découpés en \x60FILE_PART\x60 de moins de 75 lignes chacun.`,
+      `Vérification complète de récupération pour ${scopeSummary} : voici exactement l'intégralité du contenu récupéré dans la pièce jointe \x60${bundleName}\x60. Confirme simplement si chaque partie et l'ensemble du contenu correspondent bien à ce que tu voulais produire (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère uniquement les blocs concernés découpés en \x60FILE_PART\x60 de moins de 65 lignes chacun.`,
       { minDelayMs: 900, maxWaitMs: 4500, waitForFile: bundleName }
     );
   }
-  /** Transmet un bloc unique ou un groupe de blocs à l'IA pour contrôler son intégrité. */
+  // Transmet un bloc unique ou l'ensemble d'un bloc regroupé à l'IA pour contrôler son intégrité.
   async verifyWithAi(item, getSingleCodeFn) {
     if (!item || !item.headerName || item.isVerifyingSpill) return;
     item.isVerifyingSpill = true;
@@ -65,31 +68,35 @@ class BlockVerificationHelper {
         const { attachName, attachContent } = await this.resolveItemPayload(item, getSingleCodeFn);
         this.chat.dropFile(attachName, attachContent, false);
         this.chat.insertPrompt(
-          `Vérification de récupération pour \x60${item.headerName}\x60 : voici exactement le contenu récupéré dans la pièce jointe \x60${attachName}\x60. Confirme simplement si ce code correspond bien à l'intégralité de ce que tu voulais produire pour ce bloc (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère-le découpé en plusieurs blocs \x60FILE_PART\x60 de moins de 75 lignes chacun.`,
+          `Vérification de récupération pour \x60${item.headerName}\x60 : voici exactement le contenu récupéré dans la pièce jointe \x60${attachName}\x60. Confirme simplement si ce code correspond bien à l'intégralité de ce que tu voulais produire pour ce bloc (sans troncature, perte ou artefact d'affichage). Si jamais il manque du code ou qu'il est altéré, régénère-le découpé en plusieurs blocs \x60FILE_PART\x60 de moins de 65 lignes chacun.`,
           { minDelayMs: 900, maxWaitMs: 4500, waitForFile: attachName }
         );
       }
       if (btn) { btn.innerHTML = this.DONE_SVG; btn.classList.add("gmc-verified-btn"); btn.disabled = true; }
     } finally { item.isVerifyingSpill = false; }
   }
-  /** Remonte le DOM pour identifier l'élément conteneur représentant un tour complet de réponse. */
+  // Remonte le DOM pour identifier l'élément conteneur englobant toute la réponse du tour.
   findTurnContainer(el) {
-    let curr = el, bestMultiPre = null;
-    const turnSel = "[data-aim-turn], [data-turn-id], message-content, model-response, .conversation-container, article";
-    for (let depth = 0; depth < 22 && curr; depth++) {
+    let curr = el, bestTurn = null, bestMultiPre = null;
+    const outerTurnSel = "[data-aim-turn], model-response, .conversation-container";
+    const innerTurnSel = "[data-turn-id], message-content, article";
+    for (let depth = 0; depth < 80 && curr; depth++) {
       const tag = String(curr.tagName || "").toUpperCase();
       if (["BODY", "HTML", "MAIN"].includes(tag)) break;
       if (typeof curr.querySelector === "function" && curr.querySelector("textarea, [contenteditable='true']")) break;
-      if (typeof curr.matches === "function" && curr.matches(turnSel)) return curr;
       if (typeof curr.querySelectorAll === "function") {
-        if (curr.querySelectorAll(turnSel).length > 1) break;
+        if (curr.querySelectorAll(outerTurnSel).length > 1 || curr.querySelectorAll("user-query").length > 0) break;
         if (curr.querySelectorAll("pre").length > 1) bestMultiPre = curr;
+      }
+      if (typeof curr.matches === "function") {
+        if (curr.matches(outerTurnSel)) return curr;
+        if (curr.matches(innerTurnSel) && !bestTurn) bestTurn = curr;
       }
       curr = curr.parentElement;
     }
-    return bestMultiPre || el?.parentElement || null;
+    return bestMultiPre || bestTurn || el?.parentElement || null;
   }
-  /** Détecte si le texte suivant un bloc de code invite l'utilisateur à répondre « Suite ». */
+  // Détecte si le texte suivant un bloc de code invite l'utilisateur à répondre « Suite ».
   hasSuitePromptAfterBlock(item) {
     if (!item?.el) return false;
     const tailParts = [], turnRoot = this.findTurnContainer(item.el);
@@ -113,9 +120,9 @@ class BlockVerificationHelper {
     const combinedTail = tailParts.join("\n");
     return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|r[eé]pond(?:s|re)\s*[«"']\s*suite\s*[»"']|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']\s*suite\s*[»"'])/i.test(combinedTail);
   }
-  /** Arrête le compte à rebours et supprime la bannière flottante d'auto-Suite. */
+  // Arrête le compte à rebours et supprime la bannière flottante d'auto-Suite.
   hideSuiteBanner() { if (this.suiteCountdownTimer) { clearInterval(this.suiteCountdownTimer); this.suiteCountdownTimer = null; } if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; } }
-  /** Aligne la bannière flottante d'auto-Suite juste au-dessus de la zone de saisie. */
+  // Aligne la bannière flottante d'auto-Suite juste au-dessus de la zone de saisie.
   positionSuiteBannerAboveComposer(banner) {
     const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
     const composerBox = inputEl && typeof this.chat?.findComposerContainer === "function" ? this.chat.findComposerContainer(inputEl) : inputEl?.parentElement;
@@ -126,9 +133,9 @@ class BlockVerificationHelper {
       if (rect.width > 0 && viewW > 0) { banner.style.left = `${Math.round(rect.left + rect.width / 2)}px`; banner.style.right = "auto"; banner.style.transform = "translateX(-50%)"; }
     }
   }
-  /** Insère la bannière d'auto-Suite dans document.body et la positionne. */
+  // Insère la bannière d'auto-Suite dans document.body et la positionne.
   mountSuiteBannerFloating(banner) { if (!document.body?.appendChild) return false; document.body.appendChild(banner); this.positionSuiteBannerAboveComposer(banner); return true; }
-  /** Affiche un compte à rebours annulable avant l'envoi automatique de « Suite ». */
+  // Affiche un compte à rebours annulable avant l'envoi automatique de « Suite ».
   showSuiteBanner(delayMs, onCancel) {
     this.hideSuiteBanner();
     if (typeof document === "undefined" || !document.createElement) return;
