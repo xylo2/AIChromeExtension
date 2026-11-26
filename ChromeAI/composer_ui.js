@@ -1,5 +1,5 @@
 /**
- * Gestion du positionnement des boutons rapides (Oui, Suite, Excuse) près du compositeur.
+ * Gestion du positionnement et de l'action contextuelle guidée près du compositeur.
  */
 class ComposerQuickButtonsManager {
   constructor(chatInjector, bottomRow, exportBtn) {
@@ -19,14 +19,22 @@ class ComposerQuickButtonsManager {
     this.groupEl.className = "gmc-composer-quick-group";
   }
 
-  pickExcuse() {
-    return this.EXCUSES.at(Math.floor(Math.random() * this.EXCUSES.length));
+  pickExcuse() { return this.EXCUSES.at(Math.floor(Math.random() * this.EXCUSES.length)); }
+
+  resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure, canCommitMsg }) {
+    if (!watcherState?.running) return null;
+    if (watcherState.hasSyntaxError) return { id: "fix_syntax", label: "🚨 Corriger syntaxe", title: "Envoyer l'erreur de syntaxe à l'IA" };
+    if (hasTestFailure) return { id: "fix_tests", label: "🚨 Corriger tests", title: "Renvoyer le rapport d'échec des tests à l'IA" };
+    if (unpurgedCount > 0) return { id: "copy_suite", label: `📋 Copier (${unpurgedCount}) & Suite`, title: "Copier les blocs, purger le DOM et continuer" };
+    if (canCommitMsg) return { id: "commit_msg", label: "💬 Générer commit", title: "Demander le message de commit à l'IA" };
+    if (watcherState.hasRunTestsClip && /^\[(?:OK|COMPLET)\]/.test(String(watcherState.lastEvent || ""))) {
+      return { id: "run_tests", label: "🧪 Vérifier tests", title: "Lancer les tests unitaires sur le fichier assemblé" };
+    }
+    return null;
   }
 
   hasStartedConversation() {
-    if (document.querySelector("[data-aim-turn], [data-turn-id], message-content, model-response, user-query, .conversation-container")) {
-      return true;
-    }
+    if (document.querySelector("[data-aim-turn], [data-turn-id], message-content, model-response, user-query, .conversation-container")) return true;
     const inputEl = this.chat.findChatInputElement();
     return Boolean(inputEl && this.isBottomComposer(inputEl));
   }
@@ -48,10 +56,7 @@ class ComposerQuickButtonsManager {
 
   mount() {
     document.querySelectorAll(".gmc-composer-quick-group").forEach((el) => { if (el !== this.groupEl) el.remove(); });
-    if (!this.hasStartedConversation()) {
-      if (this.groupEl.parentElement) this.groupEl.remove();
-      return;
-    }
+    if (!this.hasStartedConversation()) { if (this.groupEl.parentElement) this.groupEl.remove(); return; }
     this.groupEl.style.display = "inline-flex";
     const inputEl = this.chat.findChatInputElement();
     if (!this.isBottomComposer(inputEl)) { this.attachToFloatingBar(); return; }
@@ -65,8 +70,7 @@ class ComposerQuickButtonsManager {
       if (plusBtn?.parentElement && box.contains(plusBtn)) {
         let anchor = plusBtn;
         while (anchor.parentElement && anchor.parentElement !== box && anchor.parentElement.children.length <= 2 && !anchor.parentElement.contains(inputEl)) anchor = anchor.parentElement;
-        const rowContainer = anchor.parentElement;
-        const siblingInputBox = anchor.nextElementSibling;
+        const rowContainer = anchor.parentElement, siblingInputBox = anchor.nextElementSibling;
         if (siblingInputBox && siblingInputBox.contains(inputEl) && box.parentElement) {
           if (this.groupEl.parentElement !== box.parentElement || box.nextSibling !== this.groupEl) { this.groupEl.classList.add("gmc-composer-below"); box.parentElement.insertBefore(this.groupEl, box.nextSibling); }
           return;

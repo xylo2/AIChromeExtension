@@ -39,6 +39,7 @@
         "spill_detector.js",
         "file_attacher.js",
         "chat_injector.js",
+        "token_budget.js",
         "composer_ui.js",
         "export_menu.js",
         "git_commit_ui.js",

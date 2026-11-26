@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from tools.run_tests_clip import ClipboardTestRunner
+from tools.suite_executor import compact_error_report
 
 
 class TestClipboardTestRunner(unittest.TestCase):
@@ -49,10 +50,16 @@ class TestClipboardTestRunner(unittest.TestCase):
             report: str = runner.compact_error_report(raw_unittest_output, top_dir=tmp_dir)
 
             self.assertIn("ERROR: test_one", report)
+            self.assertIn("LOC: sample.py:2", report)
             self.assertIn("CODE: raise ValueError('boom')", report)
             self.assertIn("[DOUBLON] ERROR: test_two (test_mod.Suite) -> ValueError: boom", report)
             self.assertIn("[...]", report)
             self.assertIn("Ran 3 tests in 0.005s | FAILED (failures=1, errors=2)", report)
+
+            capped: str = compact_error_report(raw_unittest_output, top_dir=tmp_dir, max_chars=260)
+            self.assertLessEqual(len(capped), 260)
+            self.assertIn("tronqué", capped)
+            self.assertIn("FAILED (failures=1, errors=2)", capped)
 
     def test_run_single_suite_detects_uncovered_lines_and_table_format(self) -> None:
         sample_lines = list((2, 3, 4, 8, 10, 11))

@@ -67,33 +67,36 @@ class ProjectExportRunner:
     def normalize_mode(cls, mode: str) -> str:
         clean: str = (mode or "full").strip().lower()
         return clean if clean in cls.VALID_MODES else "full"
+
     def preview_all_modes(self, subpaths: Optional[List[str]] = None) -> Tuple[bool, Dict[str, Dict[str, int]], str]:
         exporter_root: Optional[str] = self.resolve_exporter_dir()
         if not exporter_root:
             return False, {}, "Package project_exporter introuvable dans le workspace."
         clean_subpaths: List[str] = [str(s).strip() for s in (subpaths or []) if str(s).strip()]
         target_real: str = os.path.realpath(self.target_dir)
-        code: str = (
-            "import json, logging, os, sys; from pathlib import Path; "
-            "from project_exporter.config import ExporterConfig; from project_exporter.exporter import ProjectExporter; "
-            "logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler()); "
-            "_, exp_s, target_s, sub_json = sys.argv; "
-            "exp_root, target, subs = Path(exp_s), Path(target_s), json.loads(sub_json); "
-            "cfg = ExporterConfig(exp_root / 'config.ini', logger); "
-            "res = {}; "
-            "for m in ('modified', 'code', 'skeleton', 'tests', 'full'): "
-            "  exp = ProjectExporter(target, cfg, target / '_prev.tmp', exp_root / 'export_project.py', logger, export_mode=m, include_subpaths=subs); "
-            "  cnt, toks = 0, 0; "
-            "  for cr, dirs, files in os.walk(target): "
-            "    cp = Path(cr); exp.gitignore_mgr.register_directory(cp); "
-            "    dirs[:] = [d for d in dirs if not exp.should_exclude_dir(cp / d)]; "
-            "    for fn in files: "
-            "      fp = cp / fn; "
-            "      if exp.is_target_file(fp): "
-            "        cnt += 1; toks += ProjectExporter.estimate_tokens(exp._read_file_content(fp)); "
-            "  res[m] = {'files': cnt, 'tokens': toks}; "
-            "print(json.dumps(res))"
-        )
+        code: str = "\n".join([
+            "import json, logging, os, sys",
+            "from pathlib import Path",
+            "from project_exporter.config import ExporterConfig",
+            "from project_exporter.exporter import ProjectExporter",
+            "logger = logging.getLogger('export'); logger.addHandler(logging.NullHandler())",
+            "_, exp_s, target_s, sub_json = sys.argv",
+            "exp_root, target, subs = Path(exp_s), Path(target_s), json.loads(sub_json)",
+            "cfg = ExporterConfig(exp_root / 'config.ini', logger)",
+            "res = {}",
+            "for m in ('modified', 'code', 'skeleton', 'tests', 'full'):",
+            "    exp = ProjectExporter(target, cfg, target / '_prev.tmp', exp_root / 'export_project.py', logger, export_mode=m, include_subpaths=subs)",
+            "    cnt, toks = 0, 0",
+            "    for cr, dirs, files in os.walk(target):",
+            "        cp = Path(cr); exp.gitignore_mgr.register_directory(cp)",
+            "        dirs[:] = [d for d in dirs if not exp.should_exclude_dir(cp / d)]",
+            "        for fn in files:",
+            "            fp = cp / fn",
+            "            if exp.is_target_file(fp):",
+            "                cnt += 1; toks += ProjectExporter.estimate_tokens(exp._read_file_content(fp))",
+            "    res[m] = {'files': cnt, 'tokens': toks}",
+            "print(json.dumps(res))",
+        ])
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONPATH": exporter_root}
         proc = self._run(
             [sys.executable, "-c", code, exporter_root, target_real, json.dumps(clean_subpaths)],

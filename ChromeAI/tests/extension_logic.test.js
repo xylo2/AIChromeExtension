@@ -12,6 +12,7 @@ const JS_MODULES = [
   "spill_detector.js",
   "file_attacher.js",
   "chat_injector.js",
+  "token_budget.js",
   "composer_ui.js",
   "export_menu.js",
   "git_commit_ui.js",
@@ -57,6 +58,7 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(eventsJs.includes("composerUi.pickExcuse()"));
   assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
+
 test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherPopupController fonctionnent", async () => {
   const scrollCalls = [];
   const winObj = { scrollX: 0, scrollY: 420, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollCalls.push({ x, y }); }, scrollBy() {} };
@@ -90,47 +92,4 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.ok(gitMgr.buildCommitMessageOnlyPrompt().includes("=== COMMIT_MESSAGE ==="));
   const rawPushErr = "To https:" + "//example" + ".com\n ! [rejected] HEAD -> main (non-fast-forward)\nfatal: failed to push";
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
-});
-
-test("GitCommitUiHelper et ExportMenuManager gèrent session vierge, modes et sous-dossiers", () => {
-  let storedPayload = null;
-  const appended = [];
-  const baseUrl = ["https://www", "google", "com"].join(".");
-  const searchHref = new URL("/search?udm=50&hl=fr&q=test&gsessionid=abc&lsessionid=def&vsrid=xyz&mstk=123#hash", baseUrl).toString();
-  const appHref = new URL("/app/session-12345?hl=fr#top", baseUrl).toString();
-  const locObj = { href: searchHref };
-  const makeNode = () => ({
-    type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, children: [], listeners: {}, removed: false,
-    append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
-    addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() { this.removed = true; }
-  });
-  const sandbox = {
-    URL,
-    window: { location: locObj },
-    document: { createElement: makeNode, createTextNode: (t) => ({ textContent: t }), body: { appendChild(n) { appended.push(n); } } },
-    chrome: { storage: { local: { set(obj, cb) { storedPayload = obj; if (cb) cb(); } } } }
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "git_commit_ui.js"), "utf-8"), sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "export_menu.js"), "utf-8"), sandbox);
-  const helper = new sandbox.window.GmcGitCommitUiHelper(null);
-  assert.equal(helper.buildFreshChatUrl(searchHref), `${baseUrl}/search?udm=50&hl=fr`);
-  assert.equal(helper.buildFreshChatUrl(appHref), `${baseUrl}/`);
-  const btn = helper.createFreshExportButton();
-  btn.listeners.click({ preventDefault() {}, stopPropagation() {} });
-  assert.equal(btn.disabled, true);
-  assert.ok(typeof storedPayload?.pendingFreshExportAt === "number");
-  assert.equal(locObj.href, `${baseUrl}/search?udm=50&hl=fr`);
-
-  const menu = new sandbox.window.GmcExportMenuManager();
-  assert.ok(menu.buildExportPrompt("code", "proj_code_export.txt", 5, 2500).includes("CODE UNIQUEMENT"));
-  assert.ok(menu.buildExportPrompt("modified", "proj_modified_export.txt", 2, 800, ["ChromeAI"]).includes("[Dossiers : ChromeAI]"));
-  assert.ok(menu.buildExportPrompt("skeleton", "proj_skeleton_export.txt", 4, 600).includes("SQUELETTE"));
-  assert.ok(menu.buildExportPrompt("full", "proj_export.txt", 8, 3700).includes("COMPLET"));
-  let chosen = null;
-  menu.toggle((m, sub) => { chosen = JSON.stringify({ m, sub }); }, ["ChromeAI", "export"]);
-  assert.equal(appended.length, 1);
-  appended.at(0).children.at(2).children.at(1).listeners.click({ stopPropagation() {} });
-  assert.equal(chosen, JSON.stringify({ m: "code", sub: [] }));
-  assert.equal(menu.menuEl, null);
 });

@@ -43,7 +43,6 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   ctrl.handleStateUpdate(state);
   assert.equal(testsClicked, 1);
 
-  // Anti-boucle Auto-fix : max 2 tentatives consécutives sur le même fichier, réinitialisé au clic manuel sur eventPill
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 1)" });
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 2)" });
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 3)" });
@@ -60,13 +59,11 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   canCommitMsg = true;
   els.composerCommitBtn.listeners.click();
   assert.equal(prompts.length, 6);
-
   const testCtrl = new sandbox.window.GmcTestActionsController(fakeChat, () => {}, () => {}, { testsBtn: makeBtn(), coverageBtn: makeBtn() }, () => state, () => {});
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "FAIL: test_x" });
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "FAIL: test_x" });
   assert.equal(prompts.length, 7);
 
-  // Compaction DOM des blocs <pre> (> 4) et des anciens tours (user-query inclus, aperçu 50 car., bouton Afficher)
   let lastTurnSelector = "";
   const insertedPills = [];
   const makeTurn = (idx, txt) => ({
@@ -92,7 +89,7 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   assert.equal(turns.at(0).classList.contains("gmc-collapsed-turn"), true);
   assert.equal(turns.at(5).classList.contains("gmc-collapsed-turn"), false);
   const firstPillBtn = insertedPills.at(0).children.at(0);
-  assert.ok(firstPillBtn.textContent.includes("Question utilisateur très longue dépassant cinquante…"));
+  assert.ok(firstPillBtn.textContent.includes("Question utilisateur très longue dépassant cinquan…"));
   firstPillBtn.listeners.click();
   assert.equal(turns.at(0).classList.contains("gmc-collapsed-turn"), false);
   assert.equal(insertedPills.at(0).removed, true);
@@ -125,6 +122,7 @@ test("ExportMenuManager affiche dynamiquement les estimations de tokens via EXPO
   menu.toggle(() => {}, []);
   const modeButtons = appended.at(0).children.at(1).children;
   assert.ok(modeButtons.at(0).textContent.includes("(~850 tok, 2 fic.)"));
-  assert.ok(modeButtons.at(1).textContent.includes("(~32.4k tok, 40 fic.)"));
+  assert.ok(modeButtons.at(1).textContent.includes("(~4.8k tok, 40 fic.)"));
+  assert.ok(modeButtons.at(2).textContent.includes("(~32.4k tok, 40 fic.)"));
   assert.ok(modeButtons.at(4).textContent.includes("(~50.6k tok, 65 fic.)"));
 });

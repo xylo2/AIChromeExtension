@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import io
 import os
 import re
@@ -14,6 +12,7 @@ WARNING_PATTERN = re.compile(
     r"^(?P<loc>.+?:\d+:\s+(?:DeprecationWarning|ResourceWarning|UserWarning|RuntimeWarning|SyntaxWarning|FutureWarning):.+)$",
     re.MULTILINE,
 )
+MAX_COMPACT_REPORT_CHARS: int = 3200
 
 
 def extract_warnings_and_console_errors(raw_output: str) -> str:
@@ -27,7 +26,21 @@ def extract_warnings_and_console_errors(raw_output: str) -> str:
     return "\n".join(unique_lines)
 
 
-def compact_error_report(raw_output: str, top_dir: str = "") -> str:
+def _extract_location_and_snippet(lines: List[str], top_dir: str) -> Tuple[str, str]:
+    loc_hint, code_hint = "", ""
+    for idx, ln in enumerate(lines):
+        stripped = ln.lstrip()
+        if stripped.startswith('File "') and (not top_dir or top_dir in ln):
+            m_loc = re.search(r'File "([^"]+)", line (\d+)', stripped)
+            if m_loc:
+                rel_f = os.path.relpath(m_loc.group(1), top_dir).replace("\\", "/") if top_dir else os.path.basename(m_loc.group(1))
+                loc_hint = f"LOC: {rel_f}:{m_loc.group(2)}"
+            if idx + 1 < len(lines) and not lines[idx + 1].lstrip().startswith(('File "', "---", "===")):
+                code_hint = f"CODE: {lines[idx + 1].strip()}"
+    return loc_hint, code_hint
+
+
+def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MAX_COMPACT_REPORT_CHARS) -> str:
     sections: List[str] = re.split(r"(?m)^={60,}\s*$", raw_output)
     kept_blocks: List[str] = []
     seen_sigs: Set[str] = set()
@@ -44,13 +57,9 @@ def compact_error_report(raw_output: str, top_dir: str = "") -> str:
                 kept_blocks.append(f"[DOUBLON] {header} -> {err_line[:140]}")
                 continue
             seen_sigs.add(sig)
-            code_hint: str = next(
-                (f"CODE: {lines[idx + 1].strip()}" for idx, ln in enumerate(lines)
-                 if ln.lstrip().startswith('File "') and top_dir and top_dir in ln and idx + 1 < len(lines)),
-                "",
-            )
+            loc_hint, code_hint = _extract_location_and_snippet(lines, top_dir)
             truncated_err: str = err_line if len(err_line) <= 220 else err_line[:220] + " [...]"
-            kept_blocks.append("\n".join([p for p in (header, code_hint, truncated_err) if p]))
+            kept_blocks.append("\n".join([p for p in (header, loc_hint, code_hint, truncated_err) if p]))
         for ln in lines:
             if ln.startswith("Ran "):
                 summary_line = ln
@@ -58,7 +67,12 @@ def compact_error_report(raw_output: str, top_dir: str = "") -> str:
                 summary_line = f"{summary_line} | {ln}"
     if summary_line:
         kept_blocks.append(summary_line)
-    return "\n".join(kept_blocks).strip() or raw_output.strip()
+    result: str = "\n".join(kept_blocks).strip() or raw_output.strip()
+    if len(result) > max_chars:
+        tail: str = f"\n[... tronqué ({len(result) - max_chars} car. omis) ...]\n{summary_line}".rstrip()
+        head_budget: int = max(0, max_chars - len(tail))
+        result = (result[:head_budget].rstrip() + tail) if head_budget > 0 else tail[:max_chars]
+    return result
 
 
 def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tuple[int, str, List[CoverageRow]]:
@@ -66,11 +80,7 @@ def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tu
         return 1, f"[{suite_name}] Dossier de tests introuvable : {tests_dir}", []
     saved_test_mods = {k: sys.modules.pop(k) for k in list(sys.modules) if k == "tests" or k.startswith("tests.")}
     top_real: str = os.path.realpath(top_dir)
-    saved_proj_mods = {
-        k: sys.modules.pop(k)
-        for k, mod in list(sys.modules.items())
-        if getattr(mod, "__file__", None) and os.path.realpath(str(mod.__file__)).startswith(top_real + os.sep)
-    }
+    saved_proj_mods = {k: sys.modules.pop(k) for k, mod in list(sys.modules.items()) if getattr(mod, "__file__", None) and os.path.realpath(str(mod.__file__)).startswith(top_real + os.sep)}
     added_paths: List[str] = [p for p in (top_dir, tests_dir) if p not in sys.path]
     for p in added_paths:
         sys.path.insert(0, p)
@@ -84,8 +94,7 @@ def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tu
             captured_warnings.append(f"{frame.f_code.co_filename}:{frame.f_lineno}: {cat.__name__}: {message}")
 
     def _discover_and_run() -> unittest.TestResult:
-        suite = unittest.TestLoader().discover(start_dir=tests_dir, pattern="test_*.py", top_level_dir=top_dir)
-        return unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
+        return unittest.TextTestRunner(stream=stream, verbosity=2).run(unittest.TestLoader().discover(start_dir=tests_dir, pattern="test_*.py", top_level_dir=top_dir))
 
     try:
         warnings.warn = _intercept_warn  # type: ignore[assignment]

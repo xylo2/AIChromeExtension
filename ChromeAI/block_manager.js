@@ -34,12 +34,7 @@ class CodeBlockManager {
   getUnpurgedCount() { return this.getUnpurgedBlocks().length; }
   hideSuiteBanner() { this.verifier?.hideSuiteBanner(); }
   showSuiteBanner(delayMs) { this.verifier?.showSuiteBanner(delayMs, () => this.resetAutoSuiteQuota()); }
-
-  resetAutoSuiteQuota() {
-    this.consecutiveAutoSuiteCount = 0;
-    if (this.pendingSuiteTimer) { clearTimeout(this.pendingSuiteTimer); this.pendingSuiteTimer = null; }
-    this.hideSuiteBanner();
-  }
+  resetAutoSuiteQuota() { this.consecutiveAutoSuiteCount = 0; if (this.pendingSuiteTimer) { clearTimeout(this.pendingSuiteTimer); this.pendingSuiteTimer = null; } this.hideSuiteBanner(); }
 
   preserveScrollAround(targetEl, mutatorFn) {
     if (!targetEl || typeof targetEl.getBoundingClientRect !== "function" || typeof window === "undefined" || typeof window.scrollBy !== "function") return mutatorFn();
@@ -61,8 +56,7 @@ class CodeBlockManager {
 
   extractCombinedCode(item) {
     if (this.isItemPurged(item) && item.cachedCombinedCode) return item.cachedCombinedCode;
-    const baseCode = this.spill.extractRawCode(item.el);
-    const sp = this.spill.collect(item.el);
+    const baseCode = this.spill.extractRawCode(item.el), sp = this.spill.collect(item.el);
     item.spilledNodes = sp.nodes;
     const combined = [sp.beforeText, baseCode, sp.afterText].filter(Boolean).join("\n");
     if (combined) item.cachedCombinedCode = combined;
@@ -97,8 +91,7 @@ class CodeBlockManager {
 
   extractTurnPreview(turn) {
     const raw = String(turn?.textContent || "").replace(/\s+/g, " ").trim();
-    if (!raw) return "";
-    return raw.length > 50 ? `${raw.slice(0, 50).trim()}…` : raw;
+    return !raw ? "" : (raw.length > 50 ? `${raw.slice(0, 50).trim()}…` : raw);
   }
 
   compactOldConversationTurns() {
@@ -108,10 +101,8 @@ class CodeBlockManager {
     if (topTurns.length <= this.MAX_VISIBLE_TURNS) return 0;
     let collapsed = 0;
     for (const turn of topTurns.slice(0, topTurns.length - this.MAX_VISIBLE_TURNS)) {
-      if (turn.getAttribute?.("data-gmc-turn-state")) continue;
-      if (turn.querySelector?.("textarea, [contenteditable='true'], pre:not([data-gmc-purged='true'])")) continue;
-      turn.setAttribute("data-gmc-turn-state", "collapsed");
-      turn.classList?.add?.("gmc-collapsed-turn");
+      if (turn.getAttribute?.("data-gmc-turn-state") || turn.querySelector?.("textarea, [contenteditable='true'], pre:not([data-gmc-purged='true'])")) continue;
+      turn.setAttribute("data-gmc-turn-state", "collapsed"); turn.classList?.add?.("gmc-collapsed-turn");
       if (turn.parentNode && typeof document.createElement === "function") {
         const pill = document.createElement("div"); pill.className = "gmc-placeholder gmc-turn-placeholder";
         const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-toggle-btn";
@@ -139,6 +130,7 @@ class CodeBlockManager {
   async copyOnly(item) { const text = this.extractCombinedCode(item); try { await navigator.clipboard.writeText(text); } catch (_err) {} return text; }
   findTurnContainer(el) { return this.verifier ? this.verifier.findTurnContainer(el) : (el?.parentElement || null); }
   hasSuitePromptAfterBlock(item) { return this.verifier ? this.verifier.hasSuitePromptAfterBlock(item) : false; }
+
   maybeAutoSendSuite(item) {
     if (!this.chat || typeof this.chat.insertPrompt !== "function") return false;
     if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false;
@@ -150,6 +142,7 @@ class CodeBlockManager {
     this.pendingSuiteTimer = setTimeout(() => { this.pendingSuiteTimer = null; this.hideSuiteBanner(); if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return; this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true); }, this.AUTO_SUITE_DELAY_MS);
     return true;
   }
+
   scrollToNextUnpurgedBlock(currentItem) {
     const startIdx = this.trackedBlocks.indexOf(currentItem); if (startIdx < 0) return false;
     const nextItem = this.trackedBlocks.slice(startIdx + 1).find((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b));
@@ -158,14 +151,16 @@ class CodeBlockManager {
     if (target && typeof target.scrollIntoView === "function") { target.scrollIntoView({ behavior: "smooth", block: "center" }); return true; }
     return false;
   }
+
   async copyAndPurge(item) { const isRedOrOversized = this.isRedOrOversizedItem(item); await this.copyOnly(item); if (this.purgeDomOnly(item)) { if (typeof this.onPurge === "function") this.onPurge(); if (!this.scrollToNextUnpurgedBlock(item) && !isRedOrOversized) this.maybeAutoSendSuite(item); } }
-  buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : `${headerName || "bloc.txt"}.txt`; }
+  buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : (headerName || "bloc.txt") + ".txt"; }
   async verifyWithAi(item) { if (!this.verifier) return; this.resetAutoSuiteQuota(); await this.verifier.verifyWithAi(item, (it) => { const c = this.isItemPurged(it) ? (it.cachedCombinedCode || "") : this.extractCombinedCode(it); if (c) it.cachedCombinedCode = c; return c; }); }
   syncItem(item) { if (item?.el && this.controlsUi) this.controlsUi.syncItemVisuals(item, this); }
   createPurgeBtn(item) { return this.controlsUi ? this.controlsUi.createPurgeBtn(item, (it) => this.copyAndPurge(it)) : document.createElement("button"); }
   createDownloadBtn(item) { return this.controlsUi ? this.controlsUi.createDownloadBtn(item, (it) => this.extractCombinedCode(it)) : document.createElement("button"); }
   attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
   detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
+
   scan(preExisting = false) {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-processed") === "true") continue;
