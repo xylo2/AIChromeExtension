@@ -42,7 +42,7 @@ test("chaque module est concis (<= 180 lignes), sans triple backtick littéral n
     const lines = code.split("\n").length;
     assert.ok(lines <= 180, `${mod} dépasse 180 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
-    assert.equal(/\b(?:scrollIntoView|scrollTo|scrollBy)\b/.test(code), false, `Scroll auto interdit dans ${mod}`);
+    assert.equal(/\b(?:scrollIntoView|scrollBy)\b/.test(code), false, `Scroll auto interdit dans ${mod}`);
   }
   const popupHtml = fs.readFileSync(path.join(EXTENSION_DIR, "popup.html"), "utf-8");
   assert.ok(popupHtml.includes('href="popup.css"'));
@@ -67,18 +67,31 @@ test("chaque module est concis (<= 180 lignes), sans triple backtick littéral n
   assert.ok(eventsJs.includes("composerUi.pickExcuse()"));
   assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
-test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) et WatcherPopupController fonctionnent", async () => {
+test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll au commit, 2 boutons) et WatcherPopupController fonctionnent", async () => {
+  let blurred = false, scrollRestores = 0;
+  const scrollerParent = {
+    tagName: "DIV", scrollTop: 420, scrollLeft: 0, scrollHeight: 1500, clientHeight: 600, parentElement: null, children: [],
+    insertBefore(n) { n.parentElement = this; n.parentNode = this; this.children.push(n); }
+  };
   const makeNode = (tag) => ({
-    tagName: tag, className: "", textContent: "", type: "", checked: false, dataset: {}, children: [], listeners: {},
-    append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
+    tagName: tag, className: "", textContent: "", type: "", checked: false, dataset: {}, attrs: {}, children: [], listeners: {},
+    parentNode: scrollerParent, parentElement: scrollerParent, nextSibling: null,
+    classList: { add() {}, remove() {} },
+    getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; },
+    querySelector() { return null; }, blur() { blurred = true; },
+    append(...items) { this.children.push(...items); }, appendChild(n) { n.parentElement = this; n.parentNode = this; this.children.push(n); },
+    insertBefore(n) { n.parentElement = this; n.parentNode = this; this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
   });
+  const preCommit = makeNode("PRE");
+  preCommit.textContent = "=== COMMIT_MESSAGE ===\nfeat: test\n";
   const sandbox = {
-    window: {},
+    window: { scrollX: 0, scrollY: 310, scrollTo(_x, y) { this.scrollY = y; scrollRestores += 1; } },
     Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async () => {} } },
-    document: { getElementById: () => null, addEventListener() {}, createElement: makeNode, body: makeNode("BODY"), querySelectorAll: () => [{ textContent: "x".repeat(400) }] },
-    chrome: { runtime: { id: "test-ext-id" }, storage: { local: { get: (_k, cb) => cb({}) } } }
+    document: { getElementById: () => null, addEventListener() {}, createElement: makeNode, body: makeNode("BODY"), querySelectorAll: (sel) => (sel === "pre" ? [preCommit] : [{ textContent: "x".repeat(400) }]) },
+    chrome: { runtime: { id: "test-ext-id", lastError: null, sendMessage(_p, cb) { scrollerParent.scrollTop = 999; sandbox.window.scrollY = 888; cb({ ok: true }); } }, storage: { local: { get: (_k, cb) => cb({}) } } },
+    setTimeout: () => 1, clearTimeout() {}, requestAnimationFrame: (fn) => fn()
   };
   vm.createContext(sandbox);
   for (const mod of ["spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js", "token_budget.js", "git_commit_ui.js", "git_panel.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js", "content_events.js", "popup_view.js", "popup.js"]) {
@@ -106,11 +119,18 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) 
   });
   eventsCtrl.bindAll();
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
+  gitMgr.scanCommitBlocks();
+  const commitBtn = scrollerParent.children.at(0).children.at(0);
+  await commitBtn.listeners.click({ preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
+  assert.equal(blurred, true);
+  assert.equal(scrollerParent.scrollTop, 420);
+  assert.equal(sandbox.window.scrollY, 310);
+  assert.ok(scrollRestores >= 1);
+
   gitMgr.open([{ status: "M", path: "app.py" }]);
   const actionBtns = gitMgr.panelEl.children.at(2).children;
   assert.deepEqual(actionBtns.map((b) => b.textContent), ["Fermer", "📤 Transmettre à l'IA"]);
   gitMgr.close();
-  assert.equal(typeof gitMgr.uiHelper.captureScrollAnchor, "undefined");
   const commitPrompt = gitMgr.buildCommitPrompt(["app.py"], "git_changes.diff.txt");
   assert.ok(commitPrompt.includes("correction"));
   assert.ok(commitPrompt.includes("=== COMMIT_MESSAGE ==="));
