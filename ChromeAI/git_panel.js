@@ -7,14 +7,13 @@ class GitPanelManager {
   }
   buildVerifyPrompt(selectedFiles, diffFilename) {
     const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
-    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n**Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable) et précise explicitement en une ou deux phrases si **tout va bien** ou s'il y a une anomalie (sans générer de message de commit).`;
+    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable).\n2. **Action selon le résultat** :\n   - **S'il y a un problème** : signale l'anomalie et fournis directement la **correction** (blocs \x60=== FILE: ... ===\x60 <= 75 lignes), sans générer de message de commit.\n   - **S'il n'y a pas de problème** : précise en une phrase que **tout va bien** et propose uniquement un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
   }
   buildCommitMessageOnlyPrompt() {
     return "Génère maintenant uniquement le **message de commit** correspondant aux modifications vérifiées ci-dessus, dans un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne (sans balise \x60=== FILE ===\x60), structuré avec un **Titre** Conventional Commits en français (apport fonctionnel) et un **Corps** décrivant l'apport fonctionnel puis les détails techniques (tests unitaires).";
   }
   buildCommitPrompt(selectedFiles, diffFilename) {
-    const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
-    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème et précise en une ou deux phrases si **tout va bien** ou s'il y a une anomalie.\n2. **Message de commit** : propose ensuite un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
+    return this.buildVerifyPrompt(selectedFiles, diffFilename);
   }
   extractCommitMessage(pre) {
     const lines = this.spill.extractRawCode(pre).split("\n");
@@ -42,11 +41,9 @@ class GitPanelManager {
     });
     const actions = document.createElement("div"); actions.className = "gmc-git-panel-actions";
     const closeBtn = document.createElement("button"); closeBtn.type = "button"; closeBtn.className = "gmc-git-btn-close"; closeBtn.textContent = "Fermer"; closeBtn.addEventListener("click", () => this.close());
-    const verifyBtn = document.createElement("button"); verifyBtn.type = "button"; verifyBtn.className = "gmc-git-btn-verify"; verifyBtn.textContent = "🔍 Vérifier diff";
-    const validateBtn = document.createElement("button"); validateBtn.type = "button"; validateBtn.className = "gmc-git-btn-validate"; validateBtn.textContent = "✅ Diff + Commit msg";
-    verifyBtn.addEventListener("click", () => this.submitSelection(checkboxes, verifyBtn, [verifyBtn, validateBtn], "verify"));
-    validateBtn.addEventListener("click", () => this.submitSelection(checkboxes, validateBtn, [verifyBtn, validateBtn], "commit"));
-    actions.append(closeBtn, verifyBtn, validateBtn); panel.append(header, list, actions); document.body.appendChild(panel); this.panelEl = panel;
+    const sendBtn = document.createElement("button"); sendBtn.type = "button"; sendBtn.className = "gmc-git-btn-validate"; sendBtn.textContent = "📤 Transmettre à l'IA";
+    sendBtn.addEventListener("click", () => this.submitSelection(checkboxes, sendBtn, [sendBtn], "commit"));
+    actions.append(closeBtn, sendBtn); panel.append(header, list, actions); document.body.appendChild(panel); this.panelEl = panel;
   }
   submitSelection(checkboxes, triggerBtn, actionBtns, mode) {
     const selected = checkboxes.filter((c) => c.checked).map((c) => c.dataset.path); if (selected.length === 0) return;

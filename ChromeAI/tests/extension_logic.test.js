@@ -61,14 +61,19 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(eventsJs.includes("composerUi.pickExcuse()"));
   assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
-test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherPopupController fonctionnent", async () => {
+test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) et WatcherPopupController fonctionnent", async () => {
   const scrollCalls = [];
   const winObj = { scrollX: 0, scrollY: 420, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollCalls.push({ x, y }); }, scrollBy() {} };
+  const makeNode = (tag) => ({
+    tagName: tag, className: "", textContent: "", type: "", checked: false, dataset: {}, children: [], listeners: {},
+    append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
+    addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
+  });
   const sandbox = {
     window: winObj,
     Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async () => { winObj.scrollY = 0; } } },
-    document: { getElementById: () => null, addEventListener() {}, querySelectorAll: () => [{ textContent: "x".repeat(400) }] },
+    document: { getElementById: () => null, addEventListener() {}, createElement: makeNode, body: makeNode("BODY"), querySelectorAll: () => [{ textContent: "x".repeat(400) }] },
     chrome: { runtime: { id: "test-ext-id" }, storage: { local: { get: (_k, cb) => cb({}) } } }
   };
   vm.createContext(sandbox);
@@ -89,11 +94,18 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.equal(purgeNotified, 1);
   winObj.scrollY = 420;
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
+  gitMgr.open([{ status: "M", path: "app.py" }]);
+  const actionBtns = gitMgr.panelEl.children.at(2).children;
+  assert.deepEqual(actionBtns.map((b) => b.textContent), ["Fermer", "📤 Transmettre à l'IA"]);
+  gitMgr.close();
   const restore = gitMgr.uiHelper.captureScrollAnchor({ getBoundingClientRect: () => ({ top: 200 }) });
   await sandbox.navigator.clipboard.writeText("feat: test");
   restore();
   assert.equal(winObj.scrollY, 420);
   assert.equal(scrollCalls.length, 1);
+  const commitPrompt = gitMgr.buildCommitPrompt(["app.py"], "git_changes.diff.txt");
+  assert.ok(commitPrompt.includes("correction"));
+  assert.ok(commitPrompt.includes("=== COMMIT_MESSAGE ==="));
   assert.ok(gitMgr.buildCommitMessageOnlyPrompt().includes("=== COMMIT_MESSAGE ==="));
   const rawPushErr = "To https:" + "//example" + ".com\n ! [rejected] HEAD -> main (non-fast-forward)\nfatal: failed to push";
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
