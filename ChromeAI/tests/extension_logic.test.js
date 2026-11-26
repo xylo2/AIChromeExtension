@@ -87,34 +87,28 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll) et WatcherP
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
 });
 
-test("GitCommitUiHelper.findNewChatButton et buildFreshChatUrl ouvrent une session vierge", () => {
-  let newChatClicked = false, storedPayload = null, assignedUrl = "";
-  const timeouts = [];
-  const newChatBtn = { className: "new-chat-btn", textContent: "Nouveau chat", getAttribute: () => "", click() { newChatClicked = true; } };
+test("GitCommitUiHelper.buildFreshChatUrl et createFreshExportButton ouvrent une session vierge", () => {
+  let storedPayload = null;
   const baseUrl = ["https://www", "google", "com"].join(".");
-  const searchHref = new URL("/search?udm=50&q=test&ei=123#hash", baseUrl).toString();
+  const searchHref = new URL("/search?udm=50&hl=fr&q=test&gsessionid=abc&lsessionid=def&vsrid=xyz&mstk=123#hash", baseUrl).toString();
   const appHref = new URL("/app/session-12345?hl=fr#top", baseUrl).toString();
+  const locObj = { href: searchHref };
   const sandbox = {
     URL,
-    setTimeout: (fn) => timeouts.push(fn),
-    window: { location: { href: searchHref, assign(u) { assignedUrl = u; } } },
+    window: { location: locObj },
     document: {
-      querySelectorAll: (sel) => (sel === "pre" ? [{ tagName: "PRE" }] : [newChatBtn]),
       createElement: () => ({ type: "", className: "", textContent: "", title: "", disabled: false, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } })
     },
-    chrome: { storage: { local: { set(obj) { storedPayload = obj; } } } }
+    chrome: { storage: { local: { set(obj, cb) { storedPayload = obj; if (cb) cb(); } } } }
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "git_commit_ui.js"), "utf-8"), sandbox);
   const helper = new sandbox.window.GmcGitCommitUiHelper(null);
-  assert.equal(helper.findNewChatButton(), newChatBtn);
-  assert.equal(helper.buildFreshChatUrl(searchHref), `${baseUrl}/search?udm=50`);
+  assert.equal(helper.buildFreshChatUrl(searchHref), `${baseUrl}/search?udm=50&hl=fr`);
   assert.equal(helper.buildFreshChatUrl(appHref), `${baseUrl}/`);
   const btn = helper.createFreshExportButton();
   btn.listeners.click({ preventDefault() {}, stopPropagation() {} });
   assert.equal(btn.disabled, true);
-  assert.equal(newChatClicked, true);
   assert.ok(typeof storedPayload?.pendingFreshExportAt === "number");
-  timeouts.forEach((fn) => fn());
-  assert.equal(assignedUrl, `${baseUrl}/search?udm=50`);
+  assert.equal(locObj.href, `${baseUrl}/search?udm=50&hl=fr`);
 });

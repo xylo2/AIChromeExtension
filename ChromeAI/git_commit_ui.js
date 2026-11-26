@@ -56,22 +56,12 @@ class GitCommitUiHelper {
       if (!settled) { settled = true; clearTimeout(timer); onDone({ ok: false, error: err?.message || "Contexte d'extension invalidé (F5 requis)." }); }
     }
   }
-  findNewChatButton() {
-    const nodes = this.chat?.queryDeepAll ? this.chat.queryDeepAll("button, a, [role='button']") : Array.from(document.querySelectorAll("button, a, [role='button']"));
-    const matchBtn = (el) => {
-      if (!el || String(el.className || "").includes("gmc-")) return false;
-      const meta = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("title") || ""} ${el.getAttribute?.("data-testid") || ""} ${el.textContent || ""}`.toLowerCase();
-      return /(?:nouveau\s+chat|nouvelle\s+(?:discussion|conversation)|new\s+chat|démarrer\s+une\s+nouvelle|start\s+new)/i.test(meta);
-    };
-    const visibleFirst = nodes.find((el) => matchBtn(el) && (!this.chat?.isElementVisible || this.chat.isElementVisible(el)));
-    return visibleFirst || nodes.find(matchBtn) || null;
-  }
-
   buildFreshChatUrl(currentHref) {
     const url = new URL(currentHref);
     if (url.pathname.startsWith("/search")) {
-      const udm = url.searchParams.get("udm");
-      url.search = udm ? `?udm=${encodeURIComponent(udm)}` : "";
+      const udm = url.searchParams.get("udm") || "50";
+      const hl = url.searchParams.get("hl");
+      url.search = `?udm=${encodeURIComponent(udm)}${hl ? `&hl=${encodeURIComponent(hl)}` : ""}`;
       url.hash = "";
       return url.toString();
     }
@@ -87,16 +77,10 @@ class GitCommitUiHelper {
     freshBtn.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       freshBtn.disabled = true; freshBtn.textContent = "⏳ Nouveau chat...";
-      if (chrome.storage?.local) chrome.storage.local.set({ pendingFreshExportAt: Date.now() });
-      const newChatEl = this.findNewChatButton();
-      if (newChatEl) {
-        newChatEl.click();
-        setTimeout(() => {
-          if (document.querySelectorAll("pre").length > 0) window.location.assign(this.buildFreshChatUrl(window.location.href));
-        }, 1200);
-        return;
-      }
-      window.location.assign(this.buildFreshChatUrl(window.location.href));
+      const targetUrl = this.buildFreshChatUrl(window.location.href);
+      const navigate = () => { window.location.href = targetUrl; };
+      if (chrome.storage?.local) chrome.storage.local.set({ pendingFreshExportAt: Date.now() }, navigate);
+      else navigate();
     });
     return freshBtn;
   }
