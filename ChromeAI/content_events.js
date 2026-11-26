@@ -7,6 +7,8 @@ class ContentEventsController {
     this.autoFixEnabled = false;
     this.autoTestEnabled = false;
     this.lastAutoSyntaxSig = "";
+    this.autoSyntaxAttemptsByFile = new Map();
+    this.MAX_AUTO_SYNTAX_PER_FILE = 2;
     this.lastAutoTestEventSig = "";
   }
 
@@ -28,6 +30,11 @@ class ContentEventsController {
       els.autoTestBtn.textContent = this.autoTestEnabled ? "🧪 Auto-tests: ON" : "🧪 Auto-tests: OFF";
       els.autoTestBtn.classList.toggle("state-pass", this.autoTestEnabled);
     }
+  }
+
+  extractSyntaxEventFile(evSig) {
+    const m = String(evSig || "").match(/^\[SYNTAXE\]\s+([^\s(]+)/);
+    return m ? m.at(1) : "";
   }
 
   sendSyntaxErrorToAi(fallbackText = "") {
@@ -73,12 +80,25 @@ class ContentEventsController {
       });
     });
   }
+
   handleStateUpdate(nextState) {
     this.ctx.setWatcherState(nextState);
     this.ctx.updateIndicators();
     const evSig = String(nextState?.lastEvent || "");
+    const okMatch = evSig.match(/^\[(?:OK|COMPLET)\]\s+([^\s(]+)/);
+    if (okMatch) this.autoSyntaxAttemptsByFile.delete(okMatch.at(1));
     if (this.autoFixEnabled && nextState?.hasSyntaxError && evSig) {
-      if (evSig !== this.lastAutoSyntaxSig) { this.lastAutoSyntaxSig = evSig; this.sendSyntaxErrorToAi(evSig); }
+      if (evSig !== this.lastAutoSyntaxSig) {
+        this.lastAutoSyntaxSig = evSig;
+        const fileKey = this.extractSyntaxEventFile(evSig) || "__default__";
+        const tries = this.autoSyntaxAttemptsByFile.get(fileKey) || 0;
+        if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) {
+          if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = `⏸️ Auto-fix max (${fileKey})`;
+          return;
+        }
+        this.autoSyntaxAttemptsByFile.set(fileKey, tries + 1);
+        this.sendSyntaxErrorToAi(evSig);
+      }
       return;
     }
     if (!nextState?.hasSyntaxError) this.lastAutoSyntaxSig = "";
@@ -95,6 +115,8 @@ class ContentEventsController {
     this.loadPrefs();
     els.autoSyntaxBtn?.addEventListener("click", () => {
       this.autoFixEnabled = !this.autoFixEnabled;
+      this.autoSyntaxAttemptsByFile.clear();
+      this.lastAutoSyntaxSig = "";
       chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled });
       this.syncToggleButtons();
       if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState());

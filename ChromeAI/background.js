@@ -50,7 +50,6 @@ class WatcherBackgroundService {
   }
 
   updateBadge(isRunning) { chrome.action.setBadgeText({ text: isRunning ? "ON" : "OFF" }); chrome.action.setBadgeBackgroundColor({ color: isRunning ? "#16a34a" : "#dc2626" }); }
-
   async checkStatus(forceBroadcast = false) {
     if (this.isChecking) return (await chrome.storage.local.get("watchClipboardState")).watchClipboardState || { running: false };
     this.isChecking = true;
@@ -76,6 +75,7 @@ class WatcherBackgroundService {
     if (forceBroadcast || this.lastKnownSignature !== signature) { this.lastKnownSignature = signature; await this.broadcastStateToTabs(state); }
     return state;
   }
+
   async waitForExpectedState(expectedRunning, maxWaitMs = 4500) {
     const deadline = Date.now() + maxWaitMs;
     let state = await this.checkStatus(true);
@@ -114,7 +114,6 @@ class WatcherBackgroundService {
       return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, opts, await this.getApiToken())).json();
     } catch (err) { return { ok: false, error: `${errFallback} (${err?.message || "réseau"})` }; }
   }
-
   async getJson(endpoint, timeoutMs = 10000, errFallback = "Erreur lecture.") {
     try { return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, await this.getApiToken())).json(); }
     catch (_err) { return { ok: false, error: errFallback }; }
@@ -144,6 +143,7 @@ class WatcherBackgroundService {
     const routes = {
       REFRESH_STATUS: () => this.checkStatus(true), START_WATCHER: () => this.startWatcher(message.targetDir, message.extraArgs), STOP_WATCHER: () => this.stopWatcher(),
       EXPORT_FOLDERS: () => this.getJson("/export-folders", 5000, "Impossible de lister les dossiers."),
+      EXPORT_PREVIEW: () => { const subs = Array.isArray(message.subpaths) && message.subpaths.length > 0 ? `?subpaths=${enc(message.subpaths.join(","))}` : ""; return this.getJson(`/export-preview${subs}`, 15000, "Aperçu indisponible."); },
       EXPORT_PROJECT: () => this.postJson("/export-project", { mode: message.mode || "full", subpaths: Array.isArray(message.subpaths) ? message.subpaths : [] }, 65000, "Impossible de générer l'export du projet."),
       GIT_STATUS: () => this.getJson("/git-status", 10000, "Impossible de lire git status."),
       GIT_DIFF_SELECTED: () => this.postJson("/git-diff", { files: message.files || [] }, 15000, "Impossible de récupérer git diff."),

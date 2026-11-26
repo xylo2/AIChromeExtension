@@ -1,6 +1,7 @@
 pre.gmc-collapsed-code,
 code.gmc-collapsed-code,
-.gmc-spilled-hidden {
+.gmc-spilled-hidden,
+.gmc-collapsed-turn {
   display: none !important;
 }
 
@@ -18,6 +19,11 @@ code.gmc-collapsed-code,
   font-size: 13px;
   font-weight: 500;
   border: 1px solid #dadce0;
+}
+
+.gmc-turn-placeholder {
+  opacity: 0.85;
+  padding: 4px 10px;
 }
 
 .gmc-placeholder-main {

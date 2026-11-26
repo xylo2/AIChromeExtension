@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import os
 import shlex
 import signal
@@ -28,6 +26,12 @@ def handle_get_request(handler: Any) -> None:
     if parsed.path == "/export-folders":
         handler._send_json(200, {"ok": True, "folders": handler._exporter().list_top_folders()})
         return
+    if parsed.path == "/export-preview":
+        raw_sub: str = next(iter(params.get("subpaths", [])), "").strip()
+        subpaths: List[str] = [s.strip() for s in raw_sub.split(",") if s.strip()] if raw_sub else []
+        ok_p, modes_map, err_p = handler._exporter().preview_all_modes(subpaths=subpaths)
+        handler._send_json(200 if ok_p else 500, {"ok": True, "modes": modes_map} if ok_p else {"ok": False, "error": err_p})
+        return
     if parsed.path == "/git-status":
         ok_g, entries, err_g = handler._git_status_entries()
         handler._send_json(200 if ok_g else 400, {"ok": ok_g, "entries": entries, "error": err_g})
@@ -55,8 +59,6 @@ def handle_get_request(handler: Any) -> None:
         "recent_events": list(getattr(handler.assembler_ref, "recent_events", [])),
         "has_syntax_error": bool(syn_err),
     })
-
-
 def handle_post_request(handler: Any) -> None:
     if not handler._is_authorized():
         handler._drain_unread_body()

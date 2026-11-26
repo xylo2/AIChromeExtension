@@ -1,12 +1,13 @@
 /**
- * Gestion du repliage, de la purge DOM et de l'enchaînement auto-Suite des blocs FILE / SVG.
+ * Gestion du repliage, de la purge DOM, de la compaction des tours et de l'auto-Suite.
  */
 class CodeBlockManager {
   constructor(spillDetector, chatInjector, onPurgeCallback = null, svgPreview = null) {
     this.spill = spillDetector; this.chat = chatInjector; this.onPurge = onPurgeCallback; this.svgPreview = svgPreview;
     this.verifier = window.GmcBlockVerificationHelper ? new window.GmcBlockVerificationHelper(chatInjector, spillDetector) : null;
     this.controlsUi = window.GmcBlockControlsUiHelper ? new window.GmcBlockControlsUiHelper(spillDetector, svgPreview) : null;
-    this.MAX_SAFE_LINES = 95; this.MAX_ACTIVE_DOM_BLOCKS = 4; this.AUTO_SUITE_DELAY_MS = 2800; this.MAX_CONSECUTIVE_AUTO_SUITE = 2;
+    this.MAX_SAFE_LINES = 95; this.MAX_ACTIVE_DOM_BLOCKS = 4; this.MAX_VISIBLE_TURNS = 4;
+    this.AUTO_SUITE_DELAY_MS = 2800; this.MAX_CONSECUTIVE_AUTO_SUITE = 2;
     this.trackedBlocks = []; this.autoSentSuiteForTurn = null; this.consecutiveAutoSuiteCount = 0; this.pendingSuiteTimer = null;
     this.bindUserTypingCancelsAutoSuite();
   }
@@ -56,7 +57,6 @@ class CodeBlockManager {
     if (lineCount > this.MAX_SAFE_LINES) return `⚠️ ${headerName}${svgTag} (${lineCount} lignes — bloc long)`;
     return `${hasSvg ? "🖼️" : "📄"} ${headerName}${svgTag} (${lineCount} lignes)`;
   }
-
   extractCombinedCode(item) {
     if (this.isItemPurged(item) && item.cachedCombinedCode) return item.cachedCombinedCode;
     const baseCode = this.spill.extractRawCode(item.el);
@@ -66,6 +66,7 @@ class CodeBlockManager {
     if (combined) item.cachedCombinedCode = combined;
     return combined;
   }
+
   purgeDomOnly(item, customMessage = "Contenu copié et purgé") {
     const { el, labelEl, purgeButtons, verifyBtn, headerName, spilledNodes } = item;
     if (!el || this.isItemPurged(item)) return false;
@@ -93,6 +94,28 @@ class CodeBlockManager {
     return count;
   }
 
+  compactOldConversationTurns() {
+    if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") return 0;
+    const allTurns = Array.from(document.querySelectorAll("[data-aim-turn], [data-turn-id], message-content, model-response"));
+    const topTurns = allTurns.filter((el) => !allTurns.some((other) => other !== el && other.contains?.(el)));
+    if (topTurns.length <= this.MAX_VISIBLE_TURNS) return 0;
+    let collapsed = 0;
+    for (const turn of topTurns.slice(0, topTurns.length - this.MAX_VISIBLE_TURNS)) {
+      if (turn.getAttribute?.("data-gmc-turn-state")) continue;
+      if (turn.querySelector?.("textarea, [contenteditable='true'], pre:not([data-gmc-purged='true'])")) continue;
+      turn.setAttribute("data-gmc-turn-state", "collapsed");
+      turn.classList?.add?.("gmc-collapsed-turn");
+      if (turn.parentNode && typeof document.createElement === "function") {
+        const pill = document.createElement("div"); pill.className = "gmc-placeholder gmc-turn-placeholder";
+        const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-toggle-btn";
+        btn.textContent = "💬 Tour ancien masqué (Afficher)";
+        btn.addEventListener("click", () => { turn.setAttribute("data-gmc-turn-state", "expanded"); turn.classList?.remove?.("gmc-collapsed-turn"); pill.remove(); });
+        pill.appendChild(btn); turn.parentNode.insertBefore(pill, turn);
+      }
+      collapsed += 1;
+    }
+    return collapsed;
+  }
   async copyAndPurgeAll() {
     const targets = this.getUnpurgedBlocks();
     if (targets.length === 0) return 0;
@@ -166,6 +189,7 @@ class CodeBlockManager {
       this.attachHeaderControls(pre, item); this.syncItem(item);
     }
     this.compactExcessDomBlocks();
+    this.compactOldConversationTurns();
     for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
   }
 }

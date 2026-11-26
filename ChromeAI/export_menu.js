@@ -1,5 +1,5 @@
 /**
- * Menu de sélection du type d'export, filtrage par dossiers et alertes budget tokens.
+ * Menu de sélection du type d'export, filtrage par dossiers et estimation dynamique de tokens.
  */
 class ExportMenuManager {
   constructor() {
@@ -11,6 +11,13 @@ class ExportMenuManager {
       { id: "tests", label: "🧪 Tests uniquement 🟡", hint: "Uniquement les suites de tests unitaires" },
       { id: "full", label: "📦 Export complet (code + tests) 🔴", hint: "Tous les fichiers sources et les tests (à réserver aux nouveaux chats)" }
     ];
+  }
+
+  formatTokenBadge(info) {
+    if (!info || typeof info.tokens !== "number") return "";
+    const tokStr = info.tokens >= 1000 ? `~${(info.tokens / 1000).toFixed(1)}k tok` : `~${info.tokens} tok`;
+    const fileStr = typeof info.files === "number" ? `, ${info.files} fic.` : "";
+    return ` (${tokStr}${fileStr})`;
   }
 
   buildExportPrompt(mode, filename, fileCount, estTokens, subpaths = []) {
@@ -31,6 +38,27 @@ class ExportMenuManager {
   }
 
   close() { if (this.menuEl) { this.menuEl.remove(); this.menuEl = null; } }
+  refreshDynamicEstimates(modeBtnsById, folderCheckboxes) {
+    if (typeof chrome === "undefined" || !chrome.runtime?.id || typeof chrome.runtime.sendMessage !== "function") return;
+    const checked = folderCheckboxes.filter((c) => c.checked).map((c) => c.dataset.folder);
+    const subpaths = folderCheckboxes.length > 0 && checked.length < folderCheckboxes.length ? checked : [];
+    for (const item of this.MODES) {
+      const btn = modeBtnsById[item.id];
+      if (btn) btn.textContent = `${item.label} (…)`;
+    }
+    try {
+      chrome.runtime.sendMessage({ type: "EXPORT_PREVIEW", subpaths }, (res) => {
+        if (!this.menuEl || !res?.ok || !res.modes) {
+          for (const item of this.MODES) { if (modeBtnsById[item.id]) modeBtnsById[item.id].textContent = item.label; }
+          return;
+        }
+        for (const item of this.MODES) {
+          const btn = modeBtnsById[item.id];
+          if (btn) btn.textContent = `${item.label}${this.formatTokenBadge(res.modes[item.id])}`;
+        }
+      });
+    } catch (_err) {}
+  }
 
   toggle(onSelectMode, folders = []) {
     if (this.menuEl) { this.close(); return; }
@@ -40,6 +68,7 @@ class ExportMenuManager {
     header.className = "gmc-git-panel-header";
     header.textContent = "📦 Choisir le périmètre (🟢 = économe en tokens)";
     const folderCheckboxes = [];
+    const modeBtnsById = {};
     const folderBox = document.createElement("div");
     folderBox.className = "gmc-export-folders-box";
     if (Array.isArray(folders) && folders.length > 0) {
@@ -54,6 +83,7 @@ class ExportMenuManager {
         lbl.className = "gmc-export-folder-chip";
         const cb = document.createElement("input");
         cb.type = "checkbox"; cb.checked = true; cb.dataset.folder = dirName;
+        cb.addEventListener("change", () => this.refreshDynamicEstimates(modeBtnsById, folderCheckboxes));
         folderCheckboxes.push(cb);
         lbl.append(cb, document.createTextNode(` ${dirName}`));
         grid.appendChild(lbl);
@@ -66,6 +96,7 @@ class ExportMenuManager {
       const btn = document.createElement("button");
       btn.type = "button"; btn.className = "gmc-git-item-row gmc-export-mode-btn";
       btn.title = item.hint; btn.textContent = item.label;
+      modeBtnsById[item.id] = btn;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const checked = folderCheckboxes.filter((c) => c.checked).map((c) => c.dataset.folder);
@@ -84,6 +115,7 @@ class ExportMenuManager {
     panel.append(header, ...(folderCheckboxes.length > 0 ? [folderBox] : []), list, actions);
     document.body.appendChild(panel);
     this.menuEl = panel;
+    this.refreshDynamicEstimates(modeBtnsById, folderCheckboxes);
   }
 }
 window.GmcExportMenuManager = ExportMenuManager;

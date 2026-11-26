@@ -1,5 +1,6 @@
 import fnmatch
 import os
+from pathlib import Path
 import re
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -61,16 +62,16 @@ class GitOperations:
             if rel_path:
                 entries.append({"status": code, "path": rel_path.replace("\\", "/")})
         return True, entries, ""
-
     @classmethod
     def _is_noisy_diff_file(cls, rel: str) -> bool:
         bname: str = os.path.basename(rel).lower()
         return any(fnmatch.fnmatch(bname, pat) for pat in cls.NOISY_DIFF_PATTERNS)
+
     @staticmethod
     def _summarize_untracked_test(rel: str, content: str) -> str:
         low = rel.lower()
         is_test = "/tests/" in f"/{low}" or os.path.basename(low).startswith("test_") or low.endswith((".test.js", ".spec.js"))
-        if not is_test or len(content) <= 3500:
+        if is_test or len(content) <= 3500:
             return content[:12000]
         test_defs = [ln.strip() for ln in content.splitlines() if re.match(r"^\s*(?:async\s+)?(?:def\s+test_|test\(|it\()", ln)]
         summary = "\n".join(test_defs[:40]) or content[:2500]
@@ -109,7 +110,6 @@ class GitOperations:
                 with open(full_p, "r", encoding="utf-8", errors="replace") as f_ut:
                     chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + self._summarize_untracked_test(rel, f_ut.read()))
         return True, ("\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."), ""
-
     @staticmethod
     def format_push_error(raw_output: str) -> str:
         lines: List[str] = [ln.strip() for ln in raw_output.splitlines() if ln.strip()]
@@ -122,6 +122,15 @@ class GitOperations:
             summary += "\nConseil : exécutez `git config --global credential.helper manager` dans un terminal."
         return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}" if len(lines) > 1 else summary
 
+    def _run_precommit_url_cleanup(self, git_root: str) -> None:
+        try:
+            from tools.fix_urls import repair_tools_urls
+            for root_cand in {Path(git_root).resolve(), Path(self.target_dir).resolve()}:
+                if root_cand.is_dir():
+                    repair_tools_urls(root_dir=root_cand)
+        except Exception:
+            pass
+
     def commit_and_push(self, action: str, message: str = "", files: Optional[List[str]] = None, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
@@ -131,6 +140,7 @@ class GitOperations:
             clean_msg: str = message.strip()
             if not clean_msg:
                 return False, "Message de commit vide."
+            self._run_precommit_url_cleanup(git_root)
             safe_files: List[str] = [
                 str(item).strip().replace("\\", "/") for item in (files or [])
                 if str(item).strip() and not os.path.isabs(str(item).strip())
