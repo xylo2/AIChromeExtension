@@ -1,9 +1,21 @@
 // Vérification IA des blocs (unitaire ou groupée), bannière auto-Suite et fin de tour.
 class BlockVerificationHelper {
-  // Initialise l'injecteur de chat, le détecteur de débordement et l'état de la bannière.
+  // Initialise l'injecteur de chat et le détecteur de débordement.
   constructor(chatInjector, spillDetector) {
-    this.chat = chatInjector; this.spill = spillDetector; this.suiteCountdownTimer = null; this.suiteBannerEl = null;
-    this.DONE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>';
+    this.chat = chatInjector; this.spill = spillDetector;
+    this.suiteCountdownTimer = null; this.suiteBannerEl = null;
+  }
+  // Construit l'icône SVG de validation sans HTML brut.
+  createDoneSvg() {
+    const ns = "http://www" + ".w3." + "org/2000/svg";
+    const mk = (t) => (typeof document.createElementNS === "function" ? document.createElementNS(ns, t) : document.createElement(t));
+    const svg = mk("svg");
+    svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "2.2");
+    const poly = mk("polyline");
+    poly.setAttribute("points", "20 6 9 17 4 12");
+    svg.appendChild(poly); return svg;
   }
   // Construit un nom de pièce jointe de repli à partir de l'en-tête FILE ou FILE_PART.
   buildFallbackAttachmentName(headerName) {
@@ -72,25 +84,28 @@ class BlockVerificationHelper {
           { minDelayMs: 900, maxWaitMs: 4500, waitForFile: attachName }
         );
       }
-      if (btn) { btn.innerHTML = this.DONE_SVG; btn.classList.add("gmc-verified-btn"); btn.disabled = true; }
+      if (btn) { btn.textContent = ""; btn.appendChild(this.createDoneSvg()); btn.classList.add("gmc-verified-btn"); btn.disabled = true; }
     } finally { item.isVerifyingSpill = false; }
   }
   // Remonte le DOM pour identifier l'élément conteneur englobant toute la réponse du tour.
   findTurnContainer(el) {
     let curr = el, bestTurn = null, bestMultiPre = null;
     const outerTurnSel = "[data-aim-turn], model-response, .conversation-container";
-    const innerTurnSel = "[data-turn-id], message-content, article";
-    for (let depth = 0; depth < 80 && curr; depth++) {
+    for (let depth = 0; depth < 90 && curr; depth++) {
       const tag = String(curr.tagName || "").toUpperCase();
       if (["BODY", "HTML", "MAIN"].includes(tag)) break;
       if (typeof curr.querySelector === "function" && curr.querySelector("textarea, [contenteditable='true']")) break;
       if (typeof curr.querySelectorAll === "function") {
-        if (curr.querySelectorAll(outerTurnSel).length > 1 || curr.querySelectorAll("user-query").length > 0) break;
-        if (curr.querySelectorAll("pre").length > 1) bestMultiPre = curr;
-      }
-      if (typeof curr.matches === "function") {
-        if (curr.matches(outerTurnSel)) return curr;
-        if (curr.matches(innerTurnSel)) bestTurn = curr;
+        const outerCnt = curr.querySelectorAll(outerTurnSel).length;
+        const userCnt = curr.querySelectorAll("user-query").length;
+        if (outerCnt > 1 || userCnt > 1) break;
+        const preCnt = curr.querySelectorAll("pre").length;
+        if (preCnt > 1) bestMultiPre = curr;
+        if (typeof curr.matches === "function" && curr.matches(outerTurnSel)) {
+          if (preCnt > 1 || outerCnt === 0) return curr;
+          bestTurn = curr;
+        }
+        if (userCnt === 1 && preCnt > 1) return curr;
       }
       curr = curr.parentElement;
     }

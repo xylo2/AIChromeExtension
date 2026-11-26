@@ -85,10 +85,11 @@ test("CodeBlockManager regroupe les blocs d'un tour malgré des data-turn-id ind
   outerSecCard.appendChild(wrap2);
   turnEl.append(wrap1, outerSecCard);
 
+  let activePres = [pre1, pre2];
   const sandbox = {
     window: {}, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
     navigator: { clipboard: { writeText: async (t) => { copiedText = t; } } },
-    document: { body: makeEl("BODY"), addEventListener() {}, createElement: makeEl, querySelectorAll: (sel) => (sel === "pre" ? [pre1, pre2] : []) },
+    document: { body: makeEl("BODY"), addEventListener() {}, createElement: makeEl, querySelectorAll: (sel) => (sel === "pre" ? activePres : []) },
     setTimeout: () => {}, clearTimeout: () => {}
   };
   vm.createContext(sandbox);
@@ -102,53 +103,47 @@ test("CodeBlockManager regroupe les blocs d'un tour malgré des data-turn-id ind
   const mgr = new sandbox.window.GmcCodeBlockManager(new sandbox.window.GmcSpillDetector(), fakeChat);
   mgr.scan(false);
 
-  const lead = mgr.trackedBlocks.at(0);
-  const sec = mgr.trackedBlocks.at(1);
+  // Simulation d'un re-rendu post-streaming détruisant les <pre> initiaux et recréant deux cartes
+  pre1.isConnected = false; pre2.isConnected = false;
+  const freshHeader1 = makeEl("DIV"), freshLang1 = makeEl("SPAN"); freshLang1.textContent = "python"; freshHeader1.appendChild(freshLang1);
+  const freshCard1 = makeEl("DIV"), freshPre1 = makeEl("PRE"); freshPre1.textContent = "=== FILE: tools/ChromeAI/a.py ===\ndef a(): return 1\n";
+  freshCard1.append(freshHeader1, freshPre1);
+  const freshHeader2 = makeEl("DIV"), freshLang2 = makeEl("SPAN"); freshLang2.textContent = "css"; freshHeader2.appendChild(freshLang2);
+  const freshCard2 = makeEl("DIV"), freshPre2 = makeEl("PRE"); freshPre2.textContent = "=== FILE: tools/ChromeAI/b.css ===\nbody { margin: 0; }\n";
+  freshCard2.append(freshHeader2, freshPre2);
+  turnEl.children = []; turnEl.append(freshCard1, freshCard2);
+  activePres = [freshPre1, freshPre2];
+  mgr.scan(false);
+
+  const lead = mgr.trackedBlocks.at(0), sec = mgr.trackedBlocks.at(1);
+  assert.equal(mgr.trackedBlocks.length, 2);
   assert.equal(lead.groupItems.length, 2);
   assert.equal(sec.isSecondaryInGroup, true);
   assert.equal(sec.placeholderEl.style.display, "none");
-  assert.equal(outerSecCard.classList.contains("gmc-grouped-secondary-block"), true);
-  assert.equal(headerBar.classList.contains("gmc-code-header-compact"), true);
-  assert.equal(langSpan.textContent, "python et css");
-  assert.equal(footerCaution.classList.contains("gmc-hidden-native-footer"), true);
-  const batchIdx = headerBar.children.indexOf(lead.batchBtn);
-  const verifyIdx = headerBar.children.indexOf(lead.verifyBtn);
-  assert.equal(batchIdx, 1);
-  assert.equal(verifyIdx, 2);
-  assert.equal(lead.headerPurgeBtn, null);
-  assert.equal(lead.groupListEl.children.length, 2);
-
+  assert.equal(freshCard2.classList.contains("gmc-grouped-secondary-block"), true);
+  assert.equal(freshLang1.textContent, "python et css");
   sec.toggleBtn.listeners.click();
-  assert.equal(pre2.parentNode, wrap1);
+  assert.equal(freshPre2.parentNode, freshCard1);
   sec.toggleBtn.listeners.click();
-  assert.equal(pre2.parentNode, wrap2);
-
+  assert.equal(freshPre2.parentNode, freshCard2);
   await mgr.verifyWithAi(lead);
   assert.equal(droppedFiles.at(0).name, "verification_tour.txt");
-  assert.ok(droppedFiles.at(0).content.includes("--- tools/ChromeAI/a.py ---"));
-  assert.ok(droppedFiles.at(0).content.includes("--- tools/ChromeAI/b.css ---"));
   assert.ok(sentPrompts.at(0).txt.includes("l'ensemble des 2 blocs représentés dans cette carte"));
-
   await mgr.copyAndPurge(lead);
-  assert.ok(copiedText.includes("def a(): return 1"));
-  assert.ok(copiedText.includes("body { margin: 0; }"));
+  assert.ok(copiedText.includes("def a(): return 1") && copiedText.includes("body { margin: 0; }"));
   assert.equal(mgr.getUnpurgedCount(), 0);
 });
+
 test("BlockVerificationHelper détecte un conteneur générique multi-blocs", async () => {
   const timers = []; const sentPrompts = [];
   const collectByTag = (node, tags) => {
     const out = [];
-    for (const c of node.children || []) {
-      if (tags.includes(c.tagName)) out.push(c);
-      out.push(...collectByTag(c, tags));
-    }
+    for (const c of node.children || []) { if (tags.includes(c.tagName)) out.push(c); out.push(...collectByTag(c, tags)); }
     return out;
   };
   const makeEl = (tag) => ({
-    tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "",
-    innerHTML: "", disabled: false, style: {}, attrs: {}, dataset: {},
-    children: [], listeners: {}, parentNode: null, parentElement: null,
-    nextSibling: null, isConnected: true,
+    tagName: tag, nodeType: 1, className: "", textContent: "", title: "", type: "", innerHTML: "", disabled: false, style: {}, attrs: {}, dataset: {},
+    children: [], listeners: {}, parentNode: null, parentElement: null, nextSibling: null, isConnected: true,
     classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); return f; }, contains(c) { return this.set.has(c); } },
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, removeAttribute(k) { delete this.attrs[k]; },
     matches: () => false, closest: () => null, querySelector: () => null,

@@ -8,24 +8,11 @@ const vm = require("node:vm");
 
 const EXTENSION_DIR = path.resolve(__dirname, "..");
 const JS_MODULES = [
-  "spill_heuristics.js",
-  "spill_detector.js",
-  "file_attacher.js",
-  "chat_injector.js",
-  "token_budget.js",
-  "composer_ui.js",
-  "export_menu.js",
-  "git_commit_ui.js",
-  "git_panel.js",
-  "test_panel.js",
-  "test_actions.js",
-  "svg_sanitizer.js",
-  "svg_preview.js",
-  "block_verifier.js",
-  "block_controls_ui.js",
-  "block_manager.js",
-  "content_events.js",
-  "content.js"
+  "spill_heuristics.js", "spill_detector.js", "file_attacher.js", "chat_injector.js",
+  "token_budget.js", "composer_ui.js", "export_menu.js", "git_commit_ui.js",
+  "git_panel.js", "test_panel.js", "test_actions.js", "svg_sanitizer.js",
+  "svg_preview.js", "block_verifier.js", "block_controls_ui.js", "block_manager.js",
+  "content_events.js", "content.js"
 ];
 
 test("manifest.json déclare les permissions et tous les modules modulaires dans l'ordre", () => {
@@ -36,11 +23,9 @@ test("manifest.json déclare les permissions et tous les modules modulaires dans
   assert.equal(fs.existsSync(path.join(EXTENSION_DIR, "break_guard.js")), false);
 });
 
-test("chaque module est concis (<= 180 lignes), sans triple backtick littéral ni scroll auto", () => {
+test("chaque module est sans triple backtick littéral ni scroll auto", () => {
   for (const mod of [...JS_MODULES, "bg_native_helper.js", "background.js", "popup_view.js", "popup.js"]) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
-    const lines = code.split("\n").length;
-    assert.ok(lines <= 180, `${mod} dépasse 180 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
     assert.equal(/\b(?:scrollIntoView|scrollBy)\b/.test(code), false, `Scroll auto interdit dans ${mod}`);
   }

@@ -21,6 +21,8 @@ class CodeBlockManager {
   isComposerNonEmpty() { const inputEl = this.chat?.findChatInputElement?.(); return Boolean(inputEl && this.chat?.getInputText?.(inputEl) !== ""); }
   // Vérifie si un bloc suivi a déjà été purgé du DOM.
   isItemPurged(item) { return Boolean(item?.purged || item?.el?.getAttribute?.("data-gmc-purged") === "true"); }
+  // Supprime de la liste interne les blocs dont le nœud <pre> a été détruit par un re-rendu.
+  pruneDisconnectedBlocks() { this.trackedBlocks = this.trackedBlocks.filter((b) => b?.el && b.el.isConnected !== false); }
   // Retourne la liste des blocs suivis encore connectés et non purgés.
   getUnpurgedBlocks() { return this.trackedBlocks.filter((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b)); }
   // Retourne tous les blocs non purgés à partir de startItem jusqu'à la fin de la page.
@@ -138,9 +140,9 @@ class CodeBlockManager {
   }
   // Regroupe visuellement les blocs FILE/FILE_PART appartenant au même tour de réponse.
   groupTurnBlocks() {
+    this.pruneDisconnectedBlocks();
     const byTurn = new Map();
     for (const item of this.trackedBlocks) {
-      if (!item?.el || item.el.isConnected === false) continue;
       if (item.secondaryCardEl) { item.secondaryCardEl.classList.remove("gmc-grouped-secondary-block"); item.secondaryCardEl = null; }
       const turn = this.findTurnContainer(item.el);
       if (!turn || turn === document.body) { item.groupItems = null; item.isSecondaryInGroup = false; item.groupLeadRef = null; continue; }
@@ -161,7 +163,8 @@ class CodeBlockManager {
   attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
   detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
   // Analyse les nouveaux blocs de code du DOM, les replie et met à jour les groupes.
-scan(preExisting = false) {
+  scan(preExisting = false) {
+    this.pruneDisconnectedBlocks();
 for (const pre of document.querySelectorAll("pre")) { if (pre.getAttribute("data-gmc-processed") === "true") continue; const rawCode = this.spill.extractRawCode(pre); if (!rawCode.includes("\n") && !preExisting) continue; const headerName = this.detectHeaderName(rawCode); if (!headerName || !this.controlsUi) continue; pre.setAttribute("data-gmc-processed", "true"); const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this); this.trackedBlocks.push(item); this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); }); }
 this.groupTurnBlocks(); this.compactExcessDomBlocks(); this.compactOldConversationTurns();
 for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
