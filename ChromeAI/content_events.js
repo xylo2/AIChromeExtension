@@ -64,25 +64,14 @@ class ContentEventsController {
     if (actionId === "commit_msg") { const msgPrompt = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(msgPrompt); chatInjector.insertPrompt(msgPrompt, true); this.ctx.clearCommitMsgFlag(); return; }
     if (actionId === "run_tests") els.testsBtn?.click();
   }
-  ensureBuildPanel() {
-    if (!this.buildPanel && window.GmcTestOutputPanelManager) {
-      this.buildPanel = new window.GmcTestOutputPanelManager(this.ctx.chatInjector, () => this.ctx.sendBgMessage({ type: "STOP_BUILD_PACKAGE" }, () => {}), () => this.ctx.setBtnState(this.ctx.els.buildBtn, null, "🔨 Build"));
-    }
-    return this.buildPanel;
-  }
+  ensureBuildPanel() { if (!this.buildPanel && window.GmcTestOutputPanelManager) this.buildPanel = new window.GmcTestOutputPanelManager(this.ctx.chatInjector, () => this.ctx.sendBgMessage({ type: "STOP_BUILD_PACKAGE" }, () => {}), () => this.ctx.setBtnState(this.ctx.els.buildBtn, null, "🔨 Build")); return this.buildPanel; }
   finalizeBuildPackage(res) {
-    const { els, setBtnState, chatInjector, tokenBudget, updateIndicators } = this.ctx;
-    const panel = this.ensureBuildPanel();
+    const { els, setBtnState, chatInjector, tokenBudget, updateIndicators } = this.ctx, panel = this.ensureBuildPanel();
     els.buildBtn.disabled = false;
     if (this.buildAutoCloseTimer) { clearTimeout(this.buildAutoCloseTimer); this.buildAutoCloseTimer = null; }
     if (res?.stopped) { setBtnState(els.buildBtn, "fail", "⏹️ Build arrêté"); panel?.finish(false, panel.fullReport || "Génération du package arrêtée.", true); updateIndicators?.(); return; }
     const finalReport = String(res?.output || panel?.fullReport || "").trim();
-    if (res?.ok) {
-      panel?.finish(true, finalReport || "Package généré avec succès.", false);
-      els.buildBtn.title = finalReport || "Package généré avec succès"; setBtnState(els.buildBtn, "pass", "✅ Build OK");
-      this.buildAutoCloseTimer = setTimeout(() => { this.buildAutoCloseTimer = null; setBtnState(els.buildBtn, null, "🔨 Build"); els.buildBtn.title = "Générer le package (tools/build_package.py)"; }, 3500);
-      updateIndicators?.(); return;
-    }
+    if (res?.ok) { panel?.finish(true, finalReport || "Package généré avec succès.", false); els.buildBtn.title = finalReport || "Package généré avec succès"; setBtnState(els.buildBtn, "pass", "✅ Build OK"); this.buildAutoCloseTimer = setTimeout(() => { this.buildAutoCloseTimer = null; setBtnState(els.buildBtn, null, "🔨 Build"); els.buildBtn.title = "Générer le package (tools/build_package.py)"; }, 3500); updateIndicators?.(); return; }
     const errTxt = String(res?.error || finalReport || "Erreur lors de l'exécution de build_package.py.");
     panel?.finish(false, errTxt, false); els.buildBtn.title = errTxt; setBtnState(els.buildBtn, "fail", "❌ Build KO");
     const trimmedErr = errTxt.length > 3200 ? `${errTxt.slice(0, 3200).trim()}\n[... tronqué ...]` : errTxt;
@@ -91,8 +80,7 @@ class ContentEventsController {
     updateIndicators?.();
   }
   triggerBuildPackage() {
-    const { els, sendBgMessage, setBtnState, updateIndicators } = this.ctx;
-    const panel = this.ensureBuildPanel();
+    const { els, sendBgMessage, setBtnState, updateIndicators } = this.ctx, panel = this.ensureBuildPanel();
     if (!els.buildBtn || els.buildBtn.disabled || panel?.isRunning) { if (panel?.isRunning && !panel.panelEl) panel.toggle(); return; }
     els.buildBtn.disabled = true; setBtnState(els.buildBtn, "running", "⏳ Build...");
     panel?.open("⏳ Exécution de build_package.py en cours...", "", true); updateIndicators?.();
@@ -102,22 +90,13 @@ class ContentEventsController {
       if (!startRes?.ok && !/déjà en cours/i.test(errTxt)) { this.finalizeBuildPackage(startRes); return; }
       let offset = 0;
       if (window.__gmcBuildStreamTimer) clearInterval(window.__gmcBuildStreamTimer);
-      window.__gmcBuildStreamTimer = setInterval(() => {
-        sendBgMessage({ type: "POLL_BUILD_STREAM", offset }, (snap) => {
-          if (!snap?.ok) return;
-          if (snap.chunk) panel?.appendChunk(snap.chunk);
-          offset = Number(snap.offset || offset);
-          if (!snap.running) { clearInterval(window.__gmcBuildStreamTimer); window.__gmcBuildStreamTimer = null; this.finalizeBuildPackage(snap); }
-        });
-      }, 300);
+      window.__gmcBuildStreamTimer = setInterval(() => { sendBgMessage({ type: "POLL_BUILD_STREAM", offset }, (snap) => { if (!snap?.ok) return; if (snap.chunk) panel?.appendChunk(snap.chunk); offset = Number(snap.offset || offset); if (!snap.running) { clearInterval(window.__gmcBuildStreamTimer); window.__gmcBuildStreamTimer = null; this.finalizeBuildPackage(snap); } }); }, 300);
     });
   }
   triggerQuickCommitFlow() {
     const { els, blockManager, chatInjector, gitManager, sendBgMessage, setBtnState, tokenBudget, updateIndicators } = this.ctx;
     blockManager.resetAutoSuiteQuota();
-    if (typeof this.ctx.canRequestCommitMsg === "function" && this.ctx.canRequestCommitMsg()) {
-      const msgOnly = gitManager.buildCommitMessageOnlyPrompt(); tokenBudget?.recordPayload(msgOnly); chatInjector.insertPrompt(msgOnly, true); this.ctx.clearCommitMsgFlag(); return;
-    }
+    if (typeof this.ctx.canRequestCommitMsg === "function" && this.ctx.canRequestCommitMsg()) { const msgOnly = gitManager.buildCommitMessageOnlyPrompt(); tokenBudget?.recordPayload(msgOnly); chatInjector.insertPrompt(msgOnly, true); this.ctx.clearCommitMsgFlag(); return; }
     const btn = els.composerCommitBtn || els.gitBtn, origText = btn ? btn.textContent : "💬 Commit";
     if (btn) { btn.disabled = true; btn.textContent = "⏳ Diff..."; }
     sendBgMessage({ type: "GIT_STATUS" }, (res) => {
@@ -164,11 +143,7 @@ class ContentEventsController {
     els.guidedBtn?.addEventListener("click", () => this.executeGuidedAction());
     els.autoSyntaxBtn?.addEventListener("click", () => { this.autoFixEnabled = !this.autoFixEnabled; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled }); this.syncToggleButtons(); if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState()); updateIndicators?.(); });
     els.autoTestBtn?.addEventListener("click", () => { this.autoTestEnabled = !this.autoTestEnabled; chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled }); this.syncToggleButtons(); });
-    els.statusPill?.addEventListener("click", () => {
-      if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return;
-      this.enableAutoFixOnServiceStart(); this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage...";
-      chrome.storage?.local?.get?.(["savedTargetDir", "savedExtraArgs"], (res) => { sendBgMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() }, (reply) => { this.ctx.setStarting(false); if (reply?.state) this.handleStateUpdate(reply.state); else this.ctx.updateIndicators(); }); });
-    });
+    els.statusPill?.addEventListener("click", () => { if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return; this.enableAutoFixOnServiceStart(); this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage..."; chrome.storage?.local?.get?.(["savedTargetDir", "savedExtraArgs"], (res) => { sendBgMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() }, (reply) => { this.ctx.setStarting(false); if (reply?.state) this.handleStateUpdate(reply.state); else this.ctx.updateIndicators(); }); }); });
     els.copyPurgeAllBtn?.addEventListener("click", () => blockManager.copyAndPurgeAll());
     els.commitMsgBtn?.addEventListener("click", () => { const p = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(p); chatInjector.insertPrompt(p, true); this.ctx.clearCommitMsgFlag(); });
     els.composerCommitBtn?.addEventListener("click", () => this.triggerQuickCommitFlow());

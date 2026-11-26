@@ -31,8 +31,14 @@
     <label class="label" for="rootDirInput">Racine workspace (contenant tools\watch_clipboard) :</label>
     <input id="rootDirInput" type="text" placeholder="Ex: C:\git" />
 
-    <label class="label" for="targetDirInput">Projet / Dossier cible (ex: tools) :</label>
-    <input id="targetDirInput" type="text" placeholder="Ex: tools" />
+    <label class="label" for="targetDirSelect">Projet / Dossier cible (sous-dossier de la racine) :</label>
+    <div class="target-row">
+      <select id="targetDirSelect" title="Choisir un sous-dossier de la racine workspace">
+        <option value="">-- Sous-dossiers --</option>
+      </select>
+      <button id="reloadFoldersBtn" class="btn-copy" type="button" title="Actualiser la liste des sous-dossiers">↻</button>
+    </div>
+    <input id="targetDirInput" type="text" placeholder="Ex: tools ou ." />
 
     <label class="label" for="testRunnerInput">Script de tests (défaut : tools/run_tests_clip.py) :</label>
     <input id="testRunnerInput" type="text" placeholder="tools/run_tests_clip.py" />

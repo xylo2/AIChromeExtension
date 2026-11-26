@@ -1,5 +1,5 @@
 /**
- * Rendu DOM et gestion des interactions visuelles de la popup ChromeAI.
+ * Rendu DOM, liste des sous-dossiers workspace et interactions visuelles de la popup ChromeAI.
  */
 class WatcherPopupView {
   constructor(configInputIds) {
@@ -10,15 +10,40 @@ class WatcherPopupView {
 
   setConfigInputsLocked(locked) {
     const isLocked = Boolean(locked);
-    for (const id of this.CONFIG_INPUT_IDS) {
-      const inputEl = this.getEl(id);
-      if (inputEl) {
-        inputEl.disabled = isLocked;
-        inputEl.title = isLocked ? "Arrêtez watch_clipboard avant de modifier ce paramètre." : "";
+    for (const id of [...this.CONFIG_INPUT_IDS, "targetDirSelect", "reloadFoldersBtn"]) {
+      const el = this.getEl(id);
+      if (el) {
+        el.disabled = isLocked;
+        el.title = isLocked ? "Arrêtez watch_clipboard avant de modifier ce paramètre." : "";
       }
     }
     const notice = this.getEl("configLockNotice");
     if (notice) notice.style.display = isLocked ? "block" : "none";
+  }
+
+  renderWorkspaceFolders(folders, currentTarget = "") {
+    const selectEl = this.getEl("targetDirSelect");
+    if (!selectEl) return;
+    const cleanTarget = String(currentTarget || "").trim().replace(/[\\/]+$/, "");
+    selectEl.innerHTML = "";
+    const placeholderOpt = document.createElement("option");
+    placeholderOpt.value = "";
+    placeholderOpt.textContent = folders.length > 0 ? "-- Choisir un sous-dossier --" : "-- Aucun sous-dossier détecté --";
+    selectEl.appendChild(placeholderOpt);
+
+    const rootOpt = document.createElement("option");
+    rootOpt.value = ".";
+    rootOpt.textContent = ". (Racine complète)";
+    if (cleanTarget === ".") rootOpt.selected = true;
+    selectEl.appendChild(rootOpt);
+
+    for (const name of folders) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (cleanTarget.toLowerCase() === String(name).toLowerCase()) opt.selected = true;
+      selectEl.appendChild(opt);
+    }
   }
 
   bindCopyButton(btnId, codeId) {

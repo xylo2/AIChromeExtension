@@ -140,6 +140,7 @@ class WatcherBackgroundService {
     const enc = encodeURIComponent;
     const routes = {
       REFRESH_STATUS: () => this.checkStatus(true), START_WATCHER: () => this.startWatcher(message.targetDir, message.extraArgs), STOP_WATCHER: () => this.stopWatcher(),
+      LIST_WORKSPACE_FOLDERS: () => this.nativeHelper ? this.nativeHelper.listWorkspaceFolders(message.rootDir) : Promise.resolve({ ok: false, folders: [] }),
       BUILD_PACKAGE: () => { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); return this.postJson("/build-package", {}, 185000, "Impossible d'exécuter build_package.py.").finally(() => clearInterval(ka)); },
       START_BUILD_PACKAGE: () => this.postJson("/build-package-start", {}, 10000, "Impossible de démarrer build_package.py."),
       STOP_BUILD_PACKAGE: () => this.postJson("/build-package-stop", {}, 8000, "Impossible d'arrêter build_package.py."),

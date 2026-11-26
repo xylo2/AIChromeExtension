@@ -30,6 +30,22 @@ class BgNativeHelper {
     });
   }
 
+  listWorkspaceFolders(rootDir) {
+    return new Promise((resolve) => {
+      if (!chrome.runtime?.sendNativeMessage) { resolve({ ok: false, folders: [], error: "API Native Messaging indisponible." }); return; }
+      try {
+        chrome.runtime.sendNativeMessage(this.NATIVE_HOST_NAME, { action: "list_folders", root_dir: rootDir || "" }, (response) => {
+          if (chrome.runtime.lastError) {
+            const errMsg = chrome.runtime.lastError.message || "Erreur Native Messaging";
+            resolve({ ok: false, folders: [], error: errMsg, missingHost: this.isMissingHostError(errMsg) });
+            return;
+          }
+          resolve({ ok: Boolean(response?.ok), folders: Array.isArray(response?.folders) ? response.folders : [], rootDir: response?.root_dir || rootDir || "", error: response?.error || "" });
+        });
+      } catch (err) { resolve({ ok: false, folders: [], error: err?.message || "Erreur lecture dossiers." }); }
+    });
+  }
+
   sendStartNativeMessage(targetDir, extraArgs, apiToken, onDone) {
     chrome.runtime.sendNativeMessage(
       this.NATIVE_HOST_NAME,

@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import json
 import os
 import shlex
@@ -22,12 +20,16 @@ from clipboard_watcher.win32_process_helper import (  # noqa: E402
 class NativeMessagingHost:
     """
     Hôte Native Messaging compatible avec le protocole stdio de Chrome/Edge/Brave.
-    Lance watch_clipboard.py en arrière-plan et synchronise le jeton d'API de session.
+    Lance watch_clipboard.py en arrière-plan, liste les sous-dossiers workspace et synchronise le jeton d'API.
     """
 
     BROWSER_EXECUTABLES: tuple[str, ...] = (
         "chrome.exe", "msedge.exe", "brave.exe", "opera.exe", "vivaldi.exe", "chromium.exe",
     )
+    IGNORED_FOLDERS: set[str] = {
+        ".git", ".venv", "venv", "env", "__pycache__", "node_modules",
+        ".watch_clipboard", ".native_host", ".idea", ".vscode", "build", "dist",
+    }
 
     def __init__(self, script_path: Optional[str] = None) -> None:
         if script_path is None:
@@ -59,6 +61,26 @@ class NativeMessagingHost:
         if clean_extra:
             cmd.extend(shlex.split(clean_extra, posix=(os.name != "nt")))
         return cmd
+
+    def list_workspace_folders(self, root_dir: str = "") -> Dict[str, Any]:
+        clean_root: str = (root_dir or "").strip() or self.work_dir
+        resolved_root: str = os.path.realpath(clean_root)
+        if not os.path.isdir(resolved_root):
+            return {"ok": False, "folders": [], "error": f"Dossier introuvable : {resolved_root}"}
+        try:
+            folders: List[str] = sorted(
+                (
+                    name for name in os.listdir(resolved_root)
+                    if name not in self.IGNORED_FOLDERS
+                    and not name.startswith(".")
+                    and not name.endswith(".egg-info")
+                    and os.path.isdir(os.path.join(resolved_root, name))
+                ),
+                key=str.lower,
+            )
+            return {"ok": True, "root_dir": resolved_root, "folders": folders}
+        except OSError as exc:
+            return {"ok": False, "folders": [], "error": str(exc)}
     def _save_session_token(self, token: str) -> None:
         try:
             os.makedirs(os.path.dirname(self.token_cache_path), exist_ok=True)
@@ -133,6 +155,8 @@ class NativeMessagingHost:
                 self.send_message({"ok": True, "service": "watch_clipboard_host"})
             elif action == "get_token":
                 self.send_message({"ok": True, "api_token": self._load_session_token()})
+            elif action == "list_folders":
+                self.send_message(self.list_workspace_folders(str(msg.get("root_dir", ""))))
             elif action == "start":
                 self.send_message(self._start_watcher_process(msg))
             else:

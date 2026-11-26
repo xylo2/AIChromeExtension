@@ -26,7 +26,7 @@ body {
   margin-bottom: 10px;
 }
 .label { color: #94a3b8; font-size: 11px; display: block; margin-bottom: 4px; }
-input {
+input, select {
   width: 100%;
   box-sizing: border-box;
   background: #0f172a;
@@ -37,8 +37,15 @@ input {
   font-size: 12px;
   margin-bottom: 8px;
 }
-input:focus { outline: none; border-color: #38bdf8; }
-input:disabled { opacity: 0.55; cursor: not-allowed; background: #020617; color: #94a3b8; }
+input:focus, select:focus { outline: none; border-color: #38bdf8; }
+input:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; background: #020617; color: #94a3b8; }
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.target-row select { margin-bottom: 0; flex: 1; }
 .lock-notice {
   display: none;
   font-size: 11px;

@@ -8,6 +8,7 @@ class WatcherPopupController {
     this.CONFIG_INPUT_IDS = ["rootDirInput", "targetDirInput", "testRunnerInput", "extraArgsInput"];
     this.view = window.GmcPopupView ? new window.GmcPopupView(this.CONFIG_INPUT_IDS) : null;
     this.isWatcherRunning = false;
+    this.folderLoadTimer = null;
   }
 
   getEl(id) { return document.getElementById(id); }
@@ -36,19 +37,61 @@ class WatcherPopupController {
     if (this.getEl("installCommandText")) this.getEl("installCommandText").textContent = this.buildInstallCommand(rootDir);
   }
 
+  loadWorkspaceFolders() {
+    const rootDir = this.getCleanRootDir();
+    const currentTarget = this.getEl("targetDirInput")?.value || "";
+    chrome.runtime.sendMessage({ type: "LIST_WORKSPACE_FOLDERS", rootDir }, (res) => {
+      const folders = res?.ok && Array.isArray(res.folders) ? res.folders : [];
+      this.view?.renderWorkspaceFolders(folders, currentTarget);
+    });
+  }
+
+  scheduleWorkspaceFoldersReload() {
+    if (this.folderLoadTimer) clearTimeout(this.folderLoadTimer);
+    this.folderLoadTimer = setTimeout(() => { this.folderLoadTimer = null; this.loadWorkspaceFolders(); }, 250);
+  }
+
   setConfigInputsLocked(locked) { this.isWatcherRunning = Boolean(locked); this.view?.setConfigInputsLocked(locked); }
   bindCopyButton(btnId, codeId) { this.view?.bindCopyButton(btnId, codeId); }
   showError(msg) { this.view?.showError(msg); }
   showInstallHelp(installCommand) { this.view?.showInstallHelp(installCommand); }
   setButtonsBusy(busy) { this.view?.setButtonsBusy(busy); }
-  renderState(state) { this.isWatcherRunning = Boolean(state && state.running); this.view?.renderState(state, () => this.updateCommandPreview()); }
-
+  renderState(state) {
+    const wasRunning = this.isWatcherRunning;
+    this.isWatcherRunning = Boolean(state && state.running);
+    this.view?.renderState(state, () => this.updateCommandPreview());
+    if (wasRunning && !this.isWatcherRunning) this.loadWorkspaceFolders();
+  }
   bindEvents() {
     const rootInput = this.getEl("rootDirInput"), targetInput = this.getEl("targetDirInput");
+    const targetSelect = this.getEl("targetDirSelect"), reloadFoldersBtn = this.getEl("reloadFoldersBtn");
     const testRunnerInput = this.getEl("testRunnerInput"), extraInput = this.getEl("extraArgsInput");
-    rootInput?.addEventListener("input", () => { if (!this.isWatcherRunning) { chrome.storage.local.set({ savedRootDir: this.getCleanRootDir() }); this.updateCommandPreview(); } });
+    rootInput?.addEventListener("input", () => {
+      if (!this.isWatcherRunning) {
+        chrome.storage.local.set({ savedRootDir: this.getCleanRootDir() });
+        this.updateCommandPreview();
+        this.scheduleWorkspaceFoldersReload();
+      }
+    });
+    targetSelect?.addEventListener("change", () => {
+      if (!this.isWatcherRunning && targetSelect.value) {
+        if (targetInput) targetInput.value = targetSelect.value;
+        chrome.storage.local.set({ savedTargetDir: targetSelect.value });
+        this.updateCommandPreview();
+      }
+    });
+    reloadFoldersBtn?.addEventListener("click", () => { if (!this.isWatcherRunning) this.loadWorkspaceFolders(); });
     testRunnerInput?.addEventListener("input", () => { if (!this.isWatcherRunning) chrome.storage.local.set({ savedTestRunner: testRunnerInput.value.trim() || this.DEFAULT_TEST_RUNNER }); });
-    targetInput?.addEventListener("input", () => { if (!this.isWatcherRunning) this.updateCommandPreview(); });
+    targetInput?.addEventListener("input", () => {
+      if (!this.isWatcherRunning) {
+        this.updateCommandPreview();
+        if (targetSelect) {
+          const clean = targetInput.value.trim().replace(/[\\/]+$/, "").toLowerCase();
+          const matched = Array.from(targetSelect.options || []).find((o) => o.value && o.value.toLowerCase() === clean);
+          targetSelect.value = matched ? matched.value : "";
+        }
+      }
+    });
     extraInput?.addEventListener("input", () => { if (!this.isWatcherRunning) this.updateCommandPreview(); });
     this.bindCopyButton("copyPreviewBtn", "previewCommand");
     this.bindCopyButton("copyInstallBtn", "installCommandText");
@@ -88,6 +131,7 @@ class WatcherPopupController {
       if (res.savedExtraArgs && this.getEl("extraArgsInput")) this.getEl("extraArgsInput").value = res.savedExtraArgs;
       this.updateCommandPreview();
       if (res.watchClipboardState) this.renderState(res.watchClipboardState);
+      if (!this.isWatcherRunning) this.loadWorkspaceFolders();
     });
     chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (state) => { if (state) this.renderState(state); });
     const popupPoll = setInterval(() => chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (state) => { if (state) this.renderState(state); }), 1000);
