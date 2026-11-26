@@ -7,6 +7,7 @@ class CodeBlockManager {
     this.verifier = window.GmcBlockVerificationHelper ? new window.GmcBlockVerificationHelper(chatInjector, spillDetector) : null;
     this.controlsUi = window.GmcBlockControlsUiHelper ? new window.GmcBlockControlsUiHelper(spillDetector, svgPreview) : null;
     this.MAX_SAFE_LINES = 95; this.MAX_ACTIVE_DOM_BLOCKS = 4; this.MAX_VISIBLE_TURNS = 4;
+    this.TURN_SELECTOR = "[data-aim-turn], [data-turn-id], message-content, model-response, user-query";
     this.AUTO_SUITE_DELAY_MS = 2800; this.MAX_CONSECUTIVE_AUTO_SUITE = 2;
     this.trackedBlocks = []; this.autoSentSuiteForTurn = null; this.consecutiveAutoSuiteCount = 0; this.pendingSuiteTimer = null;
     this.bindUserTypingCancelsAutoSuite();
@@ -57,6 +58,7 @@ class CodeBlockManager {
     if (lineCount > this.MAX_SAFE_LINES) return `⚠️ ${headerName}${svgTag} (${lineCount} lignes — bloc long)`;
     return `${hasSvg ? "🖼️" : "📄"} ${headerName}${svgTag} (${lineCount} lignes)`;
   }
+
   extractCombinedCode(item) {
     if (this.isItemPurged(item) && item.cachedCombinedCode) return item.cachedCombinedCode;
     const baseCode = this.spill.extractRawCode(item.el);
@@ -66,7 +68,6 @@ class CodeBlockManager {
     if (combined) item.cachedCombinedCode = combined;
     return combined;
   }
-
   purgeDomOnly(item, customMessage = "Contenu copié et purgé") {
     const { el, labelEl, purgeButtons, verifyBtn, headerName, spilledNodes } = item;
     if (!el || this.isItemPurged(item)) return false;
@@ -94,9 +95,15 @@ class CodeBlockManager {
     return count;
   }
 
+  extractTurnPreview(turn) {
+    const raw = String(turn?.textContent || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    return raw.length > 50 ? `${raw.slice(0, 50).trim()}…` : raw;
+  }
+
   compactOldConversationTurns() {
     if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") return 0;
-    const allTurns = Array.from(document.querySelectorAll("[data-aim-turn], [data-turn-id], message-content, model-response"));
+    const allTurns = Array.from(document.querySelectorAll(this.TURN_SELECTOR));
     const topTurns = allTurns.filter((el) => !allTurns.some((other) => other !== el && other.contains?.(el)));
     if (topTurns.length <= this.MAX_VISIBLE_TURNS) return 0;
     let collapsed = 0;
@@ -108,7 +115,8 @@ class CodeBlockManager {
       if (turn.parentNode && typeof document.createElement === "function") {
         const pill = document.createElement("div"); pill.className = "gmc-placeholder gmc-turn-placeholder";
         const btn = document.createElement("button"); btn.type = "button"; btn.className = "gmc-toggle-btn";
-        btn.textContent = "💬 Tour ancien masqué (Afficher)";
+        const preview = this.extractTurnPreview(turn);
+        btn.textContent = preview ? `💬 Tour ancien masqué : « ${preview} » (Afficher)` : "💬 Tour ancien masqué (Afficher)";
         btn.addEventListener("click", () => { turn.setAttribute("data-gmc-turn-state", "expanded"); turn.classList?.remove?.("gmc-collapsed-turn"); pill.remove(); });
         pill.appendChild(btn); turn.parentNode.insertBefore(pill, turn);
       }
@@ -116,6 +124,7 @@ class CodeBlockManager {
     }
     return collapsed;
   }
+
   async copyAndPurgeAll() {
     const targets = this.getUnpurgedBlocks();
     if (targets.length === 0) return 0;
@@ -123,18 +132,13 @@ class CodeBlockManager {
     if (chunks.length > 0) { try { await navigator.clipboard.writeText(chunks.join("\n\n")); } catch (_err) {} }
     let purgedCount = 0, hasAlertItem = false;
     for (const item of targets) { if (this.isRedOrOversizedItem(item)) hasAlertItem = true; if (this.purgeDomOnly(item)) purgedCount += 1; }
-    if (purgedCount > 0) {
-      if (typeof this.onPurge === "function") this.onPurge();
-      const lastItem = targets.at(-1);
-      if (lastItem && !hasAlertItem) this.maybeAutoSendSuite(lastItem);
-    }
+    if (purgedCount > 0) { if (typeof this.onPurge === "function") this.onPurge(); const lastItem = targets.at(-1); if (lastItem && !hasAlertItem) this.maybeAutoSendSuite(lastItem); }
     return purgedCount;
   }
 
   async copyOnly(item) { const text = this.extractCombinedCode(item); try { await navigator.clipboard.writeText(text); } catch (_err) {} return text; }
   findTurnContainer(el) { return this.verifier ? this.verifier.findTurnContainer(el) : (el?.parentElement || null); }
   hasSuitePromptAfterBlock(item) { return this.verifier ? this.verifier.hasSuitePromptAfterBlock(item) : false; }
-
   maybeAutoSendSuite(item) {
     if (!this.chat || typeof this.chat.insertPrompt !== "function") return false;
     if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.getUnpurgedCount() > 0 || this.isComposerNonEmpty()) return false;
@@ -143,30 +147,18 @@ class CodeBlockManager {
     this.autoSentSuiteForTurn = turnKey;
     if (this.pendingSuiteTimer) clearTimeout(this.pendingSuiteTimer);
     this.showSuiteBanner(this.AUTO_SUITE_DELAY_MS);
-    this.pendingSuiteTimer = setTimeout(() => {
-      this.pendingSuiteTimer = null; this.hideSuiteBanner();
-      if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return;
-      this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true);
-    }, this.AUTO_SUITE_DELAY_MS);
+    this.pendingSuiteTimer = setTimeout(() => { this.pendingSuiteTimer = null; this.hideSuiteBanner(); if (this.consecutiveAutoSuiteCount >= this.MAX_CONSECUTIVE_AUTO_SUITE || this.isComposerNonEmpty()) return; this.consecutiveAutoSuiteCount += 1; this.chat.insertPrompt("Suite", true); }, this.AUTO_SUITE_DELAY_MS);
     return true;
   }
-
   scrollToNextUnpurgedBlock(currentItem) {
-    const startIdx = this.trackedBlocks.indexOf(currentItem);
-    if (startIdx < 0) return false;
+    const startIdx = this.trackedBlocks.indexOf(currentItem); if (startIdx < 0) return false;
     const nextItem = this.trackedBlocks.slice(startIdx + 1).find((b) => b?.el && b.el.isConnected !== false && !this.isItemPurged(b));
     if (!nextItem) return false;
     const target = nextItem.headerPurgeBtn?.isConnected ? nextItem.headerPurgeBtn : (nextItem.placeholderEl || nextItem.el);
     if (target && typeof target.scrollIntoView === "function") { target.scrollIntoView({ behavior: "smooth", block: "center" }); return true; }
     return false;
   }
-
-  async copyAndPurge(item) {
-    const isRedOrOversized = this.isRedOrOversizedItem(item);
-    await this.copyOnly(item);
-    if (this.purgeDomOnly(item)) { if (typeof this.onPurge === "function") this.onPurge(); if (!this.scrollToNextUnpurgedBlock(item) && !isRedOrOversized) this.maybeAutoSendSuite(item); }
-  }
-
+  async copyAndPurge(item) { const isRedOrOversized = this.isRedOrOversizedItem(item); await this.copyOnly(item); if (this.purgeDomOnly(item)) { if (typeof this.onPurge === "function") this.onPurge(); if (!this.scrollToNextUnpurgedBlock(item) && !isRedOrOversized) this.maybeAutoSendSuite(item); } }
   buildFallbackAttachmentName(headerName) { return this.verifier ? this.verifier.buildFallbackAttachmentName(headerName) : `${headerName || "bloc.txt"}.txt`; }
   async verifyWithAi(item) { if (!this.verifier) return; this.resetAutoSuiteQuota(); await this.verifier.verifyWithAi(item, (it) => { const c = this.isItemPurged(it) ? (it.cachedCombinedCode || "") : this.extractCombinedCode(it); if (c) it.cachedCombinedCode = c; return c; }); }
   syncItem(item) { if (item?.el && this.controlsUi) this.controlsUi.syncItemVisuals(item, this); }
@@ -174,22 +166,16 @@ class CodeBlockManager {
   createDownloadBtn(item) { return this.controlsUi ? this.controlsUi.createDownloadBtn(item, (it) => this.extractCombinedCode(it)) : document.createElement("button"); }
   attachHeaderControls(pre, item) { this.controlsUi?.attachHeaderControls(pre, item, (it) => this.copyAndPurge(it), (it) => this.extractCombinedCode(it)); }
   detectHeaderName(rawCode) { const m = this.spill.findFirstNonEmptyLine(rawCode).match(this.spill.FILE_TAG_REGEX); return m ? m.at(1) : (this.svgPreview?.hasSvg(rawCode) ? "image.svg" : null); }
-
   scan(preExisting = false) {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-processed") === "true") continue;
-      const rawCode = this.spill.extractRawCode(pre);
-      if (!rawCode.includes("\n") && !preExisting) continue;
-      const headerName = this.detectHeaderName(rawCode);
-      if (!headerName || !this.controlsUi) continue;
-      pre.setAttribute("data-gmc-processed", "true");
-      const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this);
-      this.trackedBlocks.push(item);
+      const rawCode = this.spill.extractRawCode(pre); if (!rawCode.includes("\n") && !preExisting) continue;
+      const headerName = this.detectHeaderName(rawCode); if (!headerName || !this.controlsUi) continue;
+      pre.setAttribute("data-gmc-processed", "true"); const item = this.controlsUi.buildTrackedBlockItem(pre, headerName, preExisting, this); this.trackedBlocks.push(item);
       this.preserveScrollAround(pre.parentElement || pre, () => { pre.parentNode.insertBefore(item.placeholderEl, pre); pre.classList.add("gmc-collapsed-code"); });
       this.attachHeaderControls(pre, item); this.syncItem(item);
     }
-    this.compactExcessDomBlocks();
-    this.compactOldConversationTurns();
+    this.compactExcessDomBlocks(); this.compactOldConversationTurns();
     for (const item of this.trackedBlocks) { this.attachHeaderControls(item.el, item); this.syncItem(item); }
   }
 }

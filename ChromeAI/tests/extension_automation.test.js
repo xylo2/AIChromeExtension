@@ -43,35 +43,42 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   ctrl.handleStateUpdate(state);
   assert.equal(testsClicked, 1);
 
-  // Anti-boucle Auto-fix : max 2 tentatives consécutives sur le même fichier
+  // Anti-boucle Auto-fix : max 2 tentatives consécutives sur le même fichier, réinitialisé au clic manuel sur eventPill
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 1)" });
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 2)" });
   ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 3)" });
   assert.equal(prompts.length, 2);
   assert.ok(els.autoSyntaxBtn.textContent.includes("max"));
-  ctrl.handleStateUpdate({ running: true, hasSyntaxError: false, lastEvent: "[OK] bad.py" });
-  ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 4)" });
+  els.eventPill.listeners.click();
+  assert.equal(ctrl.autoSyntaxAttemptsByFile.has("bad.py"), false);
   assert.equal(prompts.length, 3);
+  ctrl.handleStateUpdate({ running: true, hasSyntaxError: true, lastEvent: "[SYNTAXE] bad.py (ligne 4)" });
+  assert.equal(prompts.length, 4);
   els.composerCommitBtn.listeners.click();
   assert.equal(dropped.at(0).n, "git_changes.diff.txt");
-  assert.ok(prompts.at(3).txt.includes("=== COMMIT_MESSAGE ==="));
+  assert.ok(prompts.at(4).txt.includes("=== COMMIT_MESSAGE ==="));
   canCommitMsg = true;
   els.composerCommitBtn.listeners.click();
-  assert.equal(prompts.length, 5);
+  assert.equal(prompts.length, 6);
 
   const testCtrl = new sandbox.window.GmcTestActionsController(fakeChat, () => {}, () => {}, { testsBtn: makeBtn(), coverageBtn: makeBtn() }, () => state, () => {});
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "FAIL: test_x" });
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "FAIL: test_x" });
-  assert.equal(prompts.length, 6);
+  assert.equal(prompts.length, 7);
 
-  // Compaction DOM des blocs <pre> (> 4) et des anciens tours (> 4)
-  const makeTurn = (idx) => ({
-    id: idx, attrs: {}, classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); } },
+  // Compaction DOM des blocs <pre> (> 4) et des anciens tours (user-query inclus, aperçu 50 car., bouton Afficher)
+  let lastTurnSelector = "";
+  const insertedPills = [];
+  const makeTurn = (idx, txt) => ({
+    id: idx, textContent: txt, attrs: {},
+    classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); } },
     getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; },
-    contains: () => false, querySelector: () => null, parentNode: { insertBefore() {} }
+    contains: () => false, querySelector: () => null,
+    parentNode: { insertBefore(pill) { insertedPills.push(pill); } }
   });
-  const turns = Array.from({ length: 6 }, (_, i) => makeTurn(i));
-  sandbox.document.querySelectorAll = (sel) => (sel.includes("model-response") ? turns : []);
+  const turns = Array.from({ length: 6 }, (_, i) => makeTurn(i, i === 0 ? "Question utilisateur très longue dépassant cinquante caractères pour vérifier la troncature" : `Tour ${i}`));
+  sandbox.document.createElement = () => ({ className: "", textContent: "", type: "", children: [], listeners: {}, appendChild(c) { this.children.push(c); }, addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() { this.removed = true; } });
+  sandbox.document.querySelectorAll = (sel) => { lastTurnSelector = sel; return sel.includes("user-query") ? turns : []; };
 
   const blockMgr = new sandbox.window.GmcCodeBlockManager(new sandbox.window.GmcSpillDetector(), fakeChat);
   for (let i = 0; i < 6; i += 1) {
@@ -81,8 +88,14 @@ test("Commit 1-clic, Auto-tests, anti-boucle Auto-fix (max 2) et compaction DOM/
   assert.equal(blockMgr.compactExcessDomBlocks(), 2);
   assert.equal(blockMgr.getUnpurgedCount(), 4);
   assert.equal(blockMgr.compactOldConversationTurns(), 2);
+  assert.ok(lastTurnSelector.includes("user-query"));
   assert.equal(turns.at(0).classList.contains("gmc-collapsed-turn"), true);
   assert.equal(turns.at(5).classList.contains("gmc-collapsed-turn"), false);
+  const firstPillBtn = insertedPills.at(0).children.at(0);
+  assert.ok(firstPillBtn.textContent.includes("Question utilisateur très longue dépassant cinquante…"));
+  firstPillBtn.listeners.click();
+  assert.equal(turns.at(0).classList.contains("gmc-collapsed-turn"), false);
+  assert.equal(insertedPills.at(0).removed, true);
 });
 
 test("ExportMenuManager affiche dynamiquement les estimations de tokens via EXPORT_PREVIEW", () => {
@@ -100,16 +113,7 @@ test("ExportMenuManager affiche dynamiquement les estimations de tokens via EXPO
         id: "ext-id",
         sendMessage(msg, cb) {
           if (msg.type === "EXPORT_PREVIEW") {
-            cb({
-              ok: true,
-              modes: {
-                modified: { files: 2, tokens: 850 },
-                code: { files: 40, tokens: 32400 },
-                skeleton: { files: 40, tokens: 4800 },
-                tests: { files: 25, tokens: 18200 },
-                full: { files: 65, tokens: 50600 }
-              }
-            });
+            cb({ ok: true, modes: { modified: { files: 2, tokens: 850 }, code: { files: 40, tokens: 32400 }, skeleton: { files: 40, tokens: 4800 }, tests: { files: 25, tokens: 18200 }, full: { files: 65, tokens: 50600 } } });
           }
         }
       }

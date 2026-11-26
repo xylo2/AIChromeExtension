@@ -41,7 +41,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, topRow),
     autoSyntaxBtn: makeBtn("gmc-global-autosyntax-btn", "⚡ Auto-fix: OFF", "Envoyer automatiquement les erreurs de syntaxe détectées à l'IA", true, topRow),
     autoTestBtn: makeBtn("gmc-global-autotest-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après écriture et notifier l'IA uniquement en cas d'échec", true, topRow),
-    copyPurgeAllBtn: makeBtn("gmc-global-copypurge-btn", "📋 Tout copier & purger", "Copier tous les blocs non purgés et purger le DOM (Alt+P)", true, topRow),
+    copyPurgeAllBtn: makeBtn("gmc-global-copypurge-btn", "📋 Tout copier et purger", "Copier tous les blocs non purgés et purger le DOM (Alt+P)", true, topRow),
     purgeBtn: makeBtn("gmc-global-purge-btn", "🧹 DOM allégé", "Purger tous les blocs de la page sans copier", false, topRow),
     eventPill: makeBtn("gmc-global-event-pill", "", "Cliquer pour envoyer ce statut dans le chat", true, bottomRow),
     commitMsgBtn: makeBtn("gmc-global-commitmsg-btn", "💬 Message de commit", "Demander à l'IA le bloc COMMIT_MESSAGE sans renvoyer le diff", true, bottomRow),
@@ -98,7 +98,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     else if (!isStartingWatcher) els.statusPill.textContent = "🔴 Watcher OFF";
     const unpurgedCount = blockManager.getUnpurgedCount();
     els.copyPurgeAllBtn.style.display = unpurgedCount > 0 ? "inline-flex" : "none";
-    if (unpurgedCount > 0) els.copyPurgeAllBtn.textContent = `📋 Tout copier & purger (${unpurgedCount})`;
+    if (unpurgedCount > 0) els.copyPurgeAllBtn.textContent = `📋 Tout copier et purger (${unpurgedCount})`;
     els.autoSyntaxBtn.style.display = running ? "inline-flex" : "none";
     els.autoTestBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.commitMsgBtn.style.display = running && watcherState.hasGit && canRequestCommitMsg ? "inline-flex" : "none";
@@ -116,7 +116,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       els.eventPill.classList.toggle("state-fail", isSyntaxErr);
       els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
       const hist = Array.isArray(watcherState.recentEvents) && watcherState.recentEvents.length > 0 ? `\nHistorique :\n${watcherState.recentEvents.join("\n")}` : "";
-      els.eventPill.title = (isSyntaxErr ? "Erreur de syntaxe détectée : cliquer pour envoyer l'extrait à l'IA" : "Cliquer pour envoyer ce statut dans le chat") + hist;
+      els.eventPill.title = (isSyntaxErr ? "Erreur de syntaxe détectée : cliquer pour renvoyer l'extrait à l'IA et réinitialiser le quota Auto-fix" : "Cliquer pour envoyer ce statut dans le chat") + hist;
     }
     composerUi.mount(); checkPendingFreshExport();
   };

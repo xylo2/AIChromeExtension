@@ -13,6 +13,9 @@ class GitOperations:
         "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
         "*.min.js", "*.min.css", "*.map", "*.png", "*.jpg", "*.jpeg", "*.ico", "*.woff2",
     )
+    TEXT_CLEANUP_EXTS: Tuple[str, ...] = (
+        ".py", ".js", ".ts", ".json", ".html", ".css", ".md", ".ini", ".toml", ".txt", ".yml", ".yaml", ".xml", ".sh",
+    )
 
     def __init__(
         self,
@@ -62,6 +65,7 @@ class GitOperations:
             if rel_path:
                 entries.append({"status": code, "path": rel_path.replace("\\", "/")})
         return True, entries, ""
+
     @classmethod
     def _is_noisy_diff_file(cls, rel: str) -> bool:
         bname: str = os.path.basename(rel).lower()
@@ -76,7 +80,6 @@ class GitOperations:
         test_defs = [ln.strip() for ln in content.splitlines() if re.match(r"^\s*(?:async\s+)?(?:def\s+test_|test\(|it\()", ln)]
         summary = "\n".join(test_defs[:40]) or content[:2500]
         return f"[Résumé nouveau fichier de tests ({len(content.splitlines())} lignes)]\n{summary}"
-
     def diff_selected(self, files: List[str]) -> Tuple[bool, str, str]:
         git_root: Optional[str] = self._resolve_root()
         if not git_root:
@@ -110,6 +113,7 @@ class GitOperations:
                 with open(full_p, "r", encoding="utf-8", errors="replace") as f_ut:
                     chunks.append(f"=== NOUVEAU FICHIER : {rel} ===\n" + self._summarize_untracked_test(rel, f_ut.read()))
         return True, ("\n\n".join(chunks).strip() or "Modifications sélectionnées sans diff textuel."), ""
+
     @staticmethod
     def format_push_error(raw_output: str) -> str:
         lines: List[str] = [ln.strip() for ln in raw_output.splitlines() if ln.strip()]
@@ -122,7 +126,36 @@ class GitOperations:
             summary += "\nConseil : exécutez `git config --global credential.helper manager` dans un terminal."
         return f"{summary}\n\nSortie complète Git :\n{raw_output.strip()}" if len(lines) > 1 else summary
 
-    def _run_precommit_url_cleanup(self, git_root: str) -> None:
+    def _normalize_modified_text_files(self, git_root: str, target_files: Optional[List[str]] = None) -> int:
+        candidates: List[str] = list(target_files) if target_files else []
+        if not candidates:
+            st_p = self._run(["git", "-c", "core.quotePath=false", "status", "--porcelain", "-uall"], cwd=git_root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False)
+            for raw_ln in getattr(st_p, "stdout", "").splitlines():
+                if len(raw_ln) >= 4 and "D" not in raw_ln[:2]:
+                    candidates.append(raw_ln[3:].strip().strip('"').split(" -> ")[-1].replace("\\", "/"))
+        cleaned_count: int = 0
+        for rel in candidates:
+            if Path(rel).suffix.lower() not in self.TEXT_CLEANUP_EXTS:
+                continue
+            full_p: Path = (Path(git_root) / rel).resolve()
+            if not full_p.is_file() or not self._is_within_allowed_roots(str(full_p), [git_root]):
+                continue
+            try:
+                raw_bytes: bytes = full_p.read_bytes()
+                raw_txt: str = raw_bytes.decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            normalized_lines: List[str] = [ln.rstrip(" \t") for ln in raw_txt.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+            clean_txt: str = "\n".join(normalized_lines)
+            if clean_txt and not clean_txt.endswith("\n"):
+                clean_txt += "\n"
+            clean_bytes: bytes = clean_txt.encode("utf-8")
+            if clean_bytes != raw_bytes:
+                full_p.write_bytes(clean_bytes)
+                cleaned_count += 1
+        return cleaned_count
+
+    def _run_precommit_cleanup(self, git_root: str, target_files: Optional[List[str]] = None) -> None:
         try:
             from tools.fix_urls import repair_tools_urls
             for root_cand in {Path(git_root).resolve(), Path(self.target_dir).resolve()}:
@@ -130,6 +163,7 @@ class GitOperations:
                     repair_tools_urls(root_dir=root_cand)
         except Exception:
             pass
+        self._normalize_modified_text_files(git_root, target_files)
 
     def commit_and_push(self, action: str, message: str = "", files: Optional[List[str]] = None, remote: str = "origin", branch: str = "") -> Tuple[bool, str]:
         git_root: Optional[str] = self._resolve_root()
@@ -140,12 +174,12 @@ class GitOperations:
             clean_msg: str = message.strip()
             if not clean_msg:
                 return False, "Message de commit vide."
-            self._run_precommit_url_cleanup(git_root)
             safe_files: List[str] = [
                 str(item).strip().replace("\\", "/") for item in (files or [])
                 if str(item).strip() and not os.path.isabs(str(item).strip())
                 and self._is_within_allowed_roots(os.path.realpath(os.path.join(git_root, str(item).strip())), [git_root])
             ]
+            self._run_precommit_cleanup(git_root, safe_files or None)
             if safe_files:
                 self._run(["git", "reset", "-q"], cwd=git_root, env=env, capture_output=True, timeout=15, check=False)
                 add_cmd: List[str] = ["git", "add", "-A", "--", *safe_files]

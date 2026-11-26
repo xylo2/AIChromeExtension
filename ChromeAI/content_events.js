@@ -37,6 +37,14 @@ class ContentEventsController {
     return m ? m.at(1) : "";
   }
 
+  resetSyntaxAttemptsForEvent(evSig) {
+    const fileKey = this.extractSyntaxEventFile(evSig);
+    if (fileKey) this.autoSyntaxAttemptsByFile.delete(fileKey);
+    else this.autoSyntaxAttemptsByFile.clear();
+    this.lastAutoSyntaxSig = "";
+    this.syncToggleButtons();
+  }
+
   sendSyntaxErrorToAi(fallbackText = "") {
     const { blockManager, sendBgMessage, chatInjector } = this.ctx;
     blockManager.resetAutoSuiteQuota();
@@ -48,17 +56,13 @@ class ContentEventsController {
       } else if (fallbackText) chatInjector.insertPrompt(fallbackText, true);
     });
   }
-
   triggerQuickCommitFlow() {
     const { els, blockManager, chatInjector, gitManager, sendBgMessage, setBtnState } = this.ctx;
     blockManager.resetAutoSuiteQuota();
     if (typeof this.ctx.canRequestCommitMsg === "function" && this.ctx.canRequestCommitMsg()) {
-      chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true);
-      this.ctx.clearCommitMsgFlag();
-      return;
+      chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true); this.ctx.clearCommitMsgFlag(); return;
     }
-    const btn = els.composerCommitBtn || els.gitBtn;
-    const origText = btn ? btn.textContent : "💬 Commit";
+    const btn = els.composerCommitBtn || els.gitBtn, origText = btn ? btn.textContent : "💬 Commit";
     if (btn) { btn.disabled = true; btn.textContent = "⏳ Diff..."; }
     sendBgMessage({ type: "GIT_STATUS" }, (res) => {
       const entries = res?.entries || [];
@@ -67,13 +71,11 @@ class ContentEventsController {
         return;
       }
       const files = entries.map((e) => e.path).filter(Boolean);
-      gitManager.lastValidatedFiles = [...files];
-      chrome.storage?.local?.set?.({ savedGitSelectedFiles: files });
+      gitManager.lastValidatedFiles = [...files]; chrome.storage?.local?.set?.({ savedGitSelectedFiles: files });
       sendBgMessage({ type: "GIT_DIFF_SELECTED", files }, (diffRes) => {
         if (btn) { btn.disabled = false; btn.textContent = origText; }
         if (!diffRes?.ok) { setBtnState(els.gitBtn, "fail", "❌ Erreur diff"); return; }
-        const diffName = diffRes.filename || "git_changes.diff.txt";
-        const diffContent = String(diffRes.content || diffRes.diff || "");
+        const diffName = diffRes.filename || "git_changes.diff.txt", diffContent = String(diffRes.content || diffRes.diff || "");
         if (diffContent) chatInjector.dropFile(diffName, diffContent, false);
         chatInjector.insertPrompt(gitManager.buildCommitPrompt(files, diffName), { minDelayMs: 1600, maxWaitMs: 7000, waitForFile: diffContent ? diffName : "" });
         this.ctx.clearCommitMsgFlag();
@@ -82,8 +84,7 @@ class ContentEventsController {
   }
 
   handleStateUpdate(nextState) {
-    this.ctx.setWatcherState(nextState);
-    this.ctx.updateIndicators();
+    this.ctx.setWatcherState(nextState); this.ctx.updateIndicators();
     const evSig = String(nextState?.lastEvent || "");
     const okMatch = evSig.match(/^\[(?:OK|COMPLET)\]\s+([^\s(]+)/);
     if (okMatch) this.autoSyntaxAttemptsByFile.delete(okMatch.at(1));
@@ -92,21 +93,14 @@ class ContentEventsController {
         this.lastAutoSyntaxSig = evSig;
         const fileKey = this.extractSyntaxEventFile(evSig) || "__default__";
         const tries = this.autoSyntaxAttemptsByFile.get(fileKey) || 0;
-        if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) {
-          if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = `⏸️ Auto-fix max (${fileKey})`;
-          return;
-        }
-        this.autoSyntaxAttemptsByFile.set(fileKey, tries + 1);
-        this.sendSyntaxErrorToAi(evSig);
+        if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) { if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = `⏸️ Auto-fix max (${fileKey})`; return; }
+        this.autoSyntaxAttemptsByFile.set(fileKey, tries + 1); this.sendSyntaxErrorToAi(evSig);
       }
       return;
     }
     if (!nextState?.hasSyntaxError) this.lastAutoSyntaxSig = "";
     if (this.autoTestEnabled && nextState?.running && nextState?.hasRunTestsClip && !nextState?.hasSyntaxError && /^\[(?:OK|COMPLET)\]/.test(evSig)) {
-      if (evSig !== this.lastAutoTestEventSig && !this.ctx.testActions?.panel?.isRunning) {
-        this.lastAutoTestEventSig = evSig;
-        this.ctx.els.testsBtn?.click();
-      }
+      if (evSig !== this.lastAutoTestEventSig && !this.ctx.testActions?.panel?.isRunning) { this.lastAutoTestEventSig = evSig; this.ctx.els.testsBtn?.click(); }
     }
   }
 
@@ -114,18 +108,11 @@ class ContentEventsController {
     const { els, blockManager, chatInjector, gitManager, exportMenu, testActions, sendBgMessage, setBtnState, triggerProjectExport } = this.ctx;
     this.loadPrefs();
     els.autoSyntaxBtn?.addEventListener("click", () => {
-      this.autoFixEnabled = !this.autoFixEnabled;
-      this.autoSyntaxAttemptsByFile.clear();
-      this.lastAutoSyntaxSig = "";
-      chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled });
-      this.syncToggleButtons();
+      this.autoFixEnabled = !this.autoFixEnabled; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = "";
+      chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled }); this.syncToggleButtons();
       if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState());
     });
-    els.autoTestBtn?.addEventListener("click", () => {
-      this.autoTestEnabled = !this.autoTestEnabled;
-      chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled });
-      this.syncToggleButtons();
-    });
+    els.autoTestBtn?.addEventListener("click", () => { this.autoTestEnabled = !this.autoTestEnabled; chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled }); this.syncToggleButtons(); });
     els.statusPill.addEventListener("click", () => {
       if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return;
       this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage...";
@@ -139,8 +126,8 @@ class ContentEventsController {
     els.commitMsgBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt(gitManager.buildCommitMessageOnlyPrompt(), true); this.ctx.clearCommitMsgFlag(); });
     els.composerCommitBtn?.addEventListener("click", () => this.triggerQuickCommitFlow());
     els.eventPill.addEventListener("click", () => {
-      const st = this.ctx.getWatcherState(); const rawEv = String(st?.lastEvent || els.eventPill.textContent || "");
-      if (st?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) { this.sendSyntaxErrorToAi(rawEv); return; }
+      const st = this.ctx.getWatcherState(), rawEv = String(st?.lastEvent || els.eventPill.textContent || "");
+      if (st?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) { this.resetSyntaxAttemptsForEvent(rawEv); this.sendSyntaxErrorToAi(rawEv); return; }
       blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt(rawEv, true);
     });
     els.yesBtn.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
