@@ -9,7 +9,12 @@ import stat
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from clipboard_watcher.host_registry import register_unix_host, register_windows_host
+
+_WATCH_ROOT: str = str(Path(__file__).resolve().parent)
+if _WATCH_ROOT not in sys.path:
+    sys.path.insert(0, _WATCH_ROOT)
+
+from clipboard_watcher.host_registry import register_unix_host, register_windows_host  # noqa: E402
 
 
 class NativeHostInstaller:
@@ -59,26 +64,33 @@ class NativeHostInstaller:
                 if os.path.isfile(match):
                     return match
         return shutil.which("python.exe") or shutil.which("python") or str(Path(current_exe))
-
     def _resolve_console_python(self) -> str:
         return self.find_real_windows_python(sys.executable, project_dir=self.project_dir) if os.name == "nt" else str(Path(sys.executable))
 
     def _create_wrapper(self) -> Path:
         self.native_dir.mkdir(parents=True, exist_ok=True)
-        py_exe, host_py = self._resolve_console_python(), str(self.host_script.resolve())
+        py_exe: str = self._resolve_console_python()
+        host_py: str = str(self.host_script.resolve())
+        pkg_root: str = str(self.project_dir.resolve())
         print(f"[INFO] Exécutable Python stdio résolu : {py_exe}")
         if os.name == "nt":
             wrapper_path: Path = self.native_dir / "watch_clipboard_host.bat"
             cmd_line: str = f'python -B "{host_py}" %*' if self._is_windowsapps_path(py_exe) else f'"{py_exe}" -B "{host_py}" %*'
-            wrapper_path.write_text(f"@echo off\r\n{cmd_line}\r\n", encoding="utf-8")
+            wrapper_path.write_text(f'@echo off\r\nset "PYTHONPATH={pkg_root}"\r\n{cmd_line}\r\n', encoding="utf-8")
             return wrapper_path
         wrapper_path = self.native_dir / "watch_clipboard_host.sh"
-        wrapper_path.write_text(f'#!/usr/bin/env bash\nexec "{py_exe}" -B "{host_py}" "$@"\n', encoding="utf-8")
+        wrapper_path.write_text(f'#!/usr/bin/env bash\nexport PYTHONPATH="{pkg_root}"\nexec "{py_exe}" -B "{host_py}" "$@"\n', encoding="utf-8")
         wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return wrapper_path
 
     def _write_manifest(self, wrapper_path: Path) -> Path:
-        manifest: Dict[str, Any] = {"name": self.HOST_NAME, "description": "Lanceur natif pour watch_clipboard", "path": str(wrapper_path.resolve()), "type": "stdio", "allowed_origins": [f"chrome-extension://{self.extension_id}/"]}
+        manifest: Dict[str, Any] = {
+            "name": self.HOST_NAME,
+            "description": "Lanceur natif pour watch_clipboard",
+            "path": str(wrapper_path.resolve()),
+            "type": "stdio",
+            "allowed_origins": [f"chrome-extension://{self.extension_id}/"],
+        }
         manifest_path: Path = self.native_dir / f"{self.HOST_NAME}.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest_path

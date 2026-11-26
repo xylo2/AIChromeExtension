@@ -20,6 +20,22 @@ class TestActionsController {
 
   resetTestsButton() { this.setBtnState(this.testsBtn, null, "🧪 Lancer les tests"); }
 
+  preserveWindowScroll(mutatorFn) {
+    const winX = typeof window !== "undefined" ? (window.scrollX || 0) : 0;
+    const winY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
+    const restore = () => {
+      if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - winY) > 2) {
+        window.scrollTo(winX, winY);
+      }
+    };
+    const res = mutatorFn();
+    restore();
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(restore);
+    }
+    return res;
+  }
+
   invalidateOnNewFiles() {
     if (!this.lastTestsPassed) return;
     if ((this.getWatcherState()?.lastEvent ?? null) !== this.lastPassedEventSnapshot) {
@@ -30,7 +46,6 @@ class TestActionsController {
       this.resetTestsButton();
     }
   }
-
   parseCoveragePercent(reportText) {
     const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i);
     return m ? Number.parseFloat(m.at(1)) : null;
@@ -64,7 +79,7 @@ class TestActionsController {
       return;
     }
     if (finalReport) {
-      if (this.chat.insertTestResults(finalReport, true)) this.resetTestsButton();
+      if (this.preserveWindowScroll(() => this.chat.insertTestResults(finalReport, true))) this.resetTestsButton();
       else { try { await navigator.clipboard.writeText(finalReport); } catch (_err) {} this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs copiés"); }
     } else this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs (vide)");
     this.onRefreshUi();
@@ -86,7 +101,7 @@ class TestActionsController {
   bindEvents() {
     this.coverageBtn.addEventListener("click", () => {
       if (!this.lastUncoveredReport) return;
-      this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + this.lastUncoveredReport + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true);
+      this.preserveWindowScroll(() => this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + this.lastUncoveredReport + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true));
       this.lastUncoveredReport = ""; this.lastCoveragePercent = null; this.lastTestsPassed = false; this.lastPassedEventSnapshot = null;
       this.renderCoverageIndicator();
     });

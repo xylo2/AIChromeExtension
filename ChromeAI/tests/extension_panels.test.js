@@ -40,6 +40,46 @@ test("TestOutputPanelManager streame, arrête, copie, envoie à l'IA et ferme le
   assert.equal(sendCalls, 1);
   assert.equal(mgr.panelEl, null);
 });
+
+test("TestActionsController.preserveWindowScroll et ChatInjector.insertPrompt figent le scroll", () => {
+  const rafCallbacks = [];
+  const scrollHistory = [];
+  const makeBtn = () => ({ classList: { remove() {}, add() {}, toggle() {} }, style: {}, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } });
+  const fakeTextarea = {
+    tagName: "TEXTAREA", value: "", selectionStart: 0, selectionEnd: 0, isConnected: true, disabled: false, readOnly: false,
+    getBoundingClientRect: () => ({ width: 300, height: 40, top: 600 }),
+    closest: () => null,
+    focus() { sandbox.window.scrollY = 999; },
+    dispatchEvent() {}
+  };
+  const sandbox = {
+    window: {
+      innerHeight: 800, scrollX: 12, scrollY: 350,
+      scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollHistory.push({ x, y }); },
+      requestAnimationFrame(cb) { rafCallbacks.push(cb); }
+    },
+    document: { querySelectorAll: () => [fakeTextarea], createElement: makeBtn, body: { appendChild() {} } },
+    Event: class FakeEvent { constructor(t) { this.type = t; } },
+    setTimeout: () => {}, clearTimeout: () => {}
+  };
+  vm.createContext(sandbox);
+  for (const mod of ["file_attacher.js", "chat_injector.js", "test_panel.js", "test_actions.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
+  }
+  const injector = new sandbox.window.GmcChatInjector();
+  injector.getComputedStyle = () => ({ display: "block", visibility: "visible" });
+  sandbox.window.getComputedStyle = () => ({ display: "block", visibility: "visible" });
+  assert.equal(injector.insertPrompt("Bonjour", false), true);
+  assert.equal(sandbox.window.scrollY, 350);
+
+  const ctrl = new sandbox.window.GmcTestActionsController(injector, () => {}, () => {}, { testsBtn: makeBtn(), coverageBtn: makeBtn() }, () => ({}), () => {});
+  ctrl.preserveWindowScroll(() => { sandbox.window.scrollY = 1200; });
+  assert.equal(sandbox.window.scrollY, 350);
+  sandbox.window.scrollY = 1200;
+  rafCallbacks.forEach((cb) => cb());
+  assert.equal(sandbox.window.scrollY, 350);
+  assert.ok(scrollHistory.length >= 2);
+});
 test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton sur <pre> autonome", () => {
   const appended = []; const downloaded = [];
   const makeNode = (tag) => ({

@@ -110,6 +110,8 @@ class ChatInjector {
   insertPrompt(promptText, autoSubmit = false) {
     const inputEl = this.findChatInputElement();
     if (!inputEl || !promptText) return false;
+    const prevX = typeof window !== "undefined" ? (window.scrollX || 0) : 0;
+    const prevY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
     this.focusWithoutScroll(inputEl);
     const prefix = inputEl.tagName === "TEXTAREA" ? (inputEl.value.trim() ? "\n\n" : "") : (inputEl.textContent.trim() ? "\n\n" : "");
     const payload = `${prefix}${promptText}`;
@@ -124,6 +126,7 @@ class ChatInjector {
       inputEl.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: payload }));
     }
     this.scrollComposerToTop(inputEl);
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - prevY) > 2) window.scrollTo(prevX, prevY);
     if (autoSubmit) {
       const minDelay = typeof autoSubmit === "object" ? (autoSubmit.minDelayMs ?? 400) : 400;
       const maxWait = typeof autoSubmit === "object" ? (autoSubmit.maxWaitMs ?? 3500) : 3500;

@@ -7,7 +7,12 @@ import struct
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional
-from clipboard_watcher.win32_process_helper import (
+
+_PKG_PARENT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PKG_PARENT not in sys.path:
+    sys.path.insert(0, _PKG_PARENT)
+
+from clipboard_watcher.win32_process_helper import (  # noqa: E402
     detect_parent_browser_executable,
     is_bare_windowsapps_alias,
     resolve_python_executable,
@@ -21,12 +26,7 @@ class NativeMessagingHost:
     """
 
     BROWSER_EXECUTABLES: tuple[str, ...] = (
-        "chrome.exe",
-        "msedge.exe",
-        "brave.exe",
-        "opera.exe",
-        "vivaldi.exe",
-        "chromium.exe",
+        "chrome.exe", "msedge.exe", "brave.exe", "opera.exe", "vivaldi.exe", "chromium.exe",
     )
 
     def __init__(self, script_path: Optional[str] = None) -> None:
@@ -58,7 +58,6 @@ class NativeMessagingHost:
         if clean_extra:
             cmd.extend(shlex.split(clean_extra, posix=(os.name != "nt")))
         return cmd
-
     def read_message(self) -> Optional[Dict[str, Any]]:
         raw_len: bytes = sys.stdin.buffer.read(4)
         if not raw_len or len(raw_len) < 4:
