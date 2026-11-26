@@ -55,7 +55,7 @@ class ChatInjector {
       if (!btn || (btn.className && String(btn.className).includes("gmc-"))) return false;
       if (btn.disabled || btn.getAttribute("aria-disabled") === "true" || !this.isElementVisible(btn)) return false;
       if (btn.getAttribute("type") === "submit") return true;
-      const meta = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.getAttribute("data-testid") || ""} ${btn.textContent || ""}`.toLowerCase();
+      const meta = [btn.getAttribute("aria-label") || "", btn.getAttribute("title") || "", btn.getAttribute("data-testid") || "", btn.textContent || ""].join(" ").toLowerCase();
       return keywords.some((kw) => meta.includes(kw));
     };
     let container = inputEl ? inputEl.parentElement : document.body;
@@ -110,23 +110,19 @@ class ChatInjector {
   insertPrompt(promptText, autoSubmit = false) {
     const inputEl = this.findChatInputElement();
     if (!inputEl || !promptText) return false;
-    const prevX = typeof window !== "undefined" ? (window.scrollX || 0) : 0;
-    const prevY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
     this.focusWithoutScroll(inputEl);
     const prefix = inputEl.tagName === "TEXTAREA" ? (inputEl.value.trim() ? "\n\n" : "") : (inputEl.textContent.trim() ? "\n\n" : "");
-    const payload = `${prefix}${promptText}`;
+    const payload = prefix + promptText;
     if (inputEl.tagName === "TEXTAREA") {
       const start = inputEl.selectionStart ?? inputEl.value.length;
       const end = inputEl.selectionEnd ?? inputEl.value.length;
       inputEl.value = inputEl.value.slice(0, start) + payload + inputEl.value.slice(end);
-      inputEl.selectionStart = inputEl.selectionEnd = 0;
+      inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length;
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
     } else {
       if (!document.execCommand("insertText", false, payload)) inputEl.textContent = (inputEl.textContent || "") + payload;
       inputEl.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: payload }));
     }
-    this.scrollComposerToTop(inputEl);
-    if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - prevY) > 2) window.scrollTo(prevX, prevY);
     if (autoSubmit) {
       const minDelay = typeof autoSubmit === "object" ? (autoSubmit.minDelayMs ?? 400) : 400;
       const maxWait = typeof autoSubmit === "object" ? (autoSubmit.maxWaitMs ?? 3500) : 3500;
@@ -134,14 +130,6 @@ class ChatInjector {
       this.waitAndSubmit(inputEl, minDelay, maxWait, waitFile);
     }
     return true;
-  }
-
-  scrollComposerToTop(inputEl) {
-    let curr = inputEl;
-    for (let i = 0; i < 5 && curr; i++) {
-      if (typeof curr.scrollTop === "number" && curr.scrollTop > 0) curr.scrollTop = 0;
-      curr = curr.parentElement;
-    }
   }
 
   insertTestResults(textToInsert, autoSubmit = false) {

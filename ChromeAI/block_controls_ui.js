@@ -13,36 +13,26 @@ class BlockControlsUiHelper {
   hideTrailingEndMarker(pre) { const edge = this.spill.findEdgeSibling(pre, "next"); if (edge?.nodeType === 1 && this.spill.END_FILE_REGEX.test(String(edge.textContent || "").trim())) edge.classList?.add("gmc-spilled-hidden"); }
   detectFileTypeBadge(headerName) { const p = String(headerName || "").split("|").at(0).trim(); return (p.includes(".") ? p.split(".").pop().toUpperCase() : "TXT") || "TXT"; }
   formatCombinedLanguages(badges) {
-    const unique = Array.from(new Set(badges.map((b) => this.LANG_NAMES[b] || b.toLowerCase())));
-    if (unique.length <= 1) return unique.at(0) || "";
-    return unique.length === 2 ? `${unique.at(0)} et ${unique.at(1)}` : `${unique.slice(0, -1).join(", ")} et ${unique.at(-1)}`;
+    const u = Array.from(new Set(badges.map((b) => this.LANG_NAMES[b] || b.toLowerCase())));
+    return u.length <= 1 ? (u.at(0) || "") : (u.length === 2 ? `${u.at(0)} et ${u.at(1)}` : `${u.slice(0, -1).join(", ")} et ${u.at(-1)}`);
   }
   findHeaderLanguageNode(wrapper) {
     if (!wrapper) return null;
-    const roots = [wrapper, wrapper.parentElement].filter((r) => r && typeof r.querySelectorAll === "function");
-    for (const root of roots) {
+    for (const root of [wrapper, wrapper.parentElement].filter((r) => r && typeof r.querySelectorAll === "function")) {
       for (const node of Array.from(root.querySelectorAll("span, div"))) {
         if (node.closest?.(".gmc-placeholder, pre, code, button") || (node.children && node.children.length > 0)) continue;
-        const t = String(node.textContent || "").trim();
-        if (/^(?:javascript|python|css|html|json|markdown|ini|bash|text|svg)(?:\s*(?:,|et)\s*[a-z0-9_-]+)*$/i.test(t)) return node;
+        if (/^(?:javascript|python|css|html|json|markdown|ini|bash|text|svg)(?:\s*(?:,|et)\s*[a-z0-9_-]+)*$/i.test(String(node.textContent || "").trim())) return node;
       }
     }
     return null;
   }
-  updateHeaderLanguageLabel(wrapper, labelText) {
-    const node = this.findHeaderLanguageNode(wrapper);
-    if (!node || !labelText) return;
-    if (node.dataset && !node.dataset.gmcOrigLang) node.dataset.gmcOrigLang = String(node.textContent || "").trim();
-    node.textContent = labelText;
-  }
+  updateHeaderLanguageLabel(wrapper, labelText) { const n = this.findHeaderLanguageNode(wrapper); if (n && labelText) { if (n.dataset && !n.dataset.gmcOrigLang) n.dataset.gmcOrigLang = String(n.textContent || "").trim(); n.textContent = labelText; } }
   hideNativeFooterCaution(wrapper) {
     if (!wrapper || typeof wrapper.querySelectorAll !== "function") return;
     for (const node of Array.from(wrapper.querySelectorAll("div, p, span"))) {
-      if (node.closest?.(".gmc-placeholder, pre, code")) continue;
-      const t = String(node.textContent || "").trim();
-      if (/^(?:Utilisez le code avec pr[eé]caution\.?|Use code with caution\.?)$/i.test(t)) {
-        const footerBox = node.parentElement && node.parentElement !== wrapper && !node.parentElement.querySelector?.("pre") ? node.parentElement : node;
-        footerBox.classList?.add("gmc-hidden-native-footer");
+      if (!node.closest?.(".gmc-placeholder, pre, code") && /^(?:Utilisez le code avec pr[eé]caution\.?|Use code with caution\.?)$/i.test(String(node.textContent || "").trim())) {
+        const box = node.parentElement && node.parentElement !== wrapper && !node.parentElement.querySelector?.("pre") ? node.parentElement : node;
+        box.classList?.add("gmc-hidden-native-footer");
       }
     }
   }
@@ -83,7 +73,7 @@ class BlockControlsUiHelper {
     if (wrapper) { wrapper.removeAttribute("data-gmc-has-purge"); wrapper.querySelector?.(".gmc-hidden-native-copy")?.classList.remove("gmc-hidden-native-copy"); wrapper.querySelector?.(".gmc-hidden-native-footer")?.classList.remove("gmc-hidden-native-footer"); }
     item.headerPurgeAttached = false; item.verifyBtn?.classList.remove("gmc-code-header-btn");
     if (item.headerPurgeBtn) { item.headerPurgeBtn.remove(); item.headerPurgeBtn = null; }
-    if (item.batchBtn && item.batchRow && !item.batchRow.contains(item.batchBtn)) item.batchRow.appendChild(item.batchBtn);
+    if (item.batchBtn && item.batchRow && item.batchBtn.parentElement !== item.batchRow) item.batchRow.appendChild(item.batchBtn);
     if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "inline-flex";
     if (item.placeholderRow && item.verifyBtn && !item.verifyBtn.isConnected) item.placeholderRow.insertBefore(item.verifyBtn, item.placeholderPurgeBtn);
   }
@@ -96,7 +86,7 @@ class BlockControlsUiHelper {
     let anySvg = false; const badges = [];
     for (const m of members) {
       this.hideTrailingEndMarker(m.el);
-      const isCollapsed = m.el.classList.contains("gmc-collapsed-code"); const sp = this.spill.collect(m.el);
+      const isCollapsed = m.el.classList.contains("gmc-collapsed-code"), sp = this.spill.collect(m.el);
       (m.spilledNodes || []).forEach((n) => { if (!sp.nodes.includes(n)) n.classList?.remove("gmc-spilled-hidden"); });
       m.spilledNodes = sp.nodes;
       manager.preserveScrollAround(m.el.parentElement || m.el, () => sp.nodes.forEach((n) => n.classList?.toggle("gmc-spilled-hidden", isCollapsed)));
@@ -115,8 +105,7 @@ class BlockControlsUiHelper {
       act.append(m.toggleBtn); mRow.append(lbl, act); item.groupListEl.appendChild(mRow);
     }
     const leadWrapper = this.spill.findCodeBlockWrapper(item.el);
-    this.updateHeaderLanguageLabel(leadWrapper, this.formatCombinedLanguages(badges));
-    this.hideNativeFooterCaution(leadWrapper);
+    this.updateHeaderLanguageLabel(leadWrapper, this.formatCombinedLanguages(badges)); this.hideNativeFooterCaution(leadWrapper);
     if (item.downloadBtn) item.downloadBtn.style.display = anySvg ? "inline-flex" : "none";
   }
   syncItemVisuals(item, manager) {
@@ -131,23 +120,15 @@ class BlockControlsUiHelper {
     }
     if (item.placeholderEl) item.placeholderEl.style.display = "flex";
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
-    const remainingFromHere = typeof manager.getUnpurgedBlocksFrom === "function" ? manager.getUnpurgedBlocksFrom(item) : manager.getUnpurgedBlocks();
+    const rem = typeof manager.getUnpurgedBlocksFrom === "function" ? manager.getUnpurgedBlocksFrom(item) : manager.getUnpurgedBlocks();
     const unpurgedInGroup = isGrouped ? item.groupItems.filter((m) => !manager.isItemPurged(m)).length : (manager.isItemPurged(item) ? 0 : 1);
-    const showBatchFromHere = !manager.isItemPurged(item) && remainingFromHere.length > Math.max(1, unpurgedInGroup);
-    if (item.batchBtn) {
-      item.batchBtn.style.display = showBatchFromHere ? "inline-flex" : "none";
-      if (showBatchFromHere) item.batchBtn.textContent = `📋 Copier à partir d'ici & purger (${remainingFromHere.length} blocs)`;
-      if (item.batchRow) item.batchRow.style.display = showBatchFromHere && item.batchRow.contains(item.batchBtn) ? "flex" : "none";
-    }
+    const showBatch = !manager.isItemPurged(item) && rem.length > Math.max(1, unpurgedInGroup);
+    if (item.batchBtn) { item.batchBtn.style.display = showBatch ? "inline-flex" : "none"; if (showBatch) item.batchBtn.textContent = `📋 Copier à partir d'ici & purger (${rem.length} blocs)`; if (item.batchRow) item.batchRow.style.display = showBatch && item.batchBtn.parentElement === item.batchRow ? "flex" : "none"; }
     if (isGrouped) { this.syncGroupLeadVisuals(item, item.groupItems, manager); return; }
     const cardTarget = item.cardEl || item.placeholderEl; cardTarget.classList.remove("gmc-group-card");
-    if (item.groupListEl) item.groupListEl.style.display = "none";
-    if (item.singleMainRow) item.singleMainRow.style.display = "flex";
-    if (manager.isItemPurged(item)) {
-      if (this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; }
-      return;
-    }
-    const isCollapsed = item.el.classList.contains("gmc-collapsed-code"); const sp = this.spill.collect(item.el);
+    if (item.groupListEl) item.groupListEl.style.display = "none"; if (item.singleMainRow) item.singleMainRow.style.display = "flex";
+    if (manager.isItemPurged(item)) { if (this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; } return; }
+    const isCollapsed = item.el.classList.contains("gmc-collapsed-code"), sp = this.spill.collect(item.el);
     (item.spilledNodes || []).forEach((n) => { if (!sp.nodes.includes(n)) n.classList?.remove("gmc-spilled-hidden"); });
     item.spilledNodes = sp.nodes;
     manager.preserveScrollAround(item.el.parentElement || item.el, () => sp.nodes.forEach((n) => n.classList?.toggle("gmc-spilled-hidden", isCollapsed)));
@@ -164,22 +145,21 @@ class BlockControlsUiHelper {
     if (item.isSecondaryInGroup) { this.detachHeaderControls(pre, item); return; }
     const wrapper = this.spill.findCodeBlockWrapper(pre); if (!wrapper) return;
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
-const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test([b.getAttribute("aria-label") || "", b.getAttribute("title") || "", b.textContent || ""].join(" ")));
-const langNode = this.findHeaderLanguageNode(wrapper);
-const headerAnchor = langNode?.parentElement || nativeCopy?.parentElement;
-if (!headerAnchor) return;
-if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
-if (isGrouped) this.hideNativeFooterCaution(wrapper);
-if (item.batchBtn && headerAnchor && !headerAnchor.contains(item.batchBtn)) { item.batchBtn.classList.add("gmc-header-batch-btn"); headerAnchor.appendChild(item.batchBtn); if (item.batchRow) item.batchRow.style.display = "none"; }
-if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) return;
-if (item.headerPurgeAttached) this.detachHeaderControls(pre, item);
-if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
-wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true;
-if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge);
-item.headerPurgeBtn.classList.add("gmc-code-header-btn"); item.verifyBtn.classList.add("gmc-code-header-btn");
-headerAnchor.appendChild(item.headerPurgeBtn); headerAnchor.appendChild(item.verifyBtn);
-if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
-if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
-}
+    const nativeCopy = Array.from(wrapper.querySelectorAll("button")).find((b) => !b.closest(".gmc-placeholder") && !b.className.includes("gmc-") && /copier|copy/i.test([b.getAttribute("aria-label") || "", b.getAttribute("title") || "", b.textContent || ""].join(" ")));
+    const headerAnchor = this.findHeaderLanguageNode(wrapper)?.parentElement || nativeCopy?.parentElement;
+    if (!headerAnchor) return;
+    if (nativeCopy) nativeCopy.classList.toggle("gmc-hidden-native-copy", isGrouped);
+    if (isGrouped) this.hideNativeFooterCaution(wrapper);
+    if (item.batchBtn && item.batchBtn.parentElement !== headerAnchor) { item.batchBtn.classList.add("gmc-header-batch-btn"); headerAnchor.appendChild(item.batchBtn); if (item.batchRow) item.batchRow.style.display = "none"; }
+    if (item.headerPurgeAttached && item.headerPurgeBtn?.isConnected) return;
+    if (item.headerPurgeAttached) this.detachHeaderControls(pre, item);
+    if (wrapper.getAttribute("data-gmc-has-purge") === "true") { item.headerPurgeAttached = true; return; }
+    wrapper.setAttribute("data-gmc-has-purge", "true"); item.headerPurgeAttached = true;
+    if (!item.headerPurgeBtn) item.headerPurgeBtn = this.createPurgeBtn(item, onCopyAndPurge);
+    item.headerPurgeBtn.classList.add("gmc-code-header-btn"); item.verifyBtn.classList.add("gmc-code-header-btn");
+    headerAnchor.appendChild(item.headerPurgeBtn); headerAnchor.appendChild(item.verifyBtn);
+    if (item.placeholderPurgeBtn) item.placeholderPurgeBtn.style.display = "none";
+    if (nativeCopy && nativeCopy.getAttribute("data-gmc-copy-watched") !== "true") { nativeCopy.setAttribute("data-gmc-copy-watched", "true"); nativeCopy.addEventListener("click", () => { nativeCopy.classList.add("gmc-used-btn"); const fullText = getCodeFn(item); setTimeout(async () => { try { await navigator.clipboard.writeText(fullText); } catch (_err) {} }, 80); }); }
+  }
 }
 window.GmcBlockControlsUiHelper = BlockControlsUiHelper;

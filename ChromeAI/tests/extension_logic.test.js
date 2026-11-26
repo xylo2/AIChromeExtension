@@ -36,12 +36,13 @@ test("manifest.json déclare les permissions et tous les modules modulaires dans
   assert.equal(fs.existsSync(path.join(EXTENSION_DIR, "break_guard.js")), false);
 });
 
-test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral", () => {
+test("chaque module est concis (<= 180 lignes), sans triple backtick littéral ni scroll auto", () => {
   for (const mod of [...JS_MODULES, "bg_native_helper.js", "background.js", "popup_view.js", "popup.js"]) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
     const lines = code.split("\n").length;
     assert.ok(lines <= 180, `${mod} dépasse 180 lignes (${lines})`);
     assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
+    assert.equal(/\b(?:scrollIntoView|scrollTo|scrollBy)\b/.test(code), false, `Scroll auto interdit dans ${mod}`);
   }
   const popupHtml = fs.readFileSync(path.join(EXTENSION_DIR, "popup.html"), "utf-8");
   assert.ok(popupHtml.includes('href="popup.css"'));
@@ -67,17 +68,15 @@ test("chaque module est concis (<= 180 lignes) et sans triple backtick littéral
   assert.ok(eventsJs.includes("exportMenu.toggle"));
 });
 test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) et WatcherPopupController fonctionnent", async () => {
-  const scrollCalls = [];
-  const winObj = { scrollX: 0, scrollY: 420, scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollCalls.push({ x, y }); }, scrollBy() {} };
   const makeNode = (tag) => ({
     tagName: tag, className: "", textContent: "", type: "", checked: false, dataset: {}, children: [], listeners: {},
     append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
   });
   const sandbox = {
-    window: winObj,
+    window: {},
     Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
-    navigator: { clipboard: { writeText: async () => { winObj.scrollY = 0; } } },
+    navigator: { clipboard: { writeText: async () => {} } },
     document: { getElementById: () => null, addEventListener() {}, createElement: makeNode, body: makeNode("BODY"), querySelectorAll: () => [{ textContent: "x".repeat(400) }] },
     chrome: { runtime: { id: "test-ext-id" }, storage: { local: { get: (_k, cb) => cb({}) } } }
   };
@@ -106,17 +105,12 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll, 2 boutons) 
     isStarting: () => false, setStarting() {}, clearCommitMsgFlag() {}
   });
   eventsCtrl.bindAll();
-  winObj.scrollY = 420;
   const gitMgr = new sandbox.window.GmcGitPanelManager(spill, null);
   gitMgr.open([{ status: "M", path: "app.py" }]);
   const actionBtns = gitMgr.panelEl.children.at(2).children;
   assert.deepEqual(actionBtns.map((b) => b.textContent), ["Fermer", "📤 Transmettre à l'IA"]);
   gitMgr.close();
-  const restore = gitMgr.uiHelper.captureScrollAnchor({ getBoundingClientRect: () => ({ top: 200 }) });
-  await sandbox.navigator.clipboard.writeText("feat: test");
-  restore();
-  assert.equal(winObj.scrollY, 420);
-  assert.equal(scrollCalls.length, 1);
+  assert.equal(typeof gitMgr.uiHelper.captureScrollAnchor, "undefined");
   const commitPrompt = gitMgr.buildCommitPrompt(["app.py"], "git_changes.diff.txt");
   assert.ok(commitPrompt.includes("correction"));
   assert.ok(commitPrompt.includes("=== COMMIT_MESSAGE ==="));

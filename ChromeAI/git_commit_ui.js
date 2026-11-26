@@ -1,23 +1,9 @@
 /**
- * Rendu des erreurs Git, verrouillage du scroll et boutons commit / push / nouveau chat.
+ * Rendu des erreurs Git et boutons commit / push / nouveau chat.
  */
 class GitCommitUiHelper {
   constructor(chatInjector) {
     this.chat = chatInjector;
-  }
-
-  captureScrollAnchor(anchorEl) {
-    const winX = typeof window !== "undefined" ? (window.scrollX || 0) : 0;
-    const winY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
-    const rectTop = anchorEl && typeof anchorEl.getBoundingClientRect === "function" ? anchorEl.getBoundingClientRect().top : null;
-    return () => {
-      if (typeof window === "undefined") return;
-      if (typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - winY) > 2) window.scrollTo(winX, winY);
-      if (rectTop !== null && anchorEl && typeof anchorEl.getBoundingClientRect === "function" && typeof window.scrollBy === "function") {
-        const delta = anchorEl.getBoundingClientRect().top - rectTop;
-        if (Math.abs(delta) > 2) window.scrollBy(0, delta);
-      }
-    };
   }
 
   renderErrorBox(bar, titleText, fullErrorText) {
@@ -41,6 +27,7 @@ class GitCommitUiHelper {
     const preDetail = document.createElement("pre"); preDetail.className = "gmc-git-error-detail"; preDetail.textContent = String(fullErrorText || "Erreur inconnue.");
     box.append(topRow, preDetail);
   }
+
   sendRuntimeSafe(payload, onDone, timeoutMs = 20000) {
     if (!chrome.runtime?.id) { onDone({ ok: false, error: "Extension rechargée : actualise la page (F5) puis réessaie." }); return; }
     let settled = false;
@@ -90,9 +77,7 @@ class GitCommitUiHelper {
     pushBtn.textContent = "🚀 git push origin HEAD"; pushBtn.title = "Pousse la branche courante vers origin";
     pushBtn.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
-      const restoreScroll = this.captureScrollAnchor(bar);
       pushBtn.disabled = true; pushBtn.classList.remove("state-fail", "state-pass"); pushBtn.textContent = "⏳ Push en cours...";
-      restoreScroll();
       this.sendRuntimeSafe({ type: "GIT_PUSH", remote: "origin", branch: "HEAD" }, async (res) => {
         if (res?.ok) {
           pushBtn.textContent = "✅ Push origin OK"; pushBtn.title = res.output || "Push effectué"; pushBtn.classList.add("state-pass");
@@ -104,7 +89,6 @@ class GitCommitUiHelper {
           pushBtn.disabled = false; pushBtn.textContent = `❌ ${shortErr.slice(0, 75)}`; pushBtn.classList.add("state-fail");
           this.renderErrorBox(bar, "Détail de l'erreur git push", fullErr);
         }
-        restoreScroll();
       }, 68000);
     });
     return pushBtn;

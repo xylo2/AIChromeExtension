@@ -25,15 +25,6 @@ class TestActionsController {
     return `${clean.slice(0, this.MAX_PROMPT_REPORT_CHARS).trim()}\n[... ${omitted} caractères tronqués — voir panneau Sortie tests ...]`;
   }
 
-  preserveWindowScroll(mutatorFn) {
-    const winX = typeof window !== "undefined" ? (window.scrollX || 0) : 0, winY = typeof window !== "undefined" ? (window.scrollY || 0) : 0;
-    const restore = () => { if (typeof window !== "undefined" && typeof window.scrollTo === "function" && Math.abs((window.scrollY || 0) - winY) > 2) window.scrollTo(winX, winY); };
-    const res = mutatorFn();
-    restore();
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(restore);
-    return res;
-  }
-
   invalidateOnNewFiles() {
     const curEv = this.getWatcherState()?.lastEvent ?? null;
     if (this.lastTestsPassed && curEv !== this.lastPassedEventSnapshot) {
@@ -57,7 +48,6 @@ class TestActionsController {
     this.coverageBtn.textContent = isFull ? "✅ Couv. 100.0%" : `📊 Couverture${pct !== null ? ` (${pct.toFixed(1)}%)` : ""}`;
     this.coverageBtn.title = isFull ? "Toutes les lignes exécutables mesurées sont couvertes par les tests" : "Envoyer à l'IA le bilan de couverture et les lignes non couvertes";
   }
-
   async finalizeTestRun(res) {
     this.testsBtn.disabled = false;
     if (this.autoClosePanelTimer) { clearTimeout(this.autoClosePanelTimer); this.autoClosePanelTimer = null; }
@@ -81,7 +71,7 @@ class TestActionsController {
       if (sig && sig === this.lastSentFailureSig && curEv === this.lastFailureEventSnapshot) {
         try { await navigator.clipboard.writeText(finalReport); } catch (_err) {}
         this.setBtnState(this.testsBtn, "fail", "⚠️ Échec déjà envoyé");
-      } else if (this.preserveWindowScroll(() => this.chat.insertTestResults(compactPayload, true))) {
+      } else if (this.chat.insertTestResults(compactPayload, true)) {
         this.budget?.recordPayload(compactPayload);
         this.lastSentFailureSig = sig; this.lastFailureEventSnapshot = curEv; this.resetTestsButton();
       } else { try { await navigator.clipboard.writeText(finalReport); } catch (_err) {} this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs copiés"); }
@@ -106,7 +96,7 @@ class TestActionsController {
     this.coverageBtn.addEventListener("click", () => {
       if (!this.lastUncoveredReport) return;
       const compactCov = this.truncateReportForPrompt(this.lastUncoveredReport);
-      this.preserveWindowScroll(() => this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + compactCov + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true));
+      this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + compactCov + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true);
       this.budget?.recordPayload(compactCov);
       this.lastUncoveredReport = ""; this.lastCoveragePercent = null; this.lastTestsPassed = false; this.lastPassedEventSnapshot = null; this.renderCoverageIndicator();
     });

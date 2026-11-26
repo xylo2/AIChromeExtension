@@ -7,7 +7,7 @@ class GitPanelManager {
   }
   buildVerifyPrompt(selectedFiles, diffFilename) {
     const count = Array.isArray(selectedFiles) ? selectedFiles.length : 0;
-    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable).\n2. **Action selon le résultat** :\n   - **S'il y a un problème** : signale l'anomalie et fournis directement la **correction** (blocs \x60=== FILE: ... ===\x60 <= 75 lignes), sans générer de message de commit.\n   - **S'il n'y a pas de problème** : précise en une phrase que **tout va bien** et propose uniquement un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
+    return `Analyse le diff complet joint dans \x60${diffFilename}\x60 (${count} fichier(s) sélectionné(s)).\n1. **Vérification du diff** : contrôle qu'il n'y a pas de problème (code supprimé par erreur, régression, troncature, secret ou fichier indésirable).\n2. **Action selon le résultat** :\n   - **S'il y a un problème** : signale l'anomalie et fournis directement la **correction** (blocs \x60=== FILE: ... ===\x60 <= 75 lignes), sans générer de message de commit.\n   - **S'il n'y a pas un problème** : précise en une phrase que **tout va bien** et propose uniquement un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne suivi du message Conventional Commits en français (titre fonctionnel + corps fonctionnel et technique).`;
   }
   buildCommitMessageOnlyPrompt() {
     return "Génère maintenant uniquement le **message de commit** correspondant aux modifications vérifiées ci-dessus, dans un bloc de code contenant \x60=== COMMIT_MESSAGE ===\x60 en toute première ligne (sans balise \x60=== FILE ===\x60), structuré avec un **Titre** Conventional Commits en français (apport fonctionnel) et un **Corps** décrivant l'apport fonctionnel puis les détails techniques (tests unitaires).";
@@ -66,8 +66,8 @@ class GitPanelManager {
       const commitBtn = document.createElement("button"); commitBtn.type = "button"; commitBtn.className = "gmc-git-commit-btn"; commitBtn.textContent = "📋✅ Copier & git commit";
       commitBtn.addEventListener("click", async (e) => {
         e.preventDefault(); e.stopPropagation(); const msgText = this.extractCommitMessage(pre); if (!msgText || !this.uiHelper) return;
-        const restoreScroll = this.uiHelper.captureScrollAnchor(bar); commitBtn.disabled = true; commitBtn.textContent = "⏳ Commit en cours...";
-        try { await navigator.clipboard.writeText(msgText); } catch (_err) {} restoreScroll();
+        commitBtn.disabled = true; commitBtn.textContent = "⏳ Commit en cours...";
+        try { await navigator.clipboard.writeText(msgText); } catch (_err) {}
         let filesToCommit = this.lastValidatedFiles; if (filesToCommit.length === 0 && chrome.storage?.local?.get && chrome.runtime?.id) { try { filesToCommit = (await chrome.storage.local.get("savedGitSelectedFiles")).savedGitSelectedFiles || []; } catch (_e) {} }
         this.uiHelper.sendRuntimeSafe({ type: "GIT_COMMIT", message: msgText, files: filesToCommit }, (res) => {
           if (res?.ok) {
@@ -76,7 +76,6 @@ class GitPanelManager {
             if (!bar.querySelector(".gmc-git-push-btn")) bar.appendChild(this.uiHelper.createPushButton(bar, this));
             if (!bar.querySelector(".gmc-git-fresh-export-btn")) { const fb = this.uiHelper.createFreshExportButton(); fb.classList.add("gmc-git-fresh-export-btn"); bar.appendChild(fb); }
           } else { commitBtn.disabled = false; commitBtn.textContent = "❌ Échec git commit"; commitBtn.classList.add("state-fail"); this.uiHelper.renderErrorBox(bar, "Détail de l'erreur git commit", res?.error || "Erreur git commit inconnue."); }
-          restoreScroll();
         }, 30000);
       }); bar.appendChild(commitBtn); pre.parentNode.insertBefore(bar, pre.nextSibling);
     }

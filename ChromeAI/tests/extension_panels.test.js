@@ -58,44 +58,32 @@ test("TestOutputPanelManager streame, se déplace à la souris, arrête, copie, 
   assert.equal(mgr.panelEl.style.left, "400px");
   assert.equal(mgr.panelEl.style.top, "100px");
 });
-test("TestActionsController.preserveWindowScroll et ChatInjector.insertPrompt figent le scroll", () => {
-  const rafCallbacks = [];
+test("ChatInjector.insertPrompt n'appelle pas window.scrollTo et utilise focus({ preventScroll: true })", () => {
   const scrollHistory = [];
-  const makeBtn = () => ({ classList: { remove() {}, add() {}, toggle() {} }, style: {}, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } });
+  let focusOpts = null;
   const fakeTextarea = {
     tagName: "TEXTAREA", value: "", selectionStart: 0, selectionEnd: 0, isConnected: true, disabled: false, readOnly: false,
     getBoundingClientRect: () => ({ width: 300, height: 40, top: 600 }),
     closest: () => null,
-    focus() { sandbox.window.scrollY = 999; },
+    focus(opts) { focusOpts = opts; },
     dispatchEvent() {}
   };
   const sandbox = {
-    window: {
-      innerHeight: 800, scrollX: 12, scrollY: 350,
-      scrollTo(x, y) { this.scrollX = x; this.scrollY = y; scrollHistory.push({ x, y }); },
-      requestAnimationFrame(cb) { rafCallbacks.push(cb); }
-    },
-    document: { querySelectorAll: () => [fakeTextarea], createElement: makeBtn, body: { appendChild() {} } },
+    window: { innerHeight: 800, scrollX: 12, scrollY: 350, scrollTo(x, y) { scrollHistory.push({ x, y }); } },
+    document: { querySelectorAll: () => [fakeTextarea], body: { appendChild() {} } },
     Event: class FakeEvent { constructor(t) { this.type = t; } },
     setTimeout: () => {}, clearTimeout: () => {}
   };
   vm.createContext(sandbox);
-  for (const mod of ["file_attacher.js", "chat_injector.js", "test_panel.js", "test_actions.js"]) {
+  for (const mod of ["file_attacher.js", "chat_injector.js"]) {
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const injector = new sandbox.window.GmcChatInjector();
   injector.getComputedStyle = () => ({ display: "block", visibility: "visible" });
   sandbox.window.getComputedStyle = () => ({ display: "block", visibility: "visible" });
   assert.equal(injector.insertPrompt("Bonjour", false), true);
-  assert.equal(sandbox.window.scrollY, 350);
-
-  const ctrl = new sandbox.window.GmcTestActionsController(injector, () => {}, () => {}, { testsBtn: makeBtn(), coverageBtn: makeBtn() }, () => ({}), () => {});
-  ctrl.preserveWindowScroll(() => { sandbox.window.scrollY = 1200; });
-  assert.equal(sandbox.window.scrollY, 350);
-  sandbox.window.scrollY = 1200;
-  rafCallbacks.forEach((cb) => cb());
-  assert.equal(sandbox.window.scrollY, 350);
-  assert.ok(scrollHistory.length >= 2);
+  assert.equal(focusOpts?.preventScroll, true);
+  assert.equal(scrollHistory.length, 0);
 });
 
 test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton sur <pre> autonome", () => {
@@ -123,10 +111,9 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
     document: { createElement: makeNode, body: { appendChild(n) { appended.push(n); } }, querySelectorAll: () => [preNode] }
   };
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "spill_heuristics.js"), "utf-8"), sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "spill_detector.js"), "utf-8"), sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "svg_sanitizer.js"), "utf-8"), sandbox);
-  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "svg_preview.js"), "utf-8"), sandbox);
+  for (const mod of ["spill_heuristics.js", "spill_detector.js", "svg_sanitizer.js", "svg_preview.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
+  }
   const preview = new sandbox.window.GmcSvgPreviewManager(new sandbox.window.GmcSpillDetector());
   preview.scanStandaloneBlocks();
   wrapperNode.querySelector(".gmc-svg-standalone-dl").click();
@@ -135,7 +122,7 @@ test("SvgPreviewManager normalise xmlns, télécharge le SVG et ajoute le bouton
   assert.equal(preview.tooltipEl.style.display, "flex");
 });
 
-test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiToken 401)", async () => {
+test("CodeBlockManager (copyAndPurgeAll, sans scroll) et WatcherBackgroundService (resyncApiToken 401)", async () => {
   const scrolled = []; let removedKey = null; let savedJson = ""; let calls = 0; const clickedLinks = []; let copiedBatch = "";
   const makeEl = (tag) => ({
     tagName: tag, type: "", className: "", title: "", innerHTML: "", href: "", download: "", style: {}, listeners: {},
@@ -168,6 +155,7 @@ test("CodeBlockManager (copyAndPurgeAll) et WatcherBackgroundService (resyncApiT
   blockMgr.trackedBlocks.push({ el: makePre("=== FILE: a.py ===\nx = 1"), headerName: "a.py", spilledNodes: [], purgeButtons: [] });
   assert.equal(await blockMgr.copyAndPurgeAll(), 1);
   assert.equal(copiedBatch, "=== FILE: a.py ===\nx = 1");
+  assert.equal(scrolled.length, 0);
   const bgSvc = new sandbox.globalThis.GmcBackgroundService();
   bgSvc.nativeHelper.fetchSessionToken = async () => "fresh-tok";
   assert.equal((await bgSvc.fetchWithTokenFallback("http://localhost:18765/status", {}, "stale-tok")).ok, true);
