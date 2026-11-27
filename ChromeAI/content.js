@@ -6,7 +6,7 @@
  */
 if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   window.__gmcInitialized = true;
-  if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_err) {} }
+  if (window.__gmcObserver) { try { window.__gmcObserver.disconnect(); } catch (_e) {} }
   if (window.__gmcStatusTimer) clearInterval(window.__gmcStatusTimer);
   if (window.__gmcStreamTimer) clearInterval(window.__gmcStreamTimer);
   if (window.__gmcBuildStreamTimer) clearInterval(window.__gmcBuildStreamTimer);
@@ -19,24 +19,31 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
 
   const spillDetector = new window.GmcSpillDetector();
   const chatInjector = new window.GmcChatInjector();
-  const tokenBudget = window.GmcTokenBudgetManager ? new window.GmcTokenBudgetManager() : null;
-  const exportMenu = window.GmcExportMenuManager ? new window.GmcExportMenuManager(tokenBudget) : null;
+  const tokenBudget = window.GmcTokenBudgetManager
+    ? new window.GmcTokenBudgetManager() : null;
+  const exportMenu = window.GmcExportMenuManager
+    ? new window.GmcExportMenuManager(tokenBudget) : null;
   let canRequestCommitMsg = false, scanTimer = null, isStartingWatcher = false;
-  let isTriggeringFreshExport = false, guidedActionId = "", exportBadgeTimer = null, eventsCtrl = null;
+  let isTriggeringFreshExport = false, guidedActionId = "";
+  let exportBadgeTimer = null, eventsCtrl = null, hasLiveWorkerSync = false;
   let lastBudgetKey = tokenBudget ? tokenBudget.getConversationKey() : "";
   let watcherState = {
     running: false, targetDir: null, hasRunTestsClip: false, hasExporter: false,
-    hasBuildPackage: false, hasGit: false, hasSyntaxError: false, lastEvent: null, recentEvents: []
+    hasBuildPackage: false, hasGit: false, hasSyntaxError: false,
+    lastEvent: null, recentEvents: []
   };
   let updateIndicators = () => {};
 
   /** Envoie un message au service worker en gérant les erreurs de contexte. */
   const sendBgMessage = (payload, onDone = () => {}) => {
-    if (!chrome.runtime?.id) { onDone({ ok: false, error: "Contexte extension invalidé." }); return; }
+    if (!chrome.runtime?.id) {
+      onDone({ ok: false, error: "Contexte extension invalidé." });
+      return;
+    }
     try {
       chrome.runtime.sendMessage(payload, (res) => {
         if (chrome.runtime.lastError) {
-          onDone({ ok: false, error: chrome.runtime.lastError.message || "Erreur extension." });
+          onDone({ ok: false, error: chrome.runtime.lastError.message || "Erreur." });
           return;
         }
         onDone(res || { ok: false });
@@ -45,7 +52,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       onDone({ ok: false, error: err?.message || "Erreur extension." });
     }
   };
-
   /** Met à jour la classe d'état et le libellé d'un bouton de la barre. */
   const setBtnState = (btn, stateClass, labelText = null) => {
     if (!btn) return;
@@ -53,10 +59,10 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (stateClass) btn.classList?.add(`state-${stateClass}`);
     if (labelText !== null) btn.textContent = labelText;
   };
-  const gitManager = new window.GmcGitPanelManager(spillDetector, chatInjector, (isVerify) => {
-    canRequestCommitMsg = Boolean(isVerify);
-    updateIndicators();
-  });
+  const gitManager = new window.GmcGitPanelManager(
+    spillDetector, chatInjector,
+    (isVerify) => { canRequestCommitMsg = Boolean(isVerify); updateIndicators(); }
+  );
   const svgPreview = new window.GmcSvgPreviewManager(spillDetector);
   let floatingBar = document.querySelector(".gmc-floating-bar");
   if (!floatingBar) {
@@ -95,7 +101,6 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (el.parentElement !== parent) parent.appendChild(el);
     return el;
   };
-
   const els = {
     statusPill: makeBtn("gmc-global-status-pill offline", "🔴 Watcher OFF", "", false, serviceRow),
     autoSyntaxBtn: makeBtn("gmc-auto-syntax-btn", "⚡ Auto-fix: ON", "Corriger automatiquement les erreurs de syntaxe", true, serviceRow),
@@ -136,10 +141,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   );
   const blockManager = new window.GmcCodeBlockManager(
     spillDetector, chatInjector,
-    () => {
-      updateIndicators();
-      setTimeout(() => { if (watcherState?.running) composerUi.mount(); }, 80);
-    },
+    () => { updateIndicators(); setTimeout(() => { if (watcherState?.running) composerUi.mount(); }, 80); },
     svgPreview
   );
 
@@ -154,29 +156,22 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       if (exportBadgeTimer) { clearTimeout(exportBadgeTimer); exportBadgeTimer = null; }
       if (!res?.ok || !res.content) {
         setBtnState(els.exportBtn, "fail", "❌ Erreur export");
-        exportBadgeTimer = setTimeout(
-          () => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2500
-        );
+        exportBadgeTimer = setTimeout(() => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2500);
         return;
       }
       const fname = res.filename || "project_export.txt";
-      const prompt = exportMenu
-        ? exportMenu.buildExportPrompt(mode, fname, res.file_count, res.estimated_tokens, subpaths)
-        : `Fichier joint (\x60${fname}\x60) :`;
+      const prompt = exportMenu ? exportMenu.buildExportPrompt(mode, fname, res.file_count, res.estimated_tokens, subpaths) : `Fichier joint (\x60${fname}\x60) :`;
       tokenBudget?.recordPayload(`${res.content}\n${prompt}`, Number(res.estimated_tokens || 0));
       chatInjector.dropFile(fname, res.content, false);
       chatInjector.insertPrompt(prompt, { minDelayMs: 1600, maxWaitMs: 7000, waitForFile: fname });
       setBtnState(els.exportBtn, "pass", "✅ Exporté");
-      exportBadgeTimer = setTimeout(
-        () => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2200
-      );
+      exportBadgeTimer = setTimeout(() => { exportBadgeTimer = null; setBtnState(els.exportBtn, null, "📦 Exporter"); }, 2200);
       updateIndicators();
     });
   };
   /** Vérifie si un export automatique a été demandé depuis un nouveau chat vierge. */
   const checkPendingFreshExport = () => {
-    if (isTriggeringFreshExport || !watcherState?.running || !watcherState?.hasExporter) return;
-    if (!chrome.storage?.local?.get) return;
+    if (isTriggeringFreshExport || !watcherState?.running || !watcherState?.hasExporter || !chrome.storage?.local?.get) return;
     chrome.storage.local.get("pendingFreshExportAt", (res) => {
       const ts = Number(res?.pendingFreshExportAt || 0);
       if (!ts || (Date.now() - ts) > 30000) return;
@@ -185,10 +180,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       setTimeout(() => { isTriggeringFreshExport = false; triggerProjectExport("full", []); }, 600);
     });
   };
-  /** Affiche une ligne de la barre flottante uniquement si un bouton est visible. */
-  const toggleRowVisibility = (rowEl, btnList) => {
-    rowEl.style.display = btnList.some((b) => b && b.style.display !== "none") ? "flex" : "none";
-  };
+  const toggleRowVisibility = (rowEl, btnList) => { rowEl.style.display = btnList.some((b) => b && b.style.display !== "none") ? "flex" : "none"; };
 
   /** Synchronise l'état visuel de la barre flottante et de l'action guidée. */
   updateIndicators = () => {
@@ -199,14 +191,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     const folder = watcherState.targetDir ? watcherState.targetDir.split(/[\\/]/).filter(Boolean).pop() : "";
     if (running) els.statusPill.textContent = `🟢 Watcher ON${folder ? ` (${folder})` : ""}`;
     else if (!isStartingWatcher) els.statusPill.textContent = "🔴 Watcher OFF";
-    if (els.budgetPill) {
-      els.budgetPill.style.display = running ? "inline-flex" : "none";
-      if (running && tokenBudget) {
-        const bState = tokenBudget.formatBadgeState();
-        setBtnState(els.budgetPill, bState.level, bState.label);
-        els.budgetPill.title = `${bState.title}\n(Cliquer pour remettre le compteur manuel à zéro)`;
-      }
-    }
+    if (els.budgetPill) { els.budgetPill.style.display = running ? "inline-flex" : "none"; if (running && tokenBudget) { const b = tokenBudget.formatBadgeState(); setBtnState(els.budgetPill, b.level, b.label); els.budgetPill.title = `${b.title}\n(Cliquer pour remettre à zéro)`; } }
     const unpurgedCount = running ? blockManager.getUnpurgedCount() : 0;
     els.purgeBtn.style.display = running && unpurgedCount > 0 ? "inline-flex" : "none";
     els.autoSyntaxBtn.style.display = running ? "inline-flex" : "none";
@@ -218,107 +203,66 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     els.exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     els.testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.testsBtn.disabled = Boolean(testActions.panel.isRunning);
-    const showTestLog = running && watcherState.hasRunTestsClip && (testActions.panel.fullReport || testActions.panel.isRunning);
-    els.testLogBtn.style.display = showTestLog ? "inline-flex" : "none";
-    const showBuildLog = running && watcherState.hasBuildPackage && (eventsCtrl?.buildPanel?.fullReport || eventsCtrl?.buildPanel?.isRunning);
-    els.buildLogBtn.style.display = showBuildLog ? "inline-flex" : "none";
+    els.testLogBtn.style.display = running && watcherState.hasRunTestsClip && (testActions.panel.fullReport || testActions.panel.isRunning) ? "inline-flex" : "none";
+    els.buildLogBtn.style.display = running && watcherState.hasBuildPackage && (eventsCtrl?.buildPanel?.fullReport || eventsCtrl?.buildPanel?.isRunning) ? "inline-flex" : "none";
     testActions.renderCoverageIndicator();
     els.eventPill.style.display = running && watcherState.lastEvent ? "inline-flex" : "none";
     if (running && watcherState.lastEvent) {
-      const evStr = String(watcherState.lastEvent);
-      const isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
-      els.eventPill.classList.toggle("state-fail", isSyntaxErr);
-      els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
-      const hist = Array.isArray(watcherState.recentEvents) && watcherState.recentEvents.length > 0
-        ? `\nHistorique :\n${watcherState.recentEvents.join("\n")}` : "";
-      els.eventPill.title = (isSyntaxErr
-        ? "Erreur de syntaxe détectée : cliquer pour renvoyer l'extrait à l'IA"
-        : "Cliquer pour envoyer ce statut dans le chat") + hist;
+      const evStr = String(watcherState.lastEvent), isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
+      els.eventPill.classList.toggle("state-fail", isSyntaxErr); els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
     }
     toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.buildBtn, els.buildLogBtn, els.gitBtn, els.commitMsgBtn]);
     toggleRowVisibility(testsRow, [els.testsBtn, els.testLogBtn, els.coverageBtn]);
     toggleRowVisibility(domRow, [els.eventPill, els.purgeBtn]);
-    const guided = running ? composerUi.resolveGuidedAction({
-      watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(),
-      canCommitMsg: canRequestCommitMsg,
-      testsPassedForCurrentEvent: Boolean(testActions.lastTestsPassed || testActions.panel.isRunning),
-      autoFixActive: Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.())
-    }) : null;
-    guidedActionId = guided ? guided.id : "";
-    els.guidedBtn.style.display = guided ? "inline-flex" : "none";
+    const guided = running ? composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent: Boolean(testActions.lastTestsPassed || testActions.panel.isRunning), autoFixActive: Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.()) }) : null;
+    guidedActionId = guided ? guided.id : ""; els.guidedBtn.style.display = guided ? "inline-flex" : "none";
     if (guided) { els.guidedBtn.textContent = guided.label; els.guidedBtn.title = guided.title; }
-    if (running) { composerUi.mount(); checkPendingFreshExport(); }
-    else if (composerUi.groupEl.parentElement) composerUi.groupEl.remove();
+    if (running) { composerUi.mount(); checkPendingFreshExport(); } else if (composerUi.groupEl.parentElement) composerUi.groupEl.remove();
   };
 
-  /** Lance un balayage complet uniquement lorsque le watcher est actif. */
-  const scanAll = (preExisting = false) => {
-    if (!watcherState?.running) { updateIndicators(); return; }
-    composerUi.mount();
-    gitManager.scanCommitBlocks();
-    blockManager.scan(preExisting);
-    svgPreview.scanStandaloneBlocks();
-    updateIndicators();
-  };
+  const scanAll = (preExisting = false) => { if (!watcherState?.running) { updateIndicators(); return; } composerUi.mount(); gitManager.scanCommitBlocks(); blockManager.scan(preExisting); svgPreview.scanStandaloneBlocks(); updateIndicators(); };
   eventsCtrl = new window.GmcContentEventsController({
-    els, blockManager, chatInjector, gitManager, exportMenu, testActions,
-    composerUi, tokenBudget, sendBgMessage, setBtnState, triggerProjectExport, updateIndicators,
-    getWatcherState: () => watcherState,
-    setWatcherState: (s) => { const wasOff = !watcherState?.running; watcherState = s; if (wasOff && s?.running) scanAll(false); },
-    isStarting: () => isStartingWatcher, setStarting: (v) => { isStartingWatcher = v; },
-    canRequestCommitMsg: () => canRequestCommitMsg,
-    clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); },
-    getGuidedActionId: () => guidedActionId
+    els, blockManager, chatInjector, gitManager, exportMenu, testActions, composerUi, tokenBudget, sendBgMessage, setBtnState, triggerProjectExport, updateIndicators,
+    getWatcherState: () => watcherState, setWatcherState: (s) => { const wasOff = !watcherState?.running; watcherState = s; if (wasOff && s?.running) { scanAll(true); setTimeout(() => scanAll(true), 800); } },
+    isStarting: () => isStartingWatcher, setStarting: (v) => { isStartingWatcher = v; }, canRequestCommitMsg: () => canRequestCommitMsg, clearCommitMsgFlag: () => { canRequestCommitMsg = false; updateIndicators(); }, getGuidedActionId: () => guidedActionId
   });
   eventsCtrl.bindAll();
 
-  /** Demande au service worker l'état courant du serveur local. */
-  const refreshState = () => {
-    if (!chrome.runtime?.id) return;
-    chrome.storage?.local?.get("watchClipboardState", (res) => {
-      if (res?.watchClipboardState) eventsCtrl.handleStateUpdate(res.watchClipboardState);
-    });
-    chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (st) => {
-      if (!chrome.runtime.lastError && st) eventsCtrl.handleStateUpdate(st);
-    });
+  const stopOrphanedInstance = () => {
+    clearInterval(ownStatusTimer);
+    try { ownObserver.disconnect(); } catch (_e) {}
+    if (!document.querySelector(".gmc-floating-bar[data-gmc-live='true']")) {
+      els.statusPill.className = "gmc-global-status-pill offline";
+      els.statusPill.textContent = "🔄 Recharger (F5)";
+      els.statusPill.onclick = () => window.location.reload();
+    }
   };
-  chrome.storage?.onChanged?.addListener((changes, area) => {
-    if (area === "local" && changes.watchClipboardState?.newValue) {
-      eventsCtrl.handleStateUpdate(changes.watchClipboardState.newValue);
-    }
-  });
+  floatingBar.setAttribute("data-gmc-live", "true");
+  const refreshState = () => {
+    if (!chrome.runtime?.id) { floatingBar.removeAttribute("data-gmc-live"); stopOrphanedInstance(); return; }
+    if (hasLiveWorkerSync) chrome.storage?.local?.get("watchClipboardState", (res) => { if (res?.watchClipboardState) eventsCtrl.handleStateUpdate(res.watchClipboardState); });
+    try { chrome.runtime.sendMessage({ type: "REFRESH_STATUS" }, (st) => { if (!chrome.runtime.lastError && st) { hasLiveWorkerSync = true; eventsCtrl.handleStateUpdate(st); } }); } catch (_err) {}
+  };
+  chrome.storage?.onChanged?.addListener((changes, area) => { if (area === "local" && changes.watchClipboardState?.newValue) { hasLiveWorkerSync = true; eventsCtrl.handleStateUpdate(changes.watchClipboardState.newValue); } });
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.type === "WATCHER_STATE_CHANGED" && msg.state) eventsCtrl.handleStateUpdate(msg.state);
-    if (msg?.type === "INSERT_TEST_RESULT" && msg.output) {
-      sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) });
-    }
+    if (msg?.type === "WATCHER_STATE_CHANGED" && msg.state) { hasLiveWorkerSync = true; eventsCtrl.handleStateUpdate(msg.state); }
+    if (msg?.type === "INSERT_TEST_RESULT" && msg.output) sendResponse({ inserted: chatInjector.insertTestResults(msg.output, false) });
   });
-
-  /** Filtre les mutations DOM externes pour éviter de déclencher un scan sur nos composants. */
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshState(); if (watcherState?.running) scanAll(true); } });
   const isExternalMutation = (records) => records.some((r) => {
-    const t = r.target;
-    const ownSel = ".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-git-panel, .gmc-svg-preview-tooltip, .gmc-autosuite-banner";
+    const t = r.target, ownSel = ".gmc-floating-bar, .gmc-composer-quick-group, .gmc-placeholder, .gmc-git-panel, .gmc-svg-preview-tooltip, .gmc-autosuite-banner";
     if (t && t.nodeType === 1 && (String(t.className || "").includes("gmc-") || t.closest?.(ownSel))) return false;
     const nodes = [...(r.addedNodes || []), ...(r.removedNodes || [])];
     return nodes.length === 0 || nodes.some((n) => n.nodeType !== 1 || !String(n.className || "").includes("gmc-"));
   });
-  window.__gmcObserver = new MutationObserver((records) => {
-    if (!watcherState?.running || !isExternalMutation(records)) return;
-    clearTimeout(scanTimer);
-    scanTimer = setTimeout(() => scanAll(false), 300);
-  });
-  window.__gmcObserver.observe(document.body, { childList: true, subtree: true });
-  tokenBudget?.syncFromStorage(() => updateIndicators());
-  updateIndicators();
-  refreshState();
-  window.__gmcStatusTimer = setInterval(() => {
+  const ownObserver = new MutationObserver((records) => { if (!watcherState?.running || !isExternalMutation(records)) return; clearTimeout(scanTimer); scanTimer = setTimeout(() => scanAll(false), 300); });
+  window.__gmcObserver = ownObserver;
+  ownObserver.observe(document.body, { childList: true, subtree: true });
+  tokenBudget?.syncFromStorage(() => updateIndicators()); updateIndicators(); refreshState();
+  const ownStatusTimer = setInterval(() => {
     const currentKey = tokenBudget ? tokenBudget.getConversationKey() : "";
-    if (currentKey !== lastBudgetKey) {
-      lastBudgetKey = currentKey;
-      tokenBudget?.syncFromStorage(() => updateIndicators());
-      scanAll(false);
-      checkPendingFreshExport();
-    }
+    if (currentKey !== lastBudgetKey) { lastBudgetKey = currentKey; tokenBudget?.syncFromStorage(() => updateIndicators()); scanAll(true); checkPendingFreshExport(); }
     if (!document.hidden) refreshState();
   }, 2000);
+  window.__gmcStatusTimer = ownStatusTimer;
 }
