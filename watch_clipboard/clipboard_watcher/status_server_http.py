@@ -1,10 +1,10 @@
 # Méthodes bas niveau HTTP (CORS, réponses JSON et exécution des tests en arrière-plan).
 
 import json
-import re
 import subprocess
 from typing import Any, Tuple
 from clipboard_watcher.http_routes import handle_get_request, handle_post_request
+from clipboard_watcher.http_routes_tests import compute_tests_passed
 
 
 class StatusHttpMixin:
@@ -64,8 +64,7 @@ class StatusHttpMixin:
                 with self._test_lock:
                     self._live_test_state.update({"running": False, "passed": False, "output": clean_out, "uncovered": "", "error": ""})
                 return
-            has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-            passed: bool = rc == 0 and not has_warnings
+            passed: bool = compute_tests_passed(rc, clean_out, test_script)
             with self._test_lock:
                 self._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
         except subprocess.TimeoutExpired:

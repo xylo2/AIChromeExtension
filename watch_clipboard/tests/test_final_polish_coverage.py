@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (lancer avec : python -m unittest discover tests)
-
 import ctypes
 import io
 import os
@@ -34,7 +32,6 @@ class TestFinalPolishCoverage(unittest.TestCase):
 
         with patch("sys.stdin", type("S", (), {"buffer": io.BytesIO(struct.pack("@I", 0))})()):
             self.assertIsNone(host.read_message())
-
     def test_status_server_remaining_branches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -82,6 +79,16 @@ class TestFinalPolishCoverage(unittest.TestCase):
             with patch.object(handler, "_execute_tests_streaming", return_value=(0, warn_msg, "")):
                 handler.do_POST()
                 self.assertIn(b'"passed": false', handler.wfile.getvalue())
+
+            (root / "run_all_tests.py").write_text("print('OK')\n", encoding="utf-8")
+            body_all = b'{"test_runner":"run_all_tests.py"}'
+            handler.path = "/run-tests"
+            handler.headers = {"X-Watcher-Token": "tok", "Content-Length": str(len(body_all))}  # type: ignore[assignment]
+            handler.rfile = io.BytesIO(body_all)
+            handler.wfile = io.BytesIO()
+            with patch.object(handler, "_execute_tests_streaming", return_value=(0, warn_msg, "")):
+                handler.do_POST()
+                self.assertIn(b'"passed": true', handler.wfile.getvalue())
 
             with patch("subprocess.Popen") as m_popen, patch("threading.Timer") as m_timer, patch("sys.stdout", io.StringIO()):
                 fake_proc = type(

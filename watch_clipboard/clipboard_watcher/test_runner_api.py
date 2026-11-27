@@ -12,6 +12,8 @@ from clipboard_watcher.test_process_utils import read_runner_reports, terminate_
 class LiveTestManager:
     """Gère l'exécution asynchrone, le streaming et l'arrêt des tests unitaires."""
 
+    CLIP_RUNNERS: Tuple[str, ...] = ("run_tests_clip.py", "run_all_tests.py")
+
     def __init__(self) -> None:
         """Initialise le verrou et l'état partagé du flux d'exécution des tests."""
         self._lock: threading.Lock = threading.Lock()
@@ -71,7 +73,7 @@ class LiveTestManager:
     def execute_streaming(self, test_script: str, target_dir: str) -> Tuple[int, str, str]:
         """Lance le script de tests, collecte la sortie en direct et lit la couverture."""
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
-        is_clip_runner: bool = os.path.basename(test_script) == "run_tests_clip.py"
+        is_clip_runner: bool = os.path.basename(test_script) in self.CLIP_RUNNERS
         with tempfile.TemporaryDirectory(prefix="watch_clip_tests_") as tmp_dir:
             report_path: str = os.path.join(tmp_dir, "compact_report.txt")
             coverage_path: str = os.path.join(tmp_dir, "coverage_report.txt")

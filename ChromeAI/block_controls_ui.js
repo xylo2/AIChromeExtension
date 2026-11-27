@@ -210,6 +210,7 @@ class BlockControlsUiHelper {
     wrapper.append(batchRow, placeholder);
     return item;
   }
+
   /** Détache les contrôles de l'en-tête natif et restaure le placeholder. */
   detachHeaderControls(pre, item) {
     const wrapper = this.spill.findCodeBlockWrapper(pre);
@@ -228,7 +229,6 @@ class BlockControlsUiHelper {
       item.placeholderRow.insertBefore(item.verifyBtn, item.placeholderPurgeBtn);
     }
   }
-
   /** Synchronise l'affichage groupé des blocs d'un même tour dans une carte unique. */
   syncGroupLeadVisuals(item, members, manager) {
     const cardTarget = item.cardEl || item.placeholderEl;
@@ -281,6 +281,7 @@ class BlockControlsUiHelper {
     this.hideNativeFooterCaution(leadWrapper);
     if (item.downloadBtn) item.downloadBtn.style.display = anySvg ? "inline-flex" : "none";
   }
+
   /** Met à jour l'état visuel, les alertes et les boutons d'un bloc suivi dans le DOM. */
   syncItemVisuals(item, manager) {
     this.hideTrailingEndMarker(item.el);
@@ -296,11 +297,15 @@ class BlockControlsUiHelper {
     }
     if (item.placeholderEl) item.placeholderEl.style.display = "flex";
     const isGrouped = Array.isArray(item.groupItems) && item.groupItems.length > 1;
+    const leadPurged = manager.isItemPurged(item);
     const rem = typeof manager.getUnpurgedBlocksFrom === "function" ? manager.getUnpurgedBlocksFrom(item) : manager.getUnpurgedBlocks();
-    const showBatch = !manager.isItemPurged(item) && rem.length >= 1;
+    const showBatch = rem.length >= 1;
     if (item.batchBtn) {
       item.batchBtn.style.display = showBatch ? "inline-flex" : "none";
-      if (showBatch) item.batchBtn.textContent = rem.length > 1 ? "📋 Copier à partir d'ici & purger (" + rem.length + " blocs)" : "📋 Copier & purger";
+      if (showBatch) {
+        if (leadPurged) item.batchBtn.textContent = "📋 Copier le reste & purger (" + rem.length + " bloc" + (rem.length > 1 ? "s" : "") + ")";
+        else item.batchBtn.textContent = rem.length > 1 ? "📋 Copier à partir d'ici & purger (" + rem.length + " blocs)" : "📋 Copier & purger";
+      }
       if (item.batchRow) item.batchRow.style.display = showBatch && item.batchBtn.parentElement === item.batchRow ? "flex" : "none";
     }
     if (isGrouped) { this.syncGroupLeadVisuals(item, item.groupItems, manager); return; }
@@ -317,7 +322,7 @@ class BlockControlsUiHelper {
     const badge = this.detectFileTypeBadge(item.headerName), canSvg = this.isSvgCapableBadge(badge), wrapper = this.spill.findCodeBlockWrapper(item.el);
     this.updateHeaderLanguageLabel(wrapper, this.formatCombinedLanguages([badge]));
     this.hideNativeFooterCaution(wrapper);
-    if (manager.isItemPurged(item)) {
+    if (leadPurged) {
       if (canSvg && this.svgPreview?.hasSvg(item.cachedCombinedCode)) { this.svgPreview.bindHoverTarget(cardTarget, () => item.cachedCombinedCode); if (item.downloadBtn) item.downloadBtn.style.display = "inline-flex"; }
       return;
     }

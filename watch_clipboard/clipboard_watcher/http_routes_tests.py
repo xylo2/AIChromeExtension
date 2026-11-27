@@ -7,6 +7,22 @@ import threading
 from typing import Any, Optional
 
 
+def is_managed_clip_runner(test_script: str) -> bool:
+    """Indique si le script utilise ClipboardTestRunner (--report-file / --coverage-file)."""
+    return os.path.basename(test_script) in ("run_tests_clip.py", "run_all_tests.py")
+
+
+def compute_tests_passed(rc: int, clean_out: str, test_script: str) -> bool:
+    """Détermine si la campagne de tests est réussie sans faux positif sur les logs."""
+    if rc != 0:
+        return False
+    if "WARNINGS DÉTECTÉS" in clean_out:
+        return False
+    if is_managed_clip_runner(test_script):
+        return True
+    return not bool(re.search(r"(?:ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
+
+
 def handle_run_tests_route(handler: Any, async_mode: bool) -> None:
     """Valide le lanceur de tests et démarre la campagne en mode synchrone ou streaming."""
     body_t = handler._read_json_body()
@@ -26,8 +42,7 @@ def handle_run_tests_route(handler: Any, async_mode: bool) -> None:
         return
     try:
         rc, clean_out, uncovered_out = handler._execute_tests_streaming(test_script)
-        has_warnings: bool = bool(re.search(r"(?:WARNINGS DÉTECTÉS|ResourceWarning|DeprecationWarning|UserWarning|RuntimeWarning)", clean_out))
-        passed: bool = rc == 0 and not has_warnings
+        passed: bool = compute_tests_passed(rc, clean_out, test_script)
         with handler._test_lock:
             handler._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})
         handler._send_json(200, {"ok": True, "passed": passed, "returncode": rc, "output": clean_out, "uncovered": uncovered_out if passed else ""})
