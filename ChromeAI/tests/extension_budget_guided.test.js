@@ -16,10 +16,7 @@ test("TokenBudgetManager persiste par conversation, migre un export récent vers
 
   const sandbox = {
     window: { location: { href: `${baseSearch}?udm=50&mstk=thread1` } },
-    document: {
-      querySelectorAll: () => turnNodes,
-      querySelector: () => mainNode
-    },
+    document: { querySelectorAll: () => turnNodes, querySelector: () => mainNode },
     chrome: {
       storage: {
         local: {
@@ -44,7 +41,6 @@ test("TokenBudgetManager persiste par conversation, migre un export récent vers
   budget.recordPayload("y".repeat(400));
   assert.equal(storageData.gmcTokenBudgets[thread1Key], 12100);
 
-  // Simulation d'un export massif sur l'URL générique (?udm=50) suivi d'une redirection vers ?udm=50&mstk=newThread
   sandbox.window.location.href = `${baseSearch}?udm=50`;
   budget.syncFromStorage();
   assert.equal(budget.sessionTokens, 0);
@@ -58,18 +54,17 @@ test("TokenBudgetManager persiste par conversation, migre un export récent vers
   assert.equal(storageData.gmcPendingBudget, undefined);
   assert.equal(storageData.gmcTokenBudgets[newThreadKey], 130500);
 
-  // Une autre conversation ultérieure sans export récent repart bien à 0
   sandbox.window.location.href = `${baseSearch}?udm=50&mstk=thread2`;
   budget.syncFromStorage();
   assert.equal(budget.sessionTokens, 0);
   turnNodes = [{ textContent: "z".repeat(800) }];
   assert.equal(budget.estimateConversationDomTokens(), 200);
 });
-test("ExportMenuManager (confirm export lourd), TestActionsController (troncature) et action guidée", async () => {
+test("ExportMenuManager (confirm export lourd), TestActionsController (relance KO, troncature, fermeture auto) et action guidée", async () => {
   let turnCount = 3, confirmCalls = 0, confirmReply = false;
-  const prompts = [], timers = [];
+  const prompts = [], timers = [], bgMsgs = [];
   const makeNode = () => ({
-    type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, style: {}, children: [], listeners: {},
+    type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, style: {}, scrollTop: 0, scrollHeight: 100, children: [], listeners: {},
     classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { f ? this.set.add(c) : this.set.delete(c); }, contains(c) { return this.set.has(c); } },
     append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
@@ -108,13 +103,33 @@ test("ExportMenuManager (confirm export lourd), TestActionsController (troncatur
   assert.equal(selectedMode, "full");
 
   const fakeChat = { insertPrompt: (t) => { prompts.push(t); return true; }, insertTestResults: (t) => { prompts.push(t); return true; } };
-  const testCtrl = new sandbox.window.GmcTestActionsController(fakeChat, () => {}, () => {}, { testsBtn: makeNode(), coverageBtn: makeNode() }, () => ({ lastEvent: "[OK] a.py" }), () => {}, budget);
-  await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "E".repeat(4500) });
+  const rerunBtn = makeNode();
+  let testCtrl = null;
+  testCtrl = new sandbox.window.GmcTestActionsController(
+    fakeChat, (msg) => { bgMsgs.push(msg); }, () => {},
+    { testsBtn: makeNode(), rerunFailedBtn: rerunBtn, coverageBtn: makeNode() },
+    () => ({ running: true, hasRunTestsClip: true, lastEvent: "[OK] a.py" }),
+    () => { testCtrl?.renderCoverageIndicator(); }, budget
+  );
+  testCtrl.panel.open("Tests KO", "", true);
+  const koReport = "FAIL: test_alpha (tests.test_mod.Suite)\n✖ test_beta (12.4ms)\n" + "E".repeat(4500);
+  await testCtrl.finalizeTestRun({ ok: true, passed: false, output: koReport });
   assert.equal(testCtrl.hasPendingFailure(), true);
+  assert.equal(Array.from(testCtrl.getFailedTests()).join("|"), "test_alpha (tests.test_mod.Suite)|test_beta");
+  assert.equal(rerunBtn.style.display, "inline-flex");
+  assert.equal(rerunBtn.textContent, "🎯 Relancer KO (2)");
   assert.ok(prompts.at(0).includes("caractères tronqués"));
+  assert.equal(testCtrl.panel.panelEl, null);
+  testCtrl.panel.toggle();
+  assert.notEqual(testCtrl.panel.panelEl, null);
 
-  testCtrl.panel.open("Tests", "", true);
+  rerunBtn.listeners.click({ isTrusted: true });
+  const lastBg = bgMsgs.at(-1);
+  assert.equal(lastBg.type, "START_PROJECT_TESTS");
+  assert.equal(Array.from(lastBg.failedTests).join("|"), "test_alpha (tests.test_mod.Suite)|test_beta");
   await testCtrl.finalizeTestRun({ ok: true, passed: true, output: "OK" });
+  assert.equal(testCtrl.getFailedTests().length, 0);
+  assert.equal(rerunBtn.style.display, "none");
   timers.at(-1).fn();
   assert.equal(testCtrl.panel.panelEl, null);
 
@@ -122,6 +137,7 @@ test("ExportMenuManager (confirm export lourd), TestActionsController (troncatur
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: true }, canCommitMsg: true }).id, "fix_syntax");
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: false }), null);
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: true }).id, "commit_msg");
+  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, failedTestsCount: 2 }).id, "rerun_failed");
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false }).id, "run_tests");
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, testsPassedForCurrentEvent: true }), null);
 });

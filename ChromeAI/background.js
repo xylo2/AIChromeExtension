@@ -54,6 +54,7 @@ class WatcherBackgroundService {
       }
     } catch (_err) {}
   }
+
   /** Resynchronise le jeton API depuis l'hôte natif lorsqu'un décalage est détecté. */
   async resyncApiToken(currentToken) {
     if (!this.nativeHelper || typeof this.nativeHelper.fetchSessionToken !== "function") {
@@ -65,7 +66,6 @@ class WatcherBackgroundService {
     else await chrome.storage.local.remove("watcherApiToken");
     return nativeTok;
   }
-
   /** Exécute une requête HTTP locale avec resynchronisation du jeton sur HTTP 401. */
   async fetchWithTokenFallback(url, options, apiToken) {
     const sendWith = (tok) => fetch(url, {
@@ -180,11 +180,13 @@ class WatcherBackgroundService {
     try { return await (await this.fetchWithTokenFallback(`${this.BASE_URL}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" }, await this.getApiToken())).json(); }
     catch (_err) { return { ok: false, error: errFallback }; }
   }
-  async runTests(injectIntoActiveTab = true) {
+  async runTests(injectIntoActiveTab = true, failedTests = []) {
     const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000);
     try {
       const stored = await chrome.storage.local.get(["savedTestRunner", "watcherApiToken"]);
-      const result = await (await this.fetchWithTokenFallback(`${this.BASE_URL}/run-tests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_runner: (stored.savedTestRunner || "").trim() }), signal: AbortSignal.timeout(185000) }, stored.watcherApiToken || "")).json();
+      const payload = { test_runner: (stored.savedTestRunner || "").trim() };
+      if (Array.isArray(failedTests) && failedTests.length > 0) payload.failed_tests = failedTests;
+      const result = await (await this.fetchWithTokenFallback(`${this.BASE_URL}/run-tests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(185000) }, stored.watcherApiToken || "")).json();
       if (result?.ok && result.output && injectIntoActiveTab) { const activeTab = (await chrome.tabs.query({ active: true, currentWindow: true }))?.at(0); if (activeTab?.id) { try { result.insertedInPage = Boolean((await chrome.tabs.sendMessage(activeTab.id, { type: "INSERT_TEST_RESULT", output: result.output, passed: Boolean(result.passed) }))?.inserted); } catch (_err) { result.insertedInPage = false; } } }
       return result;
     } catch (err) { return { ok: false, error: `Impossible d'exécuter les tests (${err?.message || "délai dépassé"}).` }; }
@@ -206,8 +208,15 @@ class WatcherBackgroundService {
       POLL_TEST_STREAM: () => this.getJson(`/test-stream?offset=${Number(message.offset || 0)}`, 5000, "Flux de tests indisponible."), STOP_PROJECT_TESTS: () => this.postJson("/run-tests-stop", {}, 8000, "Impossible d'arrêter les tests.")
     };
     if (routes[message.type]) { routes[message.type]().then(sendResponse); return true; }
-    if (message.type === "RUN_PROJECT_TESTS") { this.runTests(message.injectIntoActiveTab !== false).then(sendResponse); return true; }
-    if (message.type === "START_PROJECT_TESTS") { chrome.storage.local.get("savedTestRunner", (s) => { this.postJson("/run-tests-start", { test_runner: (s.savedTestRunner || "").trim() }, 10000, "Impossible de démarrer les tests.").then(sendResponse); }); return true; }
+    if (message.type === "RUN_PROJECT_TESTS") { this.runTests(message.injectIntoActiveTab !== false, message.failedTests || []).then(sendResponse); return true; }
+    if (message.type === "START_PROJECT_TESTS") {
+      chrome.storage.local.get("savedTestRunner", (s) => {
+        const body = { test_runner: (s.savedTestRunner || "").trim() };
+        if (Array.isArray(message.failedTests) && message.failedTests.length > 0) body.failed_tests = message.failedTests;
+        this.postJson("/run-tests-start", body, 10000, "Impossible de démarrer les tests.").then(sendResponse);
+      });
+      return true;
+    }
     if (message.type === "GIT_PUSH") { const ka = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 15000); this.postJson("/git-push", { remote: message.remote || "origin", branch: message.branch || "HEAD" }, 65000, "Impossible d'exécuter git push").then(sendResponse).finally(() => clearInterval(ka)); return true; }
     return false;
   }

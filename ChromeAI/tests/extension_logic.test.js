@@ -115,7 +115,7 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll au commit, 2
 
   gitMgr.open([{ status: "M", path: "app.py" }]);
   const actionBtns = gitMgr.panelEl.children.at(2).children;
-  assert.deepEqual(actionBtns.map((b) => b.textContent), ["Fermer", "📤 Transmettre à l'IA"]);
+  assert.deepEqual(Array.from(actionBtns).map((b) => b.textContent), ["Fermer", "📤 Transmettre à l'IA"]);
   gitMgr.close();
   const commitPrompt = gitMgr.buildCommitPrompt(["app.py"], "git_changes.diff.txt");
   assert.ok(commitPrompt.includes("correction"));
@@ -123,4 +123,59 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll au commit, 2
   assert.ok(gitMgr.buildCommitMessageOnlyPrompt().includes("=== COMMIT_MESSAGE ==="));
   const rawPushErr = "To https:" + "//example" + ".com\n ! [rejected] HEAD -> main (non-fast-forward)\nfatal: failed to push";
   assert.equal(gitMgr.extractPushErrorSummary(rawPushErr), "! [rejected] HEAD -> main (non-fast-forward)");
+});
+
+test("checkPendingFreshExport attend le champ de saisie puis déclenche EXPORT_PROJECT", () => {
+  const storageData = { pendingFreshExportAt: Date.now() };
+  const sentMsgs = [], timers = [], docListeners = {};
+  let chatReady = false;
+  const makeEl = () => ({
+    tagName: "DIV", className: "", textContent: "", title: "", type: "", disabled: false, style: {}, children: [], listeners: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute() {}, removeAttribute() {}, querySelector: () => null, querySelectorAll: () => [],
+    append(...items) { this.children.push(...items); }, appendChild(n) { this.children.push(n); return n; },
+    insertBefore(n) { this.children.push(n); return n; }, addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
+  });
+  const hostName = ["www", "google", "com"].join(".");
+  const sandbox = {
+    window: { location: { hostname: hostName, href: `https://${hostName}/search?udm=50` } },
+    document: { hidden: false, body: makeEl(), createElement: makeEl, querySelector: () => null, querySelectorAll: () => [], addEventListener(ev, fn) { docListeners[ev] = fn; } },
+    MutationObserver: class { observe() {} disconnect() {} },
+    setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
+    chrome: {
+      runtime: {
+        id: "ext-1", lastError: null,
+        onMessage: { addListener() {} },
+        sendMessage(msg, cb) {
+          sentMsgs.push(msg);
+          if (msg.type === "REFRESH_STATUS") cb({ running: true, hasExporter: true });
+          else if (msg.type === "EXPORT_PROJECT") cb({ ok: true, filename: "proj_export.txt", content: "OK", file_count: 1, estimated_tokens: 10 });
+        }
+      },
+      storage: {
+        onChanged: { addListener() {} },
+        local: {
+          get(keys, cb) { if (typeof cb === "function") cb({ ...storageData }); },
+          remove(k) { delete storageData[k]; }
+        }
+      }
+    }
+  };
+  vm.createContext(sandbox);
+  sandbox.window.GmcSpillDetector = class {};
+  sandbox.window.GmcChatInjector = class { findChatInputElement() { return chatReady ? makeEl() : null; } dropFile() {} insertPrompt() {} };
+  sandbox.window.GmcGitPanelManager = class { scanCommitBlocks() {} };
+  sandbox.window.GmcSvgPreviewManager = class { scanStandaloneBlocks() {} };
+  sandbox.window.GmcTestActionsController = class { constructor() { this.panel = { isRunning: false }; } invalidateOnNewFiles() {} renderCoverageIndicator() {} hasPendingFailure() { return false; } getFailedTests() { return []; } };
+  sandbox.window.GmcCodeBlockManager = class { getUnpurgedCount() { return 0; } scan() {} };
+  sandbox.window.GmcComposerQuickButtonsManager = class { constructor() { this.groupEl = makeEl(); } resolveGuidedAction() { return null; } mount() {} };
+  sandbox.window.GmcContentEventsController = class { constructor(ctx) { this.ctx = ctx; } bindAll() {} handleStateUpdate(s) { this.ctx.setWatcherState(s); this.ctx.updateIndicators(); } };
+  vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, "content.js"), "utf-8"), sandbox);
+  assert.equal(Boolean(storageData.pendingFreshExportAt), true);
+  assert.equal(sentMsgs.some((m) => m.type === "EXPORT_PROJECT"), false);
+  chatReady = true;
+  docListeners.visibilitychange();
+  assert.equal(storageData.pendingFreshExportAt, undefined);
+  for (const fn of timers) fn();
+  assert.equal(sentMsgs.some((m) => m.type === "EXPORT_PROJECT"), true);
 });

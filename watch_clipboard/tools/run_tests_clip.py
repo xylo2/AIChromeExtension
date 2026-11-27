@@ -1,5 +1,6 @@
 # Orchestrateur d'exécution des suites Python et Node.js avec couverture et presse-papiers.
 
+import json
 import os
 from pathlib import Path
 import re
@@ -21,6 +22,24 @@ from tools.suite_executor import (  # noqa: E402
     extract_warnings_and_console_errors,
     run_single_python_suite,
 )
+
+
+def parse_failed_tests_arg(argv: List[str]) -> List[str]:
+    """Extrait la liste JSON des tests KO depuis --failed-tests ou l'environnement."""
+    raw_val: str = ""
+    if "--failed-tests" in argv:
+        idx: int = argv.index("--failed-tests")
+        if idx + 1 < len(argv):
+            raw_val = argv[idx + 1]
+    if not raw_val:
+        raw_val = os.environ.get("WATCH_CLIPBOARD_FAILED_TESTS", "").strip()
+    if not raw_val:
+        return []
+    try:
+        parsed = json.loads(raw_val)
+        return [str(x).strip() for x in parsed if str(x).strip()] if isinstance(parsed, list) else []
+    except Exception:
+        return [x.strip() for x in raw_val.split("|") if x.strip()]
 
 
 class ClipboardTestRunner:
@@ -46,6 +65,7 @@ class ClipboardTestRunner:
             if cand.is_file():
                 return str(cand)
         return shutil.which("node.exe") or shutil.which("node")
+
     @classmethod
     def extract_warnings_and_console_errors(cls, raw_output: str) -> str:
         """Délègue l'extraction des avertissements Python de la sortie de test."""
@@ -64,7 +84,6 @@ class ClipboardTestRunner:
     def _collect_source_files(self, top_dir: str) -> List[str]:
         """Collecte les fichiers sources Python éligibles à la couverture."""
         return CoverageReporter.collect_source_files(top_dir)
-
     def format_coverage_report(self, rows: List[CoverageRow], total_tests: int = 0) -> Tuple[float, str]:
         """Calcule la couverture globale et formate le tableau récapitulatif."""
         return CoverageReporter.format_report(rows, total_tests=total_tests)
@@ -73,9 +92,11 @@ class ClipboardTestRunner:
         """Compacte et déduplique les erreurs d'une sortie unittest."""
         return compact_error_report(raw_output, top_dir=top_dir)
 
-    def _run_single_suite(self, suite_name: str, tests_dir: str, top_dir: str) -> Tuple[int, str, List[CoverageRow]]:
-        """Exécute une suite Python individuelle avec mesure de couverture."""
-        return run_single_python_suite(suite_name, tests_dir, top_dir)
+    def _run_single_suite(
+        self, suite_name: str, tests_dir: str, top_dir: str, failed_filters: Optional[List[str]] = None
+    ) -> Tuple[int, str, List[CoverageRow]]:
+        """Exécute une suite Python individuelle avec mesure de couverture ou filtrage KO."""
+        return run_single_python_suite(suite_name, tests_dir, top_dir, failed_filters=failed_filters)
 
     def copy_to_clipboard(self, text: str) -> bool:
         """Copie le rapport d'erreurs dans le presse-papiers système via Tkinter."""
@@ -92,21 +113,30 @@ class ClipboardTestRunner:
             return True
         except Exception:
             return False
-    def _run_node_suite(self, chrome_ai_dir: Path) -> Tuple[int, str]:
-        """Exécute les fichiers *.test.js de ChromeAI via node --test si Node est présent."""
+
+    def _run_node_suite(self, chrome_ai_dir: Path, failed_filters: Optional[List[str]] = None) -> Tuple[int, str]:
+        """Exécute les fichiers *.test.js de ChromeAI via node --test (complets ou filtrés)."""
         test_files: List[Path] = sorted((chrome_ai_dir / "tests").glob("*.test.js"))
         if not test_files:
             return 0, ""
         node_bin: Optional[str] = self.find_node_binary(chrome_ai_dir)
         if not node_bin:
             return 0, "[ChromeAI] Node.js absent (tests JS ignorés)"
-        proc = subprocess.run([node_bin, "--test", *[str(f) for f in test_files]], cwd=str(chrome_ai_dir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+        cmd: List[str] = [node_bin, "--test"]
+        if failed_filters:
+            pattern: str = "|".join(re.escape(f) for f in failed_filters if f.strip())
+            if pattern:
+                cmd.extend(["--test-name-pattern", pattern])
+        cmd.extend(str(f) for f in test_files)
+        proc = subprocess.run(cmd, cwd=str(chrome_ai_dir), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
         if proc.returncode != 0:
             err_txt: str = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
             return 1, f"[ChromeAI]\n{err_txt}"
+        if failed_filters:
+            return 0, "[ChromeAI] OK (tests KO JS relancés)"
         return 0, f"[ChromeAI] OK ({len(test_files)} fichier(s) de test)"
 
-    def run(self, report_file: str = "", coverage_file: str = "") -> int:
+    def run(self, report_file: str = "", coverage_file: str = "", failed_tests: Optional[List[str]] = None) -> int:
         """Exécute toutes les suites Python/JS, écrit les rapports et copie les échecs."""
         root_p: Path = Path(self.project_root).resolve()
         tools_parent: Path = root_p.parent if root_p.name == "watch_clipboard" else root_p
@@ -118,8 +148,9 @@ class ClipboardTestRunner:
             suites.append(("export", str(export_dir / "tests"), str(export_dir)))
         overall_rc, summaries, all_rows, total_tests = 0, [], [], 0
         for name, t_dir, top_d in suites:
-            rc, summary, rows = self._run_single_suite(name, t_dir, top_d)
-            summaries.append(summary)
+            rc, summary, rows = self._run_single_suite(name, t_dir, top_d, failed_filters=failed_tests)
+            if summary:
+                summaries.append(summary)
             all_rows.extend(rows)
             m_cnt = re.search(r"\((\d+)\s+tests?\)", summary)
             if m_cnt:
@@ -128,20 +159,20 @@ class ClipboardTestRunner:
                 overall_rc = 1
         chrome_ai_dir: Path = tools_parent / "ChromeAI"
         if (chrome_ai_dir / "tests").is_dir():
-            js_rc, js_summary = self._run_node_suite(chrome_ai_dir)
+            js_rc, js_summary = self._run_node_suite(chrome_ai_dir, failed_filters=failed_tests)
             if js_summary:
                 summaries.append(js_summary)
             if js_rc != 0:
                 overall_rc = 1
-        final_report: str = "\n".join(summaries).strip()
-        _, cov_report = self.format_coverage_report(all_rows, total_tests=total_tests)
+        final_report: str = "\n".join(summaries).strip() or "Aucun test correspondant exécuté."
+        _, cov_report = ("", "") if failed_tests else self.format_coverage_report(all_rows, total_tests=total_tests)
         print(final_report)
-        if overall_rc == 0:
+        if overall_rc == 0 and not failed_tests:
             print("\n" + cov_report)
         if report_file:
             Path(report_file).write_text(final_report + "\n", encoding="utf-8")
         if coverage_file:
-            Path(coverage_file).write_text(cov_report + "\n", encoding="utf-8")
+            Path(coverage_file).write_text((cov_report + "\n") if cov_report else "", encoding="utf-8")
         if overall_rc != 0 and self.copy_to_clipboard(final_report):
             print("[PRESSE-PAPIERS] Rapport d'erreurs copié.")
         return overall_rc
@@ -160,8 +191,12 @@ def main() -> int:
         idx_c: int = sys.argv.index("--coverage-file")
         if idx_c + 1 < len(sys.argv):
             coverage_file = sys.argv[idx_c + 1]
+    failed_list: List[str] = parse_failed_tests_arg(sys.argv)
     watch_root: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return ClipboardTestRunner(project_root=watch_root, use_clipboard=use_clip).run(report_file=report_file, coverage_file=coverage_file)
+    runner = ClipboardTestRunner(project_root=watch_root, use_clipboard=use_clip)
+    if failed_list:
+        return runner.run(report_file=report_file, coverage_file=coverage_file, failed_tests=failed_list)
+    return runner.run(report_file=report_file, coverage_file=coverage_file)
 
 
 if __name__ == "__main__":

@@ -24,11 +24,19 @@ class ComposerQuickButtonsManager {
   pickExcuse() { return this.EXCUSES.at(Math.floor(Math.random() * this.EXCUSES.length)); }
 
   /** Détermine l'action prioritaire suggérée selon l'état du watcher et des tests. */
-  resolveGuidedAction({ watcherState, canCommitMsg, testsPassedForCurrentEvent = false }) {
+  resolveGuidedAction({ watcherState, canCommitMsg, testsPassedForCurrentEvent = false, failedTestsCount = 0 }) {
     if (!watcherState?.running) return null;
     if (watcherState.hasSyntaxError) return { id: "fix_syntax", label: "🚨 Corriger syntaxe", title: "Envoyer l'erreur de syntaxe à l'IA" };
     if (canCommitMsg) return { id: "commit_msg", label: "💬 Générer commit", title: "Demander le message de commit à l'IA" };
-    if (!testsPassedForCurrentEvent && watcherState.hasRunTestsClip && /^\[(?:OK|COMPLET)\]/.test(String(watcherState.lastEvent || ""))) {
+    const isFileAssembled = /^\[(?:OK|COMPLET)\]/.test(String(watcherState.lastEvent || ""));
+    if (!testsPassedForCurrentEvent && watcherState.hasRunTestsClip && isFileAssembled) {
+      if (Number(failedTestsCount) > 0) {
+        return {
+          id: "rerun_failed",
+          label: `🎯 Relancer KO (${failedTestsCount})`,
+          title: "Relancer uniquement les tests qui ont échoué lors de la dernière exécution"
+        };
+      }
       return { id: "run_tests", label: "🧪 Vérifier tests", title: "Lancer les tests unitaires sur le fichier assemblé" };
     }
     return null;
@@ -40,6 +48,7 @@ class ComposerQuickButtonsManager {
     const inputEl = this.chat.findChatInputElement();
     return Boolean(inputEl && this.isBottomComposer(inputEl));
   }
+
   /** Insère le groupe de boutons rapides dans la barre flottante en repli. */
   attachToFloatingBar() {
     this.groupEl.classList.remove("gmc-composer-below");

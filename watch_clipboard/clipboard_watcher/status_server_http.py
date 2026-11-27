@@ -2,7 +2,7 @@
 
 import json
 import subprocess
-from typing import Any, Tuple
+from typing import Any, List, Optional, Tuple
 from clipboard_watcher.http_routes import handle_get_request, handle_post_request
 from clipboard_watcher.http_routes_tests import compute_tests_passed
 
@@ -50,14 +50,18 @@ class StatusHttpMixin:
         """Délègue le routage des requêtes HTTP POST."""
         handle_post_request(self)
 
-    def _execute_tests_streaming(self: Any, test_script: str) -> Tuple[int, str, str]:
+    def _execute_tests_streaming(
+        self: Any, test_script: str, failed_tests: Optional[List[str]] = None
+    ) -> Tuple[int, str, str]:
         """Lance l'exécution en streaming d'un script de tests via LiveTestManager."""
-        return self._test_mgr.execute_streaming(test_script, self.target_dir)
+        return self._test_mgr.execute_streaming(test_script, self.target_dir, failed_tests=failed_tests)
 
-    def _run_tests_background(self: Any, test_script: str) -> None:
+    def _run_tests_background(
+        self: Any, test_script: str, failed_tests: Optional[List[str]] = None
+    ) -> None:
         """Exécute les tests dans un thread dédié et met à jour l'état partagé."""
         try:
-            rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script)
+            rc, clean_out, uncovered_out = self._execute_tests_streaming(test_script, failed_tests=failed_tests)
             with self._test_lock:
                 was_stopped: bool = bool(self._live_test_state.get("stopped"))
             if was_stopped:

@@ -1,7 +1,9 @@
 # Exécution et prévisualisation des exports de projet via project_exporter.
 
 import json
+import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
@@ -36,17 +38,36 @@ class ProjectExportRunner:
         return None
 
     def list_top_folders(self) -> List[str]:
-        """Liste les sous-dossiers de premier niveau exportables du projet cible."""
-        base_real: str = os.path.realpath(self.target_dir)
+        """Liste les sous-dossiers exportables en respectant config.ini et .gitignore."""
+        base_path: Path = Path(os.path.realpath(self.target_dir))
         ignored = {".git", ".venv", "venv", "env", "__pycache__", "node_modules", ".watch_clipboard", ".native_host", ".idea", ".vscode"}
         try:
-            return sorted(
-                name for name in os.listdir(base_real)
-                if name not in ignored and not name.endswith(".egg-info") and os.path.isdir(os.path.join(base_real, name))
+            entries = sorted(
+                d for d in base_path.iterdir()
+                if d.is_dir() and d.name not in ignored and not d.name.endswith(".egg-info")
             )
         except OSError:
             return []
-
+        exporter_root: Optional[str] = self.resolve_exporter_dir()
+        if not exporter_root:
+            return [d.name for d in entries]
+        added: bool = exporter_root not in sys.path
+        if added:
+            sys.path.insert(0, exporter_root)
+        try:
+            from project_exporter.config import ExporterConfig
+            from project_exporter.exporter import ProjectExporter
+            logger = logging.getLogger("export")
+            logger.addHandler(logging.NullHandler())
+            cfg = ExporterConfig(Path(exporter_root) / "config.ini", logger)
+            exp = ProjectExporter(base_path, cfg, base_path / "_prev.tmp", Path(exporter_root) / "export_project.py", logger)
+            exp.gitignore_mgr.register_directory(base_path)
+            return [d.name for d in entries if not exp.should_exclude_dir(d)]
+        except Exception:
+            return [d.name for d in entries]
+        finally:
+            if added and exporter_root in sys.path:
+                sys.path.remove(exporter_root)
     def compute_project_label(self, target_real: str, exporter_root: str) -> str:
         """Calcule le nom logique du projet utilisé pour nommer le fichier d'export."""
         raw_norm: str = self.target_dir.strip().replace("\\", "/").strip("/")
@@ -64,6 +85,7 @@ class ProjectExportRunner:
         except ValueError:
             pass
         return os.path.basename(target_real) or "project"
+
     @staticmethod
     def estimate_tokens(text: str) -> int:
         """Estime le volume en tokens d'une chaîne (~4 caractères par token)."""
@@ -118,7 +140,6 @@ class ProjectExportRunner:
             return (True, parsed, "") if isinstance(parsed, dict) else (False, {}, "Réponse preview invalide.")
         except Exception as exc:
             return False, {}, str(exc)
-
     def run_export(self, mode: str = "full", subpaths: Optional[List[str]] = None) -> Tuple[bool, str, str, int]:
         """Génère l'archive texte consolidée dans un répertoire temporaire et lit son contenu."""
         exporter_root: Optional[str] = self.resolve_exporter_dir()

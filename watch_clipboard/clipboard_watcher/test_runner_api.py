@@ -1,11 +1,12 @@
 # Gestionnaire d'exécution en streaming et d'arrêt des suites de tests.
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import threading
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from clipboard_watcher.test_process_utils import read_runner_reports, terminate_process_tree
 
 
@@ -70,9 +71,14 @@ class LiveTestManager:
             })
             return True
 
-    def execute_streaming(self, test_script: str, target_dir: str) -> Tuple[int, str, str]:
+    def execute_streaming(
+        self, test_script: str, target_dir: str, failed_tests: Optional[List[str]] = None
+    ) -> Tuple[int, str, str]:
         """Lance le script de tests, collecte la sortie en direct et lit la couverture."""
+        clean_failed: List[str] = [str(x).strip() for x in (failed_tests or []) if str(x).strip()]
         env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
+        if clean_failed:
+            env["WATCH_CLIPBOARD_FAILED_TESTS"] = json.dumps(clean_failed, ensure_ascii=False)
         is_clip_runner: bool = os.path.basename(test_script) in self.CLIP_RUNNERS
         with tempfile.TemporaryDirectory(prefix="watch_clip_tests_") as tmp_dir:
             report_path: str = os.path.join(tmp_dir, "compact_report.txt")
@@ -80,6 +86,8 @@ class LiveTestManager:
             cmd: List[str] = [sys.executable, "-u", test_script]
             if is_clip_runner:
                 cmd.extend(["--no-clipboard", "--report-file", report_path, "--coverage-file", coverage_path])
+                if clean_failed:
+                    cmd.extend(["--failed-tests", json.dumps(clean_failed, ensure_ascii=False)])
             popen_kwargs: Dict[str, Any] = {
                 "cwd": os.path.realpath(target_dir), "env": env,
                 "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,

@@ -167,9 +167,9 @@ class BlockVerificationHelper {
       }
     }
     let anc = this.spill.findCodeBlockWrapper(item.el) || item.el;
-    for (let up = 0; up < 6 && anc; up++) {
+    for (let up = 0; up < 8 && anc; up++) {
       let sib = anc.nextSibling;
-      for (let steps = 0; sib && steps < 18; steps++) {
+      for (let steps = 0; sib && steps < 20; steps++) {
         if ((sib.nodeType === 1 && !String(sib.className || "").includes("gmc-")) || sib.nodeType === 3) {
           const txt = String(sib.textContent || "").trim();
           if (txt) tailParts.push(txt);
@@ -178,8 +178,8 @@ class BlockVerificationHelper {
       }
       anc = anc.parentElement;
     }
-    const combinedTail = tailParts.join("\n");
-    return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|attends\s*[«"']?\s*suite\s*[»"']?|r[eé]pond(?:s|re)\s*[«"']?\s*suite\s*[»"']?|(?:dire|dis|écris|ecris|tape|envoie|envoyer)\s*[«"']?\s*suite\s*[»"']?)/i.test(combinedTail);
+    const combinedTail = tailParts.join("\n").replace(/[*_`]+/g, "");
+    return Boolean(combinedTail) && /(?:partie\s+suivante\s+attendue|attends\s*[«"']?\s*suite\s*[»"']?|r[eé]pond(?:s|re)\s*[«"']?\s*suite\s*[»"']?|(?:dire|dis|écris|ecris|tape|envoie|envoyer|indique|demande|saisis)(?:-moi)?\s*[«"']?\s*suite\s*[»"']?|^\s*suite\s*\?\s*$)/im.test(combinedTail);
   }
 
   /** Arrête le compte à rebours et supprime la bannière flottante d'auto-Suite. */

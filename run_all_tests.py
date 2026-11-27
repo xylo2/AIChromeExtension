@@ -2,13 +2,14 @@
 
 import os
 import sys
+from typing import List
 
 TOOLS_DIR: str = os.path.dirname(os.path.abspath(__file__))
 WATCH_CLIPBOARD_ROOT: str = os.path.join(TOOLS_DIR, "watch_clipboard")
 if WATCH_CLIPBOARD_ROOT not in sys.path:
     sys.path.insert(0, WATCH_CLIPBOARD_ROOT)
 
-from tools.run_tests_clip import ClipboardTestRunner
+from tools.run_tests_clip import ClipboardTestRunner, parse_failed_tests_arg  # noqa: E402
 
 
 def main() -> int:
@@ -24,8 +25,9 @@ def main() -> int:
         idx_cov: int = sys.argv.index("--coverage-file")
         if idx_cov + 1 < len(sys.argv):
             coverage_file = sys.argv[idx_cov + 1]
+    failed_list: List[str] = parse_failed_tests_arg(sys.argv)
     runner = ClipboardTestRunner(project_root=WATCH_CLIPBOARD_ROOT, use_clipboard=use_clip)
-    return runner.run(report_file=report_file, coverage_file=coverage_file)
+    return runner.run(report_file=report_file, coverage_file=coverage_file, failed_tests=failed_list or None)
 
 
 if __name__ == "__main__":

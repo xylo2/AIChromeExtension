@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import trace
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import unittest
 import warnings
 from tools.coverage_report import CoverageReporter, CoverageRow
@@ -42,6 +42,24 @@ def _extract_location_and_snippet(lines: List[str], top_dir: str) -> Tuple[str, 
             if idx + 1 < len(lines) and not lines[idx + 1].lstrip().startswith(('File "', "---", "===")):
                 code_hint = f"CODE: {lines[idx + 1].strip()}"
     return loc_hint, code_hint
+
+
+def _filter_unittest_suite(suite: unittest.TestSuite, failed_filters: List[str]) -> unittest.TestSuite:
+    """Filtre récursivement une TestSuite pour ne conserver que les cas correspondant à failed_filters."""
+    targets: Set[str] = {f.strip() for f in failed_filters if f.strip()}
+    filtered = unittest.TestSuite()
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            sub = _filter_unittest_suite(item, failed_filters)
+            if sub.countTestCases() > 0:
+                filtered.addTest(sub)
+        else:
+            test_str: str = str(item).strip()
+            test_id: str = item.id().strip()
+            method_name: str = test_id.rsplit(".", 1)[-1]
+            if any(t in (test_str, test_id, method_name) or t in test_str for t in targets):
+                filtered.addTest(item)
+    return filtered
 def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MAX_COMPACT_REPORT_CHARS) -> str:
     """Condense et déduplique les tracebacks unittest en respectant max_chars."""
     sections: List[str] = re.split(r"(?m)^={60,}\s*$", raw_output)
@@ -78,7 +96,12 @@ def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MA
     return result
 
 
-def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tuple[int, str, List[CoverageRow]]:
+def run_single_python_suite(
+    suite_name: str,
+    tests_dir: str,
+    top_dir: str,
+    failed_filters: Optional[List[str]] = None,
+) -> Tuple[int, str, List[CoverageRow]]:
     """Exécute une suite unittest isolée sous trace.Trace et calcule la couverture."""
     if not os.path.isdir(tests_dir):
         return 1, f"[{suite_name}] Dossier de tests introuvable : {tests_dir}", []
@@ -99,18 +122,24 @@ def run_single_python_suite(suite_name: str, tests_dir: str, top_dir: str) -> Tu
             captured_warnings.append(f"{frame.f_code.co_filename}:{frame.f_lineno}: {cat.__name__}: {message}")
 
     def _discover_and_run() -> unittest.TestResult:
-        """Découvre et exécute l'ensemble des fichiers test_*.py du répertoire."""
-        return unittest.TextTestRunner(stream=stream, verbosity=2).run(unittest.TestLoader().discover(start_dir=tests_dir, pattern="test_*.py", top_level_dir=top_dir))
+        """Découvre et exécute les tests (complets ou filtrés sur failed_filters)."""
+        discovered = unittest.TestLoader().discover(start_dir=tests_dir, pattern="test_*.py", top_level_dir=top_dir)
+        suite_to_run = _filter_unittest_suite(discovered, failed_filters) if failed_filters else discovered
+        return unittest.TextTestRunner(stream=stream, verbosity=2).run(suite_to_run)
 
     try:
         warnings.warn = _intercept_warn  # type: ignore[assignment]
         result = tracer.runfunc(_discover_and_run)
+        if failed_filters and result.testsRun == 0:
+            return 0, "", []
         raw_out: str = stream.getvalue() + ("\n" + "\n".join(captured_warnings) if captured_warnings else "")
         warn_text: str = extract_warnings_and_console_errors(raw_out)
         if not (result.wasSuccessful() and not warn_text):
             compact: str = compact_error_report(raw_out, top_dir=top_dir)
             detail_txt: str = f"{compact}\nWARNINGS DÉTECTÉS :\n{warn_text}".strip() if warn_text else compact
             return 1, f"[{suite_name}]\n{detail_txt}", []
+        if failed_filters:
+            return 0, f"[{suite_name}] OK ({result.testsRun} test(s) KO corrigé(s))", []
         hit_by_file: Dict[str, Set[int]] = {}
         for (fname, lineno), cnt in tracer.results().counts.items():
             if cnt > 0:

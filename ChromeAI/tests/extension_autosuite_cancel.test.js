@@ -38,8 +38,11 @@ test("CodeBlockManager active auto-Suite même avec débordement récupéré et 
     getInputText: () => draftText, insertPrompt(txt, auto) { insertedPrompts.push({ txt, auto }); return true; }
   };
   const mgr = new sandbox.window.GmcCodeBlockManager(spill, fakeChat);
-  const turnNode = { querySelectorAll: () => [{ textContent: "Réponds Suite pour recevoir la suite." }] };
+  let promptLabel = "Réponds Suite pour recevoir la suite.";
+  const turnNode = { querySelectorAll: () => [{ textContent: promptLabel }] };
   const blockEl = { tagName: "PRE", textContent: "x = 1", isConnected: true, attrs: {}, getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, classList: { add() {} }, closest: () => turnNode };
+  assert.equal(mgr.hasSuitePromptAfterBlock({ el: blockEl }), true);
+  promptLabel = "Dis-moi **Suite** pour recevoir la suite.";
   assert.equal(mgr.hasSuitePromptAfterBlock({ el: blockEl }), true);
 
   draftText = "Attends, j'ai une question";

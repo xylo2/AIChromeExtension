@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import threading
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 
 def is_managed_clip_runner(test_script: str) -> bool:
@@ -27,6 +27,8 @@ def handle_run_tests_route(handler: Any, async_mode: bool) -> None:
     """Valide le lanceur de tests et démarre la campagne en mode synchrone ou streaming."""
     body_t = handler._read_json_body()
     test_script: Optional[str] = handler._resolve_test_runner_path(str(body_t.get("test_runner", "")).strip())
+    raw_failed = body_t.get("failed_tests")
+    failed_tests: List[str] = [str(x).strip() for x in raw_failed if str(x).strip()] if isinstance(raw_failed, list) else []
     if test_script is None:
         handler._send_json(403, {"ok": False, "error": "Chemin du lanceur de tests non autorisé."})
         return
@@ -37,11 +39,11 @@ def handle_run_tests_route(handler: Any, async_mode: bool) -> None:
         handler._send_json(409, {"ok": False, "error": "Une exécution de tests est déjà en cours."})
         return
     if async_mode:
-        threading.Thread(target=handler._run_tests_background, args=(test_script,), daemon=True).start()
+        threading.Thread(target=handler._run_tests_background, args=(test_script, failed_tests), daemon=True).start()
         handler._send_json(200, {"ok": True, "started": True})
         return
     try:
-        rc, clean_out, uncovered_out = handler._execute_tests_streaming(test_script)
+        rc, clean_out, uncovered_out = handler._execute_tests_streaming(test_script, failed_tests=failed_tests)
         passed: bool = compute_tests_passed(rc, clean_out, test_script)
         with handler._test_lock:
             handler._live_test_state.update({"running": False, "passed": passed, "output": clean_out, "uncovered": uncovered_out if passed else "", "error": ""})

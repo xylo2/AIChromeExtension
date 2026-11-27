@@ -1,14 +1,16 @@
+import json
 import os
 import tempfile
 import unittest
-from tools.run_tests_clip import ClipboardTestRunner
+from unittest.mock import patch
+from tools.run_tests_clip import ClipboardTestRunner, parse_failed_tests_arg
 from tools.suite_executor import compact_error_report
 
 
 class TestClipboardTestRunner(unittest.TestCase):
     """
     Tests unitaires vérifiant le compactage des rapports d'erreurs unittest,
-    la déduplication des échecs identiques, la troncature et le tableau de couverture.
+    la déduplication des échecs identiques, la troncature, le filtrage KO et la couverture.
     """
 
     def test_compact_error_report_deduplication_and_truncation(self) -> None:
@@ -76,12 +78,29 @@ class TestClipboardTestRunner(unittest.TestCase):
             with open(os.path.join(tests_dir, "__init__.py"), "w", encoding="utf-8") as f_init:
                 f_init.write("")
             with open(os.path.join(tests_dir, "test_demo.py"), "w", encoding="utf-8") as f_t:
-                f_t.write("import unittest\nfrom demo import fn\nclass T(unittest.TestCase):\n    def test_true(self):\n        self.assertEqual(fn(True), 1)\n")
+                f_t.write(
+                    "import unittest\nfrom demo import fn\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_true(self):\n        self.assertEqual(fn(True), 1)\n"
+                    "    def test_false(self):\n        self.assertEqual(fn(False), 2)\n"
+                )
 
             runner = ClipboardTestRunner(project_root=tmp_dir, use_clipboard=False)
+            self.assertEqual(parse_failed_tests_arg(["--failed-tests", json.dumps(["test_true"])]), ["test_true"])
+            with patch.dict(os.environ, {"WATCH_CLIPBOARD_FAILED_TESTS": "test_a|test_b"}):
+                self.assertEqual(parse_failed_tests_arg([]), ["test_a", "test_b"])
+
+            rc_f, sum_f, rows_f = runner._run_single_suite("demo", tests_dir, tmp_dir, failed_filters=["test_true"])
+            self.assertEqual((rc_f, rows_f), (0, []))
+            self.assertIn("1 test(s) KO corrigé(s)", sum_f)
+
+            rc_none, sum_none, _ = runner._run_single_suite("demo", tests_dir, tmp_dir, failed_filters=["test_inexistant"])
+            self.assertEqual((rc_none, sum_none), (0, ""))
+
+            with open(os.path.join(tests_dir, "test_demo.py"), "w", encoding="utf-8") as f_t2:
+                f_t2.write("import unittest\nfrom demo import fn\nclass T(unittest.TestCase):\n    def test_true(self):\n        self.assertEqual(fn(True), 1)\n")
             rc, summary, rows = runner._run_single_suite("demo", tests_dir, tmp_dir)
             self.assertEqual(rc, 0, msg=summary)
-            self.assertIn("OK", summary)
             pct, table_text = runner.format_coverage_report(rows, total_tests=1)
             self.assertAlmostEqual(pct, 40.0)
             self.assertIn("COUVERTURE GLOBALE : 40.0% (2/5 lignes) (1 tests unitaires)", table_text)

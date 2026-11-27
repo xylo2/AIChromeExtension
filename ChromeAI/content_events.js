@@ -59,6 +59,7 @@ class ContentEventsController {
     if (actionId === "fix_syntax") { this.resetSyntaxAttemptsForEvent(this.ctx.getWatcherState()?.lastEvent || ""); this.sendSyntaxErrorToAi(); return; }
     if (actionId === "copy_suite") { blockManager.copyAndPurgeAll(); return; }
     if (actionId === "commit_msg") { const msgPrompt = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(msgPrompt); chatInjector.insertPrompt(msgPrompt, true); this.ctx.clearCommitMsgFlag(); return; }
+    if (actionId === "rerun_failed") { els.rerunFailedBtn?.click(); return; }
     if (actionId === "run_tests") els.testsBtn?.click();
   }
   /** Crée ou retourne le panneau de sortie dédié au script build_package.py. */
@@ -138,11 +139,22 @@ class ContentEventsController {
       if (evSig !== this.lastAutoTestEventSig && !this.ctx.testActions?.panel?.isRunning) { this.lastAutoTestEventSig = evSig; this.ctx.els.testsBtn?.click(); }
     }
   }
+  /** Ouvre une nouvelle conversation vierge après confirmation de l'utilisateur. */
+  openFreshChat() {
+    if (typeof window.confirm === "function" && !window.confirm("Ouvrir un nouveau chat ?\nLa discussion actuelle sera perdue.")) return;
+    const { els, gitManager } = this.ctx;
+    if (els.newChatBtn) { els.newChatBtn.disabled = true; els.newChatBtn.textContent = "⏳ Nouveau chat..."; }
+    chrome.storage?.local?.remove?.("pendingFreshExportAt");
+    const targetUrl = gitManager?.uiHelper?.buildFreshChatUrl
+      ? gitManager.uiHelper.buildFreshChatUrl(window.location.href) : "/search?udm=50";
+    window.location.href = targetUrl;
+  }
   /** Attache tous les écouteurs de clics de la barre flottante et les raccourcis clavier Alt+P/S/T. */
   bindAll() {
     const { els, blockManager, chatInjector, gitManager, exportMenu, testActions, sendBgMessage, setBtnState, triggerProjectExport, tokenBudget, updateIndicators } = this.ctx;
     this.loadPrefs();
     els.budgetPill?.addEventListener("click", () => { tokenBudget?.reset(); updateIndicators?.(); });
+    els.newChatBtn?.addEventListener("click", () => this.openFreshChat());
     els.guidedBtn?.addEventListener("click", () => this.executeGuidedAction());
     els.autoSyntaxBtn?.addEventListener("click", () => { this.autoFixEnabled = !this.autoFixEnabled; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled }); this.syncToggleButtons(); if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState()); updateIndicators?.(); });
     els.autoTestBtn?.addEventListener("click", () => { this.autoTestEnabled = !this.autoTestEnabled; chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled }); this.syncToggleButtons(); });

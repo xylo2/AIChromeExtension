@@ -106,18 +106,19 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     autoSyntaxBtn: makeBtn("gmc-auto-syntax-btn", "⚡ Auto-fix: ON", "Corriger automatiquement les erreurs de syntaxe", true, serviceRow),
     autoTestBtn: makeBtn("gmc-auto-test-btn", "🧪 Auto-tests: OFF", "Lancer automatiquement les tests après assemblage", true, serviceRow),
     budgetPill: makeBtn("gmc-budget-pill", "📊 0 tok", "", true, projectRow),
+    newChatBtn: makeBtn("gmc-new-chat-btn", "🆕 Nouveau chat", "Ouvrir une nouvelle conversation AI vierge", true, projectRow),
     exportBtn: makeBtn("gmc-export-btn", "📦 Exporter", "Exporter le projet vers le chat", true, projectRow),
     buildBtn: makeBtn("gmc-build-btn", "🔨 Build", "Générer le package (tools/build_package.py)", true, projectRow),
     buildLogBtn: makeBtn("gmc-build-log-btn", "📄 Sortie build", "Afficher le journal de build", true, projectRow),
     gitBtn: makeBtn("gmc-git-btn", "🔀 Git status", "Inspecter les fichiers modifiés", true, projectRow),
     commitMsgBtn: makeBtn("gmc-commit-msg-btn", "💬 Msg commit", "Demander le message de commit à l'IA", true, projectRow),
     testsBtn: makeBtn("gmc-tests-btn", "🧪 Lancer les tests", "Exécuter la suite de tests", true, testsRow),
+    rerunFailedBtn: makeBtn("gmc-rerun-failed-btn", "🎯 Relancer KO (0)", "Relancer uniquement les tests KO de la dernière exécution", true, testsRow),
     testLogBtn: makeBtn("gmc-test-log-btn", "📋 Sortie tests", "Afficher le rapport complet des tests", true, testsRow),
     coverageBtn: makeBtn("gmc-coverage-btn", "📊 Couverture", "", true, testsRow),
     eventPill: makeBtn("gmc-global-event-pill", "", "", true, domRow),
     purgeBtn: makeBtn("gmc-purge-all-btn", "🧹 Purger DOM", "Purger tous les blocs de code du DOM", true, domRow)
   };
-
   const composerUi = new window.GmcComposerQuickButtonsManager(chatInjector, projectRow, els.exportBtn);
   const mkQuickBtn = (cls, text, title = "") => {
     const b = document.createElement("button");
@@ -136,7 +137,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
   els.excuseBtn = mkQuickBtn("gmc-composer-muted", "🎲 Excuse", "Insérer une excuse de développeur");
   const testActions = new window.GmcTestActionsController(
     chatInjector, sendBgMessage, setBtnState,
-    { testsBtn: els.testsBtn, coverageBtn: els.coverageBtn },
+    { testsBtn: els.testsBtn, rerunFailedBtn: els.rerunFailedBtn, coverageBtn: els.coverageBtn },
     () => watcherState, () => updateIndicators(), tokenBudget
   );
   const blockManager = new window.GmcCodeBlockManager(
@@ -174,10 +175,11 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     if (isTriggeringFreshExport || !watcherState?.running || !watcherState?.hasExporter || !chrome.storage?.local?.get) return;
     chrome.storage.local.get("pendingFreshExportAt", (res) => {
       const ts = Number(res?.pendingFreshExportAt || 0);
-      if (!ts || (Date.now() - ts) > 30000) return;
+      if (!ts || (Date.now() - ts) > 120000) return;
+      if (!chatInjector.findChatInputElement()) return;
       isTriggeringFreshExport = true;
       chrome.storage.local.remove?.("pendingFreshExportAt");
-      setTimeout(() => { isTriggeringFreshExport = false; triggerProjectExport("full", []); }, 600);
+      setTimeout(() => { isTriggeringFreshExport = false; triggerProjectExport("full", []); }, 450);
     });
   };
   const toggleRowVisibility = (rowEl, btnList) => { rowEl.style.display = btnList.some((b) => b && b.style.display !== "none") ? "flex" : "none"; };
@@ -200,6 +202,7 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
     els.composerCommitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     els.gitBtn.style.display = running && watcherState.hasGit ? "inline-flex" : "none";
     els.buildBtn.style.display = running && watcherState.hasBuildPackage ? "inline-flex" : "none";
+    els.newChatBtn.style.display = running ? "inline-flex" : "none";
     els.exportBtn.style.display = running && watcherState.hasExporter ? "inline-flex" : "none";
     els.testsBtn.style.display = running && watcherState.hasRunTestsClip ? "inline-flex" : "none";
     els.testsBtn.disabled = Boolean(testActions.panel.isRunning);
@@ -211,10 +214,11 @@ if (!window.__gmcInitialized && window.location.hostname.includes("google.")) {
       const evStr = String(watcherState.lastEvent), isSyntaxErr = Boolean(watcherState.hasSyntaxError || evStr.startsWith("[SYNTAXE]"));
       els.eventPill.classList.toggle("state-fail", isSyntaxErr); els.eventPill.textContent = isSyntaxErr ? `⚠️ ${evStr}` : evStr;
     }
-    toggleRowVisibility(projectRow, [els.budgetPill, els.exportBtn, els.buildBtn, els.buildLogBtn, els.gitBtn, els.commitMsgBtn]);
-    toggleRowVisibility(testsRow, [els.testsBtn, els.testLogBtn, els.coverageBtn]);
+    toggleRowVisibility(projectRow, [els.budgetPill, els.newChatBtn, els.exportBtn, els.buildBtn, els.buildLogBtn, els.gitBtn, els.commitMsgBtn]);
+    toggleRowVisibility(testsRow, [els.testsBtn, els.rerunFailedBtn, els.testLogBtn, els.coverageBtn]);
     toggleRowVisibility(domRow, [els.eventPill, els.purgeBtn]);
-    const guided = running ? composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent: Boolean(testActions.lastTestsPassed || testActions.panel.isRunning), autoFixActive: Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.()) }) : null;
+    const failedTestsCount = typeof testActions.getFailedTests === "function" ? testActions.getFailedTests().length : 0;
+    const guided = running ? composerUi.resolveGuidedAction({ watcherState, unpurgedCount, hasTestFailure: testActions.hasPendingFailure(), canCommitMsg: canRequestCommitMsg, testsPassedForCurrentEvent: Boolean(testActions.lastTestsPassed || testActions.panel.isRunning), autoFixActive: Boolean(eventsCtrl?.isAutoFixHandlingCurrentError?.()), failedTestsCount }) : null;
     guidedActionId = guided ? guided.id : ""; els.guidedBtn.style.display = guided ? "inline-flex" : "none";
     if (guided) { els.guidedBtn.textContent = guided.label; els.guidedBtn.title = guided.title; }
     if (running) { composerUi.mount(); checkPendingFreshExport(); } else if (composerUi.groupEl.parentElement) composerUi.groupEl.remove();

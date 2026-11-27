@@ -3,6 +3,7 @@
 # Consolidation de fichiers d'un projet selon différents modes d'export.
 
 import fnmatch
+import importlib.util
 import logging
 import os
 from pathlib import Path
@@ -138,6 +139,27 @@ class ProjectExporter:
             return False
         return file_path.name in self.config.included_exact_names or file_path.suffix.lower() in self.config.included_extensions
 
+    @staticmethod
+    def _fallback_skeleton(ext: str, raw: str) -> str:
+        """Extrait imports, classes et méthodes en repli autonome si skeleton.py est absent."""
+        if ext == ".py":
+            import ast
+            tree = ast.parse(raw)
+            lns: List[str] = raw.splitlines()
+            out: List[str] = []
+            for node in tree.body:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    out.append(lns[node.lineno - 1])
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out.append(lns[node.lineno - 1] + " ...")
+                elif isinstance(node, ast.ClassDef):
+                    out.append(lns[node.lineno - 1])
+                    for sub in node.body:
+                        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            out.append(lns[sub.lineno - 1] + " ...")
+            return "\n".join(out) or raw
+        return raw
+
     def _read_file_content(self, file_path: Path) -> str:
         """Lit le contenu d'un fichier avec encodage de repli et extrait son squelette si requis."""
         try:
@@ -147,8 +169,11 @@ class ProjectExporter:
         except Exception as exc:
             return f"[ERREUR DE LECTURE : {exc}]"
         if self.export_mode == "skeleton":
-            from .skeleton import extract_skeleton
-            return extract_skeleton(file_path.suffix.lower(), raw)
+            try:
+                from .skeleton import extract_skeleton
+                return extract_skeleton(file_path.suffix.lower(), raw)
+            except Exception:
+                return self._fallback_skeleton(file_path.suffix.lower(), raw)
         return raw
 
     def _prepare_output_file(self) -> None:
@@ -159,7 +184,7 @@ class ProjectExporter:
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
-        """Estime le nombre de tokens d'un texte (~4 caractères par token)."""
+        """Estime le volume en tokens d'un texte (~4 caractères par token)."""
         return max(1, (len(text) + 3) // 4) if text else 0
 
     @classmethod
