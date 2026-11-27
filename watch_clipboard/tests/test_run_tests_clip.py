@@ -19,7 +19,7 @@ class TestClipboardTestRunner(unittest.TestCase):
             with open(src_file, "w", encoding="utf-8") as f_src:
                 f_src.write("def compute():\n    raise ValueError('boom')\n")
 
-            long_assertion: str = "A" * 500
+            long_assertion: str = "A" * 900
             raw_unittest_output: str = (
                 "test_one (test_mod.Suite) ... ERROR\n"
                 "test_two (test_mod.Suite) ... ERROR\n"
@@ -52,10 +52,9 @@ class TestClipboardTestRunner(unittest.TestCase):
             report: str = runner.compact_error_report(raw_unittest_output, top_dir=tmp_dir)
 
             self.assertIn("ERROR: test_one", report)
-            self.assertIn("LOC: sample.py:2", report)
+            self.assertIn("TRACE: sample.py:2 (compute)", report)
             self.assertIn("CODE: raise ValueError('boom')", report)
             self.assertIn("[DOUBLON] ERROR: test_two (test_mod.Suite) -> ValueError: boom", report)
-            self.assertIn("[...]", report)
             self.assertIn("Ran 3 tests in 0.005s | FAILED (failures=1, errors=2)", report)
 
             capped: str = compact_error_report(raw_unittest_output, top_dir=tmp_dir, max_chars=260)

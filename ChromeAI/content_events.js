@@ -18,7 +18,7 @@ class ContentEventsController {
   /** Affiche temporairement sur le bouton Auto-fix le fichier et le numéro d'essai envoyé. */
   notifyAutoFixTriggered(fileKey, attemptNum) {
     const shortName = String(fileKey || "fichier").split(/[\\/]/).pop();
-    this.clearAutoFixNotice(); this.autoFixNoticeLabel = `⚡ Auto-fix envoyé (${shortName} ${attemptNum}/${this.MAX_AUTO_SYNTAX_PER_FILE})`;
+    this.clearAutoFixNotice(); this.autoFixNoticeLabel = "⚡ Auto-fix envoyé (" + shortName + " " + attemptNum + "/" + this.MAX_AUTO_SYNTAX_PER_FILE + ")";
     this.syncToggleButtons();
     this.autoFixNoticeTimer = setTimeout(() => { this.autoFixNoticeTimer = null; this.autoFixNoticeLabel = ""; this.syncToggleButtons(); }, 6500);
   }
@@ -45,7 +45,7 @@ class ContentEventsController {
     blockManager.resetAutoSuiteQuota();
     sendBgMessage({ type: "GET_SYNTAX_ERROR" }, (res) => {
       const err = res?.syntax_error;
-      const prompt = (res?.ok && err?.file) ? `Erreur de syntaxe détectée automatiquement dans \x60${err.file}\x60 (${err.message}) :\n\x60\x60\x60text\n${err.snippet || ""}\n\x60\x60\x60\nPeux-tu corriger ce fichier ?` : fallbackText;
+      const prompt = (res?.ok && err?.file) ? "Erreur de syntaxe détectée automatiquement dans \x60" + err.file + "\x60 (" + err.message + ") :\n\x60\x60\x60text\n" + (err.snippet || "") + "\n\x60\x60\x60\nPeux-tu corriger ce fichier ?" : fallbackText;
       if (!prompt) return;
       tokenBudget?.recordPayload(prompt);
       if (chatInjector.insertPrompt(prompt, { minDelayMs: 650, maxWaitMs: 5500 }) && typeof onSent === "function") onSent(err?.file || "");
@@ -55,11 +55,11 @@ class ContentEventsController {
   /** Exécute l'action contextuelle prioritaire affichée près du compositeur. */
   executeGuidedAction() {
     const actionId = typeof this.ctx.getGuidedActionId === "function" ? this.ctx.getGuidedActionId() : "";
-    const { els, blockManager, chatInjector, gitManager, tokenBudget } = this.ctx;
+    const { els, blockManager, chatInjector, gitManager, tokenBudget, testActions } = this.ctx;
     if (actionId === "fix_syntax") { this.resetSyntaxAttemptsForEvent(this.ctx.getWatcherState()?.lastEvent || ""); this.sendSyntaxErrorToAi(); return; }
     if (actionId === "copy_suite") { blockManager.copyAndPurgeAll(); return; }
     if (actionId === "commit_msg") { const msgPrompt = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(msgPrompt); chatInjector.insertPrompt(msgPrompt, true); this.ctx.clearCommitMsgFlag(); return; }
-    if (actionId === "rerun_failed") { els.rerunFailedBtn?.click(); return; }
+    if (actionId === "rerun_failed") { testActions?.startTestExecution?.(true, true); return; }
     if (actionId === "run_tests") els.testsBtn?.click();
   }
   /** Crée ou retourne le panneau de sortie dédié au script build_package.py. */
@@ -74,8 +74,8 @@ class ContentEventsController {
     if (res?.ok) { panel?.finish(true, finalReport || "Package généré avec succès.", false); els.buildBtn.title = finalReport || "Package généré avec succès"; setBtnState(els.buildBtn, "pass", "✅ Build OK"); this.buildAutoCloseTimer = setTimeout(() => { this.buildAutoCloseTimer = null; setBtnState(els.buildBtn, null, "🔨 Build"); els.buildBtn.title = "Générer le package (tools/build_package.py)"; }, 3500); updateIndicators?.(); return; }
     const errTxt = String(res?.error || finalReport || "Erreur lors de l'exécution de build_package.py.");
     panel?.finish(false, errTxt, false); els.buildBtn.title = errTxt; setBtnState(els.buildBtn, "fail", "❌ Build KO");
-    const trimmedErr = errTxt.length > 3200 ? `${errTxt.slice(0, 3200).trim()}\n[... tronqué ...]` : errTxt;
-    const prompt = `Échec lors de l'exécution de \x60tools/build_package.py\x60 :\n\x60\x60\x60text\n${trimmedErr}\n\x60\x60\x60\nPeux-tu analyser et corriger ce problème ?\n`;
+    const trimmedErr = errTxt.length > 3200 ? trimmedErrHead(errTxt) : errTxt;
+    const prompt = "Échec lors de l'exécution de \x60tools/build_package.py\x60 :\n\x60\x60\x60text\n" + trimmedErr + "\n\x60\x60\x60\nPeux-tu analyser et corriger ce problème ?\n";
     if (chatInjector?.insertPrompt?.(prompt, true)) tokenBudget?.recordPayload(prompt);
     updateIndicators?.();
   }
@@ -111,7 +111,7 @@ class ContentEventsController {
         if (!diffRes?.ok) { setBtnState(els.gitBtn, "fail", "❌ Erreur diff"); return; }
         const diffName = diffRes.filename || "git_changes.diff.txt", diffContent = String(diffRes.content || diffRes.diff || "");
         const commitPrompt = gitManager.buildCommitPrompt(files, diffName);
-        tokenBudget?.recordPayload(`${diffContent}\n${commitPrompt}`, Number(diffRes.estimated_tokens || 0) + (tokenBudget?.estimateTokens(commitPrompt) || 0));
+        tokenBudget?.recordPayload(diffContent + "\n" + commitPrompt, Number(diffRes.estimated_tokens || 0) + (tokenBudget?.estimateTokens(commitPrompt) || 0));
         if (diffContent) chatInjector.dropFile(diffName, diffContent, false);
         chatInjector.insertPrompt(commitPrompt, { minDelayMs: 1600, maxWaitMs: 7000, waitForFile: diffContent ? diffName : "" });
         this.ctx.clearCommitMsgFlag(); updateIndicators?.();
@@ -128,7 +128,7 @@ class ContentEventsController {
     if (this.autoFixEnabled && nextState?.hasSyntaxError && evSig) {
       if (evSig !== this.lastAutoSyntaxSig) {
         this.lastAutoSyntaxSig = evSig; const fileKey = this.extractSyntaxEventFile(evSig) || "__default__", tries = this.autoSyntaxAttemptsByFile.get(fileKey) || 0;
-        if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) { this.clearAutoFixNotice(); if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = `⏸️ Auto-fix max (${fileKey})`; this.ctx.updateIndicators(); return; }
+        if (tries >= this.MAX_AUTO_SYNTAX_PER_FILE) { this.clearAutoFixNotice(); if (this.ctx.els.autoSyntaxBtn) this.ctx.els.autoSyntaxBtn.textContent = "⏸️ Auto-fix max (" + fileKey + ")"; this.ctx.updateIndicators(); return; }
         const nextTry = tries + 1; this.autoSyntaxAttemptsByFile.set(fileKey, nextTry);
         this.sendSyntaxErrorToAi(evSig, (resolvedFile) => this.notifyAutoFixTriggered(resolvedFile || fileKey, nextTry));
       }
@@ -158,21 +158,22 @@ class ContentEventsController {
     els.guidedBtn?.addEventListener("click", () => this.executeGuidedAction());
     els.autoSyntaxBtn?.addEventListener("click", () => { this.autoFixEnabled = !this.autoFixEnabled; this.autoSyntaxAttemptsByFile.clear(); this.lastAutoSyntaxSig = ""; this.clearAutoFixNotice(); chrome.storage?.local?.set?.({ gmcAutoFix: this.autoFixEnabled }); this.syncToggleButtons(); if (this.autoFixEnabled && this.ctx.getWatcherState()?.hasSyntaxError) this.handleStateUpdate(this.ctx.getWatcherState()); updateIndicators?.(); });
     els.autoTestBtn?.addEventListener("click", () => { this.autoTestEnabled = !this.autoTestEnabled; chrome.storage?.local?.set?.({ gmcAutoTest: this.autoTestEnabled }); this.syncToggleButtons(); });
-    els.statusPill?.addEventListener("click", () => { if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return; this.enableAutoFixOnServiceStart(); this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage..."; chrome.storage?.local?.get?.(["savedTargetDir", "savedExtraArgs"], (res) => { sendBgMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() }, (reply) => { this.ctx.setStarting(false); if (reply?.state) this.handleStateUpdate(reply.state); else this.ctx.updateIndicators(); }); }); });
-    els.copyPurgeAllBtn?.addEventListener("click", () => blockManager.copyAndPurgeAll());
-    els.commitMsgBtn?.addEventListener("click", () => { const p = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(p); chatInjector.insertPrompt(p, true); this.ctx.clearCommitMsgFlag(); });
-    els.composerCommitBtn?.addEventListener("click", () => this.triggerQuickCommitFlow());
-    els.eventPill?.addEventListener("click", () => { const st = this.ctx.getWatcherState(), rawEv = String(st?.lastEvent || els.eventPill.textContent || ""); if (st?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) { this.resetSyntaxAttemptsForEvent(rawEv); this.sendSyntaxErrorToAi(rawEv); return; } blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(rawEv); chatInjector.insertPrompt(rawEv, true); updateIndicators?.(); });
-    els.yesBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
-    els.nextBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); });
-    els.excuseBtn?.addEventListener("click", () => chatInjector.insertPrompt(this.ctx.composerUi.pickExcuse(), false));
-    els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
-    els.buildBtn?.addEventListener("click", () => this.triggerBuildPackage());
-    els.buildLogBtn?.addEventListener("click", () => this.ensureBuildPanel()?.toggle());
-    els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
-    els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
-    els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
-    document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
-  }
+els.statusPill?.addEventListener("click", () => { if (this.ctx.getWatcherState()?.running || this.ctx.isStarting()) return; this.enableAutoFixOnServiceStart(); this.ctx.setStarting(true); els.statusPill.textContent = "⏳ Démarrage..."; chrome.storage?.local?.get?.(["savedTargetDir", "savedExtraArgs"], (res) => { sendBgMessage({ type: "START_WATCHER", targetDir: (res.savedTargetDir || ".").trim() || ".", extraArgs: (res.savedExtraArgs || "").trim() }, (reply) => { this.ctx.setStarting(false); if (reply?.state) this.handleStateUpdate(reply.state); else this.ctx.updateIndicators(); }); }); });
+els.copyPurgeAllBtn?.addEventListener("click", () => blockManager.copyAndPurgeAll());
+els.commitMsgBtn?.addEventListener("click", () => { const p = gitManager.buildCommitMessageOnlyPrompt(); blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(p); chatInjector.insertPrompt(p, true); this.ctx.clearCommitMsgFlag(); });
+els.composerCommitBtn?.addEventListener("click", () => this.triggerQuickCommitFlow());
+els.eventPill?.addEventListener("click", () => { const st = this.ctx.getWatcherState(), rawEv = String(st?.lastEvent || els.eventPill.textContent || ""); if (st?.hasSyntaxError || rawEv.startsWith("[SYNTAXE]")) { this.resetSyntaxAttemptsForEvent(rawEv); this.sendSyntaxErrorToAi(rawEv); return; } blockManager.resetAutoSuiteQuota(); tokenBudget?.recordPayload(rawEv); chatInjector.insertPrompt(rawEv, true); updateIndicators?.(); });
+els.yesBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Oui", true); });
+els.nextBtn?.addEventListener("click", () => { blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); });
+els.excuseBtn?.addEventListener("click", () => chatInjector.insertPrompt(this.ctx.composerUi.pickExcuse(), false));
+els.gitBtn?.addEventListener("click", () => { if (gitManager.panelEl) { gitManager.close(); return; } setBtnState(els.gitBtn, "running", "⏳ Git..."); sendBgMessage({ type: "GIT_STATUS" }, (res) => { if (!res?.ok) return setBtnState(els.gitBtn, "fail", "❌ Erreur Git"); const entries = res.entries || []; if (entries.length === 0) { setBtnState(els.gitBtn, "pass", "✅ Aucun changement"); setTimeout(() => setBtnState(els.gitBtn, null, "🔀 Git status"), 2200); return; } setBtnState(els.gitBtn, null, "🔀 Git status"); gitManager.open(entries); }); });
+els.buildBtn?.addEventListener("click", () => this.triggerBuildPackage());
+els.buildLogBtn?.addEventListener("click", () => this.ensureBuildPanel()?.toggle());
+els.exportBtn?.addEventListener("click", () => { if (!exportMenu) { triggerProjectExport("full", []); return; } if (exportMenu.menuEl) { exportMenu.close(); return; } sendBgMessage({ type: "EXPORT_FOLDERS" }, (res) => exportMenu.toggle((m, sub) => triggerProjectExport(m, sub), res?.folders || [])); });
+els.testLogBtn?.addEventListener("click", () => testActions.panel.toggle());
+els.purgeBtn?.addEventListener("click", () => blockManager.purgeAll());
+document.addEventListener("keydown", (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const k = e.key.toLowerCase(); if (k === "p") { e.preventDefault(); blockManager.copyAndPurgeAll(); } else if (k === "s") { e.preventDefault(); blockManager.resetAutoSuiteQuota(); chatInjector.insertPrompt("Suite", true); } else if (k === "t" && !els.testsBtn?.disabled) { e.preventDefault(); els.testsBtn?.click(); } });
 }
+}
+function trimmedErrHead(errTxt) { return errTxt.slice(0, 3200).trim() + "\n[... tronqué ...]"; }
 window.GmcContentEventsController = ContentEventsController;

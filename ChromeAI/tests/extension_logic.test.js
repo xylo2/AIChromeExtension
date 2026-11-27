@@ -26,8 +26,8 @@ test("manifest.json déclare les permissions et tous les modules modulaires dans
 test("chaque module est sans triple backtick littéral ni scroll auto", () => {
   for (const mod of [...JS_MODULES, "bg_native_helper.js", "background.js", "popup_view.js", "popup.js"]) {
     const code = fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8");
-    assert.equal(code.includes("\x60\x60\x60"), false, `Triple backtick littéral dans ${mod}`);
-    assert.equal(/\b(?:scrollIntoView|scrollBy)\b/.test(code), false, `Scroll auto interdit dans ${mod}`);
+    assert.equal(code.includes("\x60\x60\x60"), false, "Triple backtick littéral dans " + mod);
+    assert.equal(/\b(?:scrollIntoView|scrollBy)\b/.test(code), false, "Scroll auto interdit dans " + mod);
   }
   const popupHtml = fs.readFileSync(path.join(EXTENSION_DIR, "popup.html"), "utf-8");
   assert.ok(popupHtml.includes('href="popup.css"'));
@@ -65,8 +65,8 @@ test("SpillDetector, CodeBlockManager, GitPanelManager (sans scroll au commit, 2
     classList: { add() {}, remove() {} },
     getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; },
     querySelector() { return null; }, blur() { blurred = true; },
-    append(...items) { this.children.push(...items); }, appendChild(n) { n.parentElement = this; n.parentNode = this; this.children.push(n); },
-    insertBefore(n) { n.parentElement = this; n.parentNode = this; this.children.push(n); },
+    append(...items) { this.children.push(...items); }, appendChild(n) { this.parentElement = this; n.parentNode = this; this.children.push(n); },
+    insertBefore(n) { this.parentElement = this; n.parentNode = this; this.children.push(n); },
     addEventListener(ev, fn) { this.listeners[ev] = fn; }, remove() {}
   });
   const preCommit = makeNode("PRE");
@@ -138,7 +138,7 @@ test("checkPendingFreshExport attend le champ de saisie puis déclenche EXPORT_P
   });
   const hostName = ["www", "google", "com"].join(".");
   const sandbox = {
-    window: { location: { hostname: hostName, href: `https://${hostName}/search?udm=50` } },
+    window: { location: { hostname: hostName, href: "https://" + hostName + "/search?udm=50" }, addEventListener() {} },
     document: { hidden: false, body: makeEl(), createElement: makeEl, querySelector: () => null, querySelectorAll: () => [], addEventListener(ev, fn) { docListeners[ev] = fn; } },
     MutationObserver: class { observe() {} disconnect() {} },
     setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}, setInterval: () => 1, clearInterval() {},

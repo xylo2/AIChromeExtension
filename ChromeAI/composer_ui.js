@@ -44,11 +44,10 @@ class ComposerQuickButtonsManager {
 
   /** Indique si la conversation AI est démarrée ou si le compositeur est en bas de page. */
   hasStartedConversation() {
-    if (document.querySelector("[data-aim-turn], [data-turn-id], message-content, model-response, user-query, .conversation-container")) return true;
+    if (document.querySelector("[data-scope-id='turn'], [data-aim-turn], [data-turn-id], message-content, model-response, user-query, .conversation-container")) return true;
     const inputEl = this.chat.findChatInputElement();
     return Boolean(inputEl && this.isBottomComposer(inputEl));
   }
-
   /** Insère le groupe de boutons rapides dans la barre flottante en repli. */
   attachToFloatingBar() {
     this.groupEl.classList.remove("gmc-composer-below");
@@ -63,6 +62,7 @@ class ComposerQuickButtonsManager {
     if (typeof inputEl.getBoundingClientRect !== "function") return true;
     const rect = inputEl.getBoundingClientRect();
     const viewH = window.innerHeight || 0;
+    if (rect.height === 0 && document.hidden) return true;
     return rect.height > 0 && (viewH === 0 || rect.top >= viewH * 0.45);
   }
 

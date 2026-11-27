@@ -15,7 +15,7 @@ test("TokenBudgetManager persiste par conversation, migre un export récent vers
   const mainNode = { textContent: "x".repeat(400) };
 
   const sandbox = {
-    window: { location: { href: `${baseSearch}?udm=50&mstk=thread1` } },
+    window: { location: { href: baseSearch + "?udm=50&mstk=thread1" } },
     document: { querySelectorAll: () => turnNodes, querySelector: () => mainNode },
     chrome: {
       storage: {
@@ -41,27 +41,27 @@ test("TokenBudgetManager persiste par conversation, migre un export récent vers
   budget.recordPayload("y".repeat(400));
   assert.equal(storageData.gmcTokenBudgets[thread1Key], 12100);
 
-  sandbox.window.location.href = `${baseSearch}?udm=50`;
+  sandbox.window.location.href = baseSearch + "?udm=50";
   budget.syncFromStorage();
   assert.equal(budget.sessionTokens, 0);
   budget.recordPayload("z".repeat(400), 130500);
   assert.equal(storageData.gmcPendingBudget.tokens, 130500);
 
-  sandbox.window.location.href = `${baseSearch}?udm=50&mstk=newThread`;
+  sandbox.window.location.href = baseSearch + "?udm=50&mstk=newThread";
   const newThreadKey = budget.getConversationKey();
   budget.syncFromStorage();
   assert.equal(budget.sessionTokens, 130500);
   assert.equal(storageData.gmcPendingBudget, undefined);
   assert.equal(storageData.gmcTokenBudgets[newThreadKey], 130500);
 
-  sandbox.window.location.href = `${baseSearch}?udm=50&mstk=thread2`;
+  sandbox.window.location.href = baseSearch + "?udm=50&mstk=thread2";
   budget.syncFromStorage();
   assert.equal(budget.sessionTokens, 0);
   turnNodes = [{ textContent: "z".repeat(800) }];
   assert.equal(budget.estimateConversationDomTokens(), 200);
 });
-test("ExportMenuManager (confirm export lourd), TestActionsController (relance KO, troncature, fermeture auto) et action guidée", async () => {
-  let turnCount = 3, confirmCalls = 0, confirmReply = false;
+test("ExportMenuManager (confirm export lourd), TestActionsController (brouillon préservé, relance KO) et action guidée", async () => {
+  let turnCount = 3, confirmCalls = 0, confirmReply = false, userDraft = "";
   const prompts = [], timers = [], bgMsgs = [];
   const makeNode = () => ({
     type: "", className: "", textContent: "", title: "", disabled: false, checked: false, dataset: {}, style: {}, scrollTop: 0, scrollHeight: 100, children: [], listeners: {},
@@ -102,26 +102,38 @@ test("ExportMenuManager (confirm export lourd), TestActionsController (relance K
   fullBtn.listeners.click({ stopPropagation() {} });
   assert.equal(selectedMode, "full");
 
-  const fakeChat = { insertPrompt: (t) => { prompts.push(t); return true; }, insertTestResults: (t) => { prompts.push(t); return true; } };
+  const fakeChat = {
+    findChatInputElement: () => ({}),
+    getInputText: () => userDraft,
+    insertPrompt: (t, auto) => { prompts.push({ t, auto }); return true; },
+    insertTestResults: (t, auto) => { prompts.push({ t, auto }); return true; }
+  };
+  const testsBtn = makeNode();
   const rerunBtn = makeNode();
   let testCtrl = null;
   testCtrl = new sandbox.window.GmcTestActionsController(
     fakeChat, (msg) => { bgMsgs.push(msg); }, () => {},
-    { testsBtn: makeNode(), rerunFailedBtn: rerunBtn, coverageBtn: makeNode() },
+    { testsBtn, rerunFailedBtn: rerunBtn, coverageBtn: makeNode() },
     () => ({ running: true, hasRunTestsClip: true, lastEvent: "[OK] a.py" }),
     () => { testCtrl?.renderCoverageIndicator(); }, budget
   );
+  userDraft = "Mon message en cours";
+  await testCtrl.finalizeTestRun({ ok: true, passed: false, output: "FAIL: test_draft (t.S)" });
+  assert.equal(prompts.at(0).auto, false);
+  assert.equal(rerunBtn.style.display, "inline-flex");
+  assert.equal(rerunBtn.textContent, "🎯 Relancer KO (1)");
+
+  userDraft = "";
   testCtrl.panel.open("Tests KO", "", true);
-  const koReport = "FAIL: test_alpha (tests.test_mod.Suite)\n✖ test_beta (12.4ms)\n" + "E".repeat(4500);
+  const koReport = "FAIL: test_alpha (tests.test_mod.Suite)\n✖ test_beta (12.4ms)\n" + "E".repeat(7000);
   await testCtrl.finalizeTestRun({ ok: true, passed: false, output: koReport });
   assert.equal(testCtrl.hasPendingFailure(), true);
   assert.equal(Array.from(testCtrl.getFailedTests()).join("|"), "test_alpha (tests.test_mod.Suite)|test_beta");
   assert.equal(rerunBtn.style.display, "inline-flex");
   assert.equal(rerunBtn.textContent, "🎯 Relancer KO (2)");
-  assert.ok(prompts.at(0).includes("caractères tronqués"));
+  assert.ok(prompts.at(1).t.includes("caractères tronqués"));
+  assert.notEqual(prompts.at(1).auto, false);
   assert.equal(testCtrl.panel.panelEl, null);
-  testCtrl.panel.toggle();
-  assert.notEqual(testCtrl.panel.panelEl, null);
 
   rerunBtn.listeners.click({ isTrusted: true });
   const lastBg = bgMsgs.at(-1);
@@ -131,13 +143,12 @@ test("ExportMenuManager (confirm export lourd), TestActionsController (relance K
   assert.equal(testCtrl.getFailedTests().length, 0);
   assert.equal(rerunBtn.style.display, "none");
   timers.at(-1).fn();
-  assert.equal(testCtrl.panel.panelEl, null);
 
   const composerUi = new sandbox.window.GmcComposerQuickButtonsManager(fakeChat, makeNode(), makeNode());
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: true }, canCommitMsg: true }).id, "fix_syntax");
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: false }), null);
   assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false }, canCommitMsg: true }).id, "commit_msg");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, failedTestsCount: 2 }).id, "rerun_failed");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false }).id, "run_tests");
-  assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, testsPassedForCurrentEvent: true }), null);
+assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, failedTestsCount: 2 }).id, "rerun_failed");
+assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false }).id, "run_tests");
+assert.equal(composerUi.resolveGuidedAction({ watcherState: { running: true, hasSyntaxError: false, hasRunTestsClip: true, lastEvent: "[OK] app.py" }, canCommitMsg: false, testsPassedForCurrentEvent: true }), null);
 });

@@ -14,7 +14,7 @@ WARNING_PATTERN = re.compile(
     r"^(?P<loc>.+?:\d+:\s+(?:DeprecationWarning|ResourceWarning|UserWarning|RuntimeWarning|SyntaxWarning|FutureWarning):.+)$",
     re.MULTILINE,
 )
-MAX_COMPACT_REPORT_CHARS: int = 3200
+MAX_COMPACT_REPORT_CHARS: int = 6000
 
 
 def extract_warnings_and_console_errors(raw_output: str) -> str:
@@ -30,17 +30,22 @@ def extract_warnings_and_console_errors(raw_output: str) -> str:
 
 
 def _extract_location_and_snippet(lines: List[str], top_dir: str) -> Tuple[str, str]:
-    """Repère le fichier source, le numéro de ligne et l'instruction en échec."""
-    loc_hint, code_hint = "", ""
+    """Repère les fichiers sources, lignes et instructions de la pile d'appel en échec."""
+    frames: List[str] = []
+    code_hint: str = ""
     for idx, ln in enumerate(lines):
         stripped = ln.lstrip()
-        if stripped.startswith('File "') and (not top_dir or top_dir in ln):
-            m_loc = re.search(r'File "([^"]+)", line (\d+)', stripped)
+        if stripped.startswith('File "'):
+            m_loc = re.search(r'File "([^"]+)", line (\d+)(?:, in (.+))?', stripped)
             if m_loc:
-                rel_f = os.path.relpath(m_loc.group(1), top_dir).replace("\\", "/") if top_dir else os.path.basename(m_loc.group(1))
-                loc_hint = f"LOC: {rel_f}:{m_loc.group(2)}"
+                f_path: str = m_loc.group(1)
+                is_proj: bool = bool(top_dir and top_dir in f_path)
+                rel_f: str = os.path.relpath(f_path, top_dir).replace("\\", "/") if is_proj else os.path.basename(f_path)
+                func_name: str = f" ({m_loc.group(3)})" if m_loc.group(3) else ""
+                frames.append(f"{rel_f}:{m_loc.group(2)}{func_name}")
             if idx + 1 < len(lines) and not lines[idx + 1].lstrip().startswith(('File "', "---", "===")):
                 code_hint = f"CODE: {lines[idx + 1].strip()}"
+    loc_hint: str = f"TRACE: {' -> '.join(frames[-4:])}" if frames else ""
     return loc_hint, code_hint
 
 
@@ -60,8 +65,10 @@ def _filter_unittest_suite(suite: unittest.TestSuite, failed_filters: List[str])
             if any(t in (test_str, test_id, method_name) or t in test_str for t in targets):
                 filtered.addTest(item)
     return filtered
+
+
 def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MAX_COMPACT_REPORT_CHARS) -> str:
-    """Condense et déduplique les tracebacks unittest en respectant max_chars."""
+    """Condense et déduplique les tracebacks unittest en conservant les détails d'assertion."""
     sections: List[str] = re.split(r"(?m)^={60,}\s*$", raw_output)
     kept_blocks: List[str] = []
     seen_sigs: Set[str] = set()
@@ -72,14 +79,20 @@ def compact_error_report(raw_output: str, top_dir: str = "", max_chars: int = MA
             continue
         header: str = next(iter(lines))
         if header.startswith(("ERROR:", "FAIL:")):
-            err_line: str = next((ln for ln in reversed(lines) if not ln.startswith(("---", "Ran ", "FAILED"))), lines[-1])
-            sig: str = err_line[:120]
+            err_lines: List[str] = []
+            for ln in reversed(lines):
+                if ln.startswith(("---", "Ran ", "FAILED")) or ln.lstrip().startswith(('File "', "Traceback")):
+                    break
+                err_lines.append(ln)
+            err_lines.reverse()
+            err_block: str = "\n".join(err_lines) if err_lines else lines[-1]
+            sig: str = err_block[:160]
             if sig in seen_sigs:
-                kept_blocks.append(f"[DOUBLON] {header} -> {err_line[:140]}")
+                kept_blocks.append(f"[DOUBLON] {header} -> {err_lines[-1][:140] if err_lines else ''}")
                 continue
             seen_sigs.add(sig)
             loc_hint, code_hint = _extract_location_and_snippet(lines, top_dir)
-            truncated_err: str = err_line if len(err_line) <= 220 else err_line[:220] + " [...]"
+            truncated_err: str = err_block if len(err_block) <= 600 else err_block[:600] + " [...]"
             kept_blocks.append("\n".join([p for p in (header, loc_hint, code_hint, truncated_err) if p]))
         for ln in lines:
             if ln.startswith("Ran "):

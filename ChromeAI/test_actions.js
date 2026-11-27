@@ -8,7 +8,7 @@ class TestActionsController {
     this.testsBtn = buttons.testsBtn; this.rerunFailedBtn = buttons.rerunFailedBtn || null;
     this.coverageBtn = buttons.coverageBtn;
     this.getWatcherState = getWatcherState; this.onRefreshUi = onRefreshUi; this.budget = budgetManager;
-    this.MAX_PROMPT_REPORT_CHARS = 3200; this.autoClosePanelTimer = null;
+    this.MAX_PROMPT_REPORT_CHARS = 6500; this.autoClosePanelTimer = null;
     this.lastUncoveredReport = ""; this.lastCoveragePercent = null;
     this.lastTestsPassed = false; this.lastPassedEventSnapshot = null;
     this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; this.lastFailureReport = "";
@@ -31,6 +31,12 @@ class TestActionsController {
 
   /** Retourne la liste des tests KO mémorisés lors de la dernière exécution. */
   getFailedTests() { return [...this.lastFailedTests]; }
+
+  /** Indique si l'utilisateur est en train de rédiger un brouillon dans le compositeur. */
+  hasUserDraftInComposer() {
+    const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
+    return Boolean(inputEl && typeof this.chat?.getInputText === "function" && this.chat.getInputText(inputEl) !== "");
+  }
 
   /** Extrait les identifiants des tests en échec depuis un rapport Python ou Node.js. */
   extractFailedTestNames(reportText) {
@@ -56,7 +62,6 @@ class TestActionsController {
     const omitted = clean.length - this.MAX_PROMPT_REPORT_CHARS;
     return `${clean.slice(0, this.MAX_PROMPT_REPORT_CHARS).trim()}\n[... ${omitted} caractères tronqués — voir panneau Sortie tests ...]`;
   }
-
   /** Réinitialise les statuts de tests et couverture lorsqu'un nouveau fichier est assemblé. */
   invalidateOnNewFiles() {
     const curEv = this.getWatcherState()?.lastEvent ?? null;
@@ -68,6 +73,7 @@ class TestActionsController {
       this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; this.lastFailureReport = "";
     }
   }
+
   /** Extrait le pourcentage numérique global depuis le rapport de couverture. */
   parseCoveragePercent(reportText) { const m = String(reportText || "").match(/COUVERTURE GLOBALE\s*:\s*([0-9]+(?:\.[0-9]+)?)%/i); return m ? Number.parseFloat(m.at(1)) : null; }
 
@@ -79,9 +85,7 @@ class TestActionsController {
       const hasFailed = active && this.lastFailedTests.length > 0;
       this.rerunFailedBtn.style.display = hasFailed ? "inline-flex" : "none";
       this.rerunFailedBtn.disabled = Boolean(this.panel.isRunning);
-      if (hasFailed && !this.panel.isRunning) {
-        this.rerunFailedBtn.textContent = `🎯 Relancer KO (${this.lastFailedTests.length})`;
-      }
+      if (hasFailed && !this.panel.isRunning) this.rerunFailedBtn.textContent = `🎯 Relancer KO (${this.lastFailedTests.length})`;
     }
     if (!active || !this.lastTestsPassed || !this.lastUncoveredReport) { this.coverageBtn.style.display = "none"; return; }
     this.coverageBtn.style.display = "inline-flex";
@@ -94,10 +98,7 @@ class TestActionsController {
 
   /** Démarre une exécution complète ou ciblée sur les tests KO mémorisés. */
   startTestExecution(onlyFailed = false, isTrustedClick = true) {
-    if (this.testsBtn.disabled || this.panel.isRunning) {
-      if (this.panel.isRunning && !this.panel.panelEl) this.panel.toggle();
-      return;
-    }
+    if (this.testsBtn.disabled || this.panel.isRunning) { if (this.panel.isRunning && !this.panel.panelEl) this.panel.toggle(); return; }
     const targetFailed = onlyFailed ? this.getFailedTests() : [];
     if (onlyFailed && targetFailed.length === 0) return;
     if (isTrustedClick) { this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; }
@@ -110,17 +111,13 @@ class TestActionsController {
     this.onRefreshUi();
     this.sendBgMessage({ type: "START_PROJECT_TESTS", failedTests: targetFailed }, (startRes) => {
       const errTxt = String(startRes?.error || "");
-      if (errTxt === "not_found") {
-        this.panel.appendChunk("Mode streaming indisponible (redémarrez watch_clipboard). Exécution synchrone...\n");
-        this.sendBgMessage({ type: "RUN_PROJECT_TESTS", injectIntoActiveTab: false, failedTests: targetFailed }, (r) => this.finalizeTestRun(r));
-        return;
-      }
+      if (errTxt === "not_found") { this.panel.appendChunk("Mode streaming indisponible. Exécution synchrone...\n"); this.sendBgMessage({ type: "RUN_PROJECT_TESTS", injectIntoActiveTab: false, failedTests: targetFailed }, (r) => this.finalizeTestRun(r)); return; }
       if (!startRes?.ok && !/déjà en cours/i.test(errTxt)) { this.finalizeTestRun(startRes); return; }
       this.startPollingStream(0);
     });
   }
 
-  /** Traite le résultat final des tests (succès, arrêt manuel ou envoi des échecs à l'IA). */
+  /** Traite le résultat final des tests (succès, arrêt manuel ou insertion des échecs). */
   async finalizeTestRun(res) {
     this.testsBtn.disabled = false;
     if (this.rerunFailedBtn) this.rerunFailedBtn.disabled = false;
@@ -130,35 +127,29 @@ class TestActionsController {
     const finalReport = String(res.output || this.panel.fullReport || "").trim();
     this.panel.finish(Boolean(res.passed), finalReport, false);
     if (res.passed) {
-      const wasTargeted = this.isTargetedRun;
-      this.isTargetedRun = false;
-      this.lastFailedTests = [];
-      this.resetTestsButton();
+      const wasTargeted = this.isTargetedRun; this.isTargetedRun = false; this.lastFailedTests = []; this.resetTestsButton();
       this.setBtnState(this.testsBtn, "pass", wasTargeted ? "✅ Tests KO OK" : "✅ Tests OK");
-      this.lastTestsPassed = !wasTargeted;
-      this.lastPassedEventSnapshot = !wasTargeted ? (this.getWatcherState()?.lastEvent ?? null) : null;
+      this.lastTestsPassed = !wasTargeted; this.lastPassedEventSnapshot = !wasTargeted ? (this.getWatcherState()?.lastEvent ?? null) : null;
       this.lastSentFailureSig = ""; this.lastFailureEventSnapshot = null; this.lastFailureReport = "";
       this.lastUncoveredReport = wasTargeted ? "" : String(res.uncovered || "").trim();
       this.lastCoveragePercent = this.parseCoveragePercent(this.lastUncoveredReport);
       this.autoClosePanelTimer = setTimeout(() => { this.autoClosePanelTimer = null; if (this.lastTestsPassed || !this.lastFailedTests.length) this.panel.close(); }, 3500);
       this.onRefreshUi(); return;
     }
-    this.isTargetedRun = false;
-    this.lastFailureReport = finalReport;
+    this.isTargetedRun = false; this.lastFailureReport = finalReport;
     const parsedFailed = this.extractFailedTestNames(finalReport);
     if (parsedFailed.length > 0) this.lastFailedTests = parsedFailed;
     this.resetTestsButton();
     if (finalReport) {
-      const sig = this.computeFailureSignature(finalReport);
-      const curEv = this.getWatcherState()?.lastEvent ?? null;
-      const compactPayload = this.truncateReportForPrompt(finalReport);
+      const sig = this.computeFailureSignature(finalReport), curEv = this.getWatcherState()?.lastEvent ?? null, compactPayload = this.truncateReportForPrompt(finalReport);
+      const shouldAutoSubmit = !this.hasUserDraftInComposer();
       if (sig && sig === this.lastSentFailureSig && curEv === this.lastFailureEventSnapshot) {
         try { await navigator.clipboard.writeText(finalReport); } catch (_err) {}
         this.setBtnState(this.testsBtn, "fail", "⚠️ Échec déjà envoyé");
-      } else if (this.chat.insertTestResults(compactPayload, true)) {
-        this.budget?.recordPayload(compactPayload);
-        this.lastSentFailureSig = sig; this.lastFailureEventSnapshot = curEv; this.resetTestsButton();
+      } else if (this.chat.insertTestResults(compactPayload, shouldAutoSubmit ? { minDelayMs: 900, maxWaitMs: 5500 } : false)) {
+        this.budget?.recordPayload(compactPayload); this.lastSentFailureSig = sig; this.lastFailureEventSnapshot = curEv; this.resetTestsButton();
         this.panel.close();
+        if (!shouldAutoSubmit) this.setBtnState(this.testsBtn, "fail", "📝 Échecs ajoutés (brouillon)");
       } else { try { await navigator.clipboard.writeText(finalReport); } catch (_err) {} this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs copiés"); }
     } else this.setBtnState(this.testsBtn, "fail", "⚠️ Échecs (vide)");
     this.onRefreshUi();
@@ -183,7 +174,7 @@ class TestActionsController {
     this.coverageBtn.addEventListener("click", () => {
       if (!this.lastUncoveredReport) return;
       const compactCov = this.truncateReportForPrompt(this.lastUncoveredReport);
-      this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + compactCov + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", true);
+      this.chat.insertPrompt("Voici le bilan de couverture et les lignes non encore couvertes par les tests unitaires :\n\x60\x60\x60text\n" + compactCov + "\n\x60\x60\x60\nPeux-tu ajouter ou compléter les tests unitaires pour améliorer la couverture ?\n", !this.hasUserDraftInComposer());
       this.budget?.recordPayload(compactCov);
       this.lastUncoveredReport = ""; this.lastCoveragePercent = null; this.lastTestsPassed = false; this.lastPassedEventSnapshot = null; this.renderCoverageIndicator();
     });

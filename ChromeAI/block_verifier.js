@@ -188,17 +188,20 @@ class BlockVerificationHelper {
     if (this.suiteBannerEl) { this.suiteBannerEl.remove(); this.suiteBannerEl = null; }
   }
 
-  /** Aligne la bannière flottante d'auto-Suite juste au-dessus de la zone de saisie. */
+  /** Aligne la bannière flottante d'auto-Suite juste au-dessus du compositeur et de ses boutons. */
   positionSuiteBannerAboveComposer(banner) {
     const inputEl = typeof this.chat?.findChatInputElement === "function" ? this.chat.findChatInputElement() : null;
     const composerBox = inputEl && typeof this.chat?.findComposerContainer === "function" ? this.chat.findComposerContainer(inputEl) : inputEl?.parentElement;
     const rect = composerBox && typeof composerBox.getBoundingClientRect === "function" ? composerBox.getBoundingClientRect() : null;
+    const quickEl = typeof document?.querySelector === "function" ? document.querySelector(".gmc-composer-quick-group") : null;
+    const quickRect = quickEl && typeof quickEl.getBoundingClientRect === "function" ? quickEl.getBoundingClientRect() : null;
     const viewW = typeof window !== "undefined" ? (window.innerWidth || 0) : 0;
     const viewH = typeof window !== "undefined" ? (window.innerHeight || 0) : 0;
     if (rect && rect.height > 0 && rect.top > 40 && viewH > 0) {
-      banner.style.bottom = `${Math.max(12, Math.round(viewH - rect.top + 8))}px`;
+      const topEdge = (quickRect && quickRect.height > 0 && quickRect.top > 40) ? Math.min(rect.top, quickRect.top) : rect.top;
+      banner.style.bottom = Math.max(12, Math.round(viewH - topEdge + 10)) + "px";
       if (rect.width > 0 && viewW > 0) {
-        banner.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+        banner.style.left = Math.round(rect.left + rect.width / 2) + "px";
         banner.style.right = "auto";
         banner.style.transform = "translateX(-50%)";
       }
@@ -230,7 +233,7 @@ class BlockVerificationHelper {
     const deadline = Date.now() + delayMs;
     const updateLabel = () => {
       this.positionSuiteBannerAboveComposer(banner);
-      label.textContent = `⏳ Envoi auto de « Suite » dans ${Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1)}s…`;
+      label.textContent = "⏳ Envoi auto de « Suite » dans " + Math.max(0.1, (deadline - Date.now()) / 1000).toFixed(1) + "s…";
     };
     updateLabel();
     this.suiteCountdownTimer = setInterval(updateLabel, 200);
