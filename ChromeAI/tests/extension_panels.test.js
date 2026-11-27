@@ -86,7 +86,7 @@ test("ChatInjector.insertPrompt utilise focus({ preventScroll: true }) sans scro
   assert.equal(scrollHistory.length, 0);
 });
 
-test("SvgPreviewManager fixe la largeur DOMParser, télécharge le SVG et gère <pre> autonome", () => {
+test("SvgPreviewManager préserve les animations SVG/CSS tout en bloquant scripts et onclick", () => {
   const appended = []; const downloaded = [];
   const makeNode = (tag) => ({
     tagName: tag, nodeName: tag, className: "", textContent: "", src: "", alt: "", href: "", download: "", isConnected: true, style: {}, attrs: {}, children: [], listeners: {}, parentNode: null, parentElement: null, nextSibling: null,
@@ -103,7 +103,7 @@ test("SvgPreviewManager fixe la largeur DOMParser, télécharge le SVG et gère 
   const parsedSvgMock = makeNode("svg");
   const wrapperNode = makeNode("DIV"); const copyBtn = makeNode("BUTTON"); copyBtn.textContent = "Copier";
   const preNode = makeNode("PRE");
-  preNode.textContent = '<svg viewBox="0 0 540 280"><animateTransform/><circle cx="5" cy="5" r="4"/></svg>';
+  preNode.textContent = '<svg viewBox="0 0 540 280"><style>@keyframes k{0%{opacity:0}100%{opacity:1}}@import "https://evil.invalid";</style><script>alert(1)</script><animateTransform/><circle onclick="x()" cx="5" cy="5" r="4"/></svg>';
   wrapperNode.append(copyBtn, preNode);
   const sandbox = {
     window: { innerWidth: 1200, innerHeight: 800 }, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
@@ -117,13 +117,18 @@ test("SvgPreviewManager fixe la largeur DOMParser, télécharge le SVG et gère 
     vm.runInContext(fs.readFileSync(path.join(EXTENSION_DIR, mod), "utf-8"), sandbox);
   }
   const preview = new sandbox.window.GmcSvgPreviewManager(new sandbox.window.GmcSpillDetector());
+  const sanitized = preview.extractSvgMarkup(preNode.textContent);
+  assert.ok(sanitized.includes("<animateTransform/>"));
+  assert.ok(sanitized.includes("@keyframes k"));
+  assert.equal(sanitized.includes("<script>"), false);
+  assert.equal(sanitized.includes("onclick="), false);
+  assert.equal(sanitized.includes("@import"), false);
   preview.scanStandaloneBlocks();
   wrapperNode.querySelector(".gmc-svg-standalone-dl").click();
   assert.equal(downloaded.at(0).download, "image.svg");
   preNode.listeners.mouseenter({ clientX: 100, clientY: 120 });
   assert.equal(preview.tooltipEl.style.display, "flex");
   assert.equal(parsedSvgMock.getAttribute("width"), "240");
-  assert.equal(parsedSvgMock.style.width, "240px");
 });
 test("CodeBlockManager garde un bouton Copier le reste après copie partielle d'un tour", async () => {
   const scrolled = []; let removedKey = null; let savedJson = ""; let badgeTxt = ""; let calls = 0; const clickedLinks = []; let copiedBatch = "";

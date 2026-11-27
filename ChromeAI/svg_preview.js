@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Utilisateur_A
+
 /**
- * Aperçu visuel flottant et téléchargement des blocs contenant une image SVG.
+ * Aperçu visuel flottant (avec animations SVG/CSS) et téléchargement des blocs SVG.
  */
 class SvgPreviewManager {
   /** Initialise le détecteur de débordement, l'assainisseur SVG et les icônes. */
@@ -25,17 +28,14 @@ class SvgPreviewManager {
 
   /** Délègue l'assainissement d'un balisage SVG brut. */
   sanitizeSvgMarkup(rawSvg) { return this.sanitizer ? this.sanitizer.sanitizeSvgMarkup(rawSvg) : String(rawSvg || ""); }
-
   /** Extrait le balisage SVG assaini depuis un texte source. */
   extractSvgMarkup(rawText) { return this.sanitizer ? this.sanitizer.extractSvgMarkup(rawText) : ""; }
-
   /** Indique si le texte contient une balise SVG exploitable. */
   hasSvg(rawText) { return Boolean(this.extractSvgMarkup(rawText)); }
-
   /** Télécharge le contenu SVG au format .svg. */
   downloadSvg(rawText, headerName = "image.svg") { return this.sanitizer ? this.sanitizer.downloadSvg(rawText, headerName) : false; }
 
-  /** Construit le conteneur d'aperçu DOM sécurisé à partir du code SVG assaini. */
+  /** Construit le conteneur d'aperçu DOM sécurisé en préservant les animations CSS/SMIL. */
   buildSvgPreviewNode(svgMarkup) {
     const stage = document.createElement("div");
     stage.className = "gmc-svg-preview-stage";
@@ -44,10 +44,11 @@ class SvgPreviewManager {
         const doc = new DOMParser().parseFromString(svgMarkup, "image/svg+xml");
         const parsedSvg = doc.documentElement;
         if (parsedSvg && parsedSvg.nodeName.toLowerCase() === "svg" && !doc.querySelector("parsererror")) {
-          parsedSvg.querySelectorAll("script, foreignObject, embed, object, iframe, style, set, animate").forEach((n) => n.remove());
-          parsedSvg.removeAttribute("width");
+          parsedSvg.querySelectorAll("script, foreignObject, embed, object, iframe").forEach((n) => n.remove());
+          parsedSvg.setAttribute("width", "240");
           parsedSvg.removeAttribute("height");
           parsedSvg.classList.add("gmc-svg-preview-svg");
+          if (parsedSvg.style) { parsedSvg.style.width = "240px"; parsedSvg.style.height = "auto"; parsedSvg.style.maxHeight = "240px"; }
           stage.appendChild(document.importNode(parsedSvg, true));
           return stage;
         }
@@ -122,12 +123,19 @@ class SvgPreviewManager {
     else if (pre.parentNode) { const bar = document.createElement("div"); bar.className = "gmc-placeholder"; bar.appendChild(btn); pre.parentNode.insertBefore(bar, pre); }
   }
 
+  /** Extrait le code complet d'un <pre> SVG en incluant les nœuds débordés. */
+  extractFullPreText(pre) {
+    const raw = this.spill.extractRawCode(pre);
+    const sp = this.spill.collect(pre);
+    return [sp.beforeText, raw, sp.afterText].filter(Boolean).join("\n");
+  }
+
   /** Détecte les blocs <pre> SVG sans balise FILE et leur associe aperçu et téléchargement. */
   scanStandaloneBlocks() {
     for (const pre of document.querySelectorAll("pre")) {
       if (pre.getAttribute("data-gmc-processed") === "true") continue;
-      if (!this.hasSvg(this.spill.extractRawCode(pre))) continue;
-      const getText = () => this.spill.extractRawCode(pre);
+      if (!this.hasSvg(this.extractFullPreText(pre))) continue;
+      const getText = () => this.extractFullPreText(pre);
       this.attachStandaloneDownloadButton(pre, getText);
       if (pre.getAttribute("data-gmc-svg-bound") === "true") continue;
       this.bindHoverTarget(pre, getText);
