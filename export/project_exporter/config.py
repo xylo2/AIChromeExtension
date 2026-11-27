@@ -1,5 +1,3 @@
-# Commandes pip à exécuter : Aucune dépendance externe requise (bibliothèque standard uniquement)
-
 import configparser
 import logging
 import re
@@ -30,14 +28,16 @@ class ExporterConfig:
             ".ruff_cache", "htmlcov", "lib", "sdk", "cache", "..",
         }
         self.included_extensions: Set[str] = {
-            ".py", ".xml", ".toml", ".txt", ".example", ".md", ".ini"
+            ".py", ".pyi", ".xml", ".toml", ".txt", ".example", ".md", ".rst",
+            ".ini", ".cfg", ".yml", ".yaml", ".js", ".mjs", ".cjs", ".jsx",
+            ".ts", ".tsx", ".html", ".json", ".css", ".scss", ".svg", ".sql",
+            ".bat", ".cmd", ".sh", ".ps1",
         }
         self.included_exact_names: Set[str] = set()
         self.excluded_patterns: Set[str] = set()
         self.primary_encoding: str = "utf-8"
         self.fallback_encoding: str = "latin-1"
         self._load()
-
     def _parse_csv(self, raw_value: str) -> Set[str]:
         """
         Convertit une chaîne séparée par des virgules en ensemble nettoyé.
@@ -99,7 +99,6 @@ class ExporterConfig:
         if no_gitignore:
             self.respect_gitignore = False
             self.logger.info("Prise en compte du .gitignore désactivée via CLI.")
-
     def _load(self) -> None:
         """
         Lit la section [export] du fichier config.ini s'il est présent sur disque.
